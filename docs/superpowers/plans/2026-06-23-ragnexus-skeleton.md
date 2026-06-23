@@ -32,13 +32,13 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Produces:** 项目依赖声明、20 个 env 配置项、4 张表 pgvector schema
 
-- [ ] 创建 pyproject.toml（fastapi, uvicorn, pydantic, httpx, asyncpg, pgvector, nanoid）
-- [ ] 创建 .env.example（全部 20 项：HOST, PORT, LOG_LEVEL, PG_DSN, PG_POOL_MIN/MAX, PG_COMMAND_TIMEOUT, EMBED_* × 8, CHUNK_MAX_CHARS, CHUNK_OVERLAP, MAX_FILE_SIZE）
-- [ ] 创建 .gitignore（.venv, __pycache__, .env, .pytest_cache）
-- [ ] 创建 docs/sql/schema.sql（knowledge_bases, documents, chunks+hnsw, retrieve_logs，全部 IF NOT EXISTS）
-- [ ] 创建 README.md（Docker Compose 快速开始 + 手动安装 + curl 三连示例）
-- [ ] `uv pip install -e ".[dev]"` → 无报错
-- [ ] Commit: `git add ... && git commit -m "feat: add project scaffold"`
+- [x] 创建 pyproject.toml（fastapi, uvicorn, pydantic, httpx, asyncpg, pgvector, nanoid）
+- [x] 创建 .env.example（全部 20 项：HOST, PORT, LOG_LEVEL, PG_DSN, PG_POOL_MIN/MAX, PG_COMMAND_TIMEOUT, EMBED_* × 8, CHUNK_MAX_CHARS, CHUNK_OVERLAP, MAX_FILE_SIZE）
+- [x] 创建 .gitignore（.venv, __pycache__, .env, .pytest_cache）
+- [x] 创建 docs/sql/schema.sql（knowledge_bases, documents, chunks+hnsw, retrieve_logs，全部 IF NOT EXISTS）
+- [x] 创建 README.md（Docker Compose 快速开始 + 手动安装 + curl 三连示例）
+- [x] `uv pip install -e ".[dev]"` → 无报错
+- [x] Commit: `git add ... && git commit -m "feat: add project scaffold"`
 
 ### Task 2: 目录树 + __init__.py
 

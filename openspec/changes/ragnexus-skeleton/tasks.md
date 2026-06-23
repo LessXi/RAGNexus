@@ -4,7 +4,7 @@
 
 ## Phase 1 — 脚手架
 
-- [ ] 1. 创建 `pyproject.toml`（依赖 + dev 依赖）、`.env.example`、`.gitignore`、`README.md`、`docs/sql/schema.sql`
+- [x] 1. 创建 `pyproject.toml`（依赖 + dev 依赖）、`.env.example`、`.gitignore`、`README.md`、`docs/sql/schema.sql`
 - [ ] 2. 创建目录树（`domain/`、`application/`、`adapters/` 子目录）及空白 `__init__.py`
 - [ ] 3. 创建 `config.py`（pydantic-settings，20 个配置项）
 
