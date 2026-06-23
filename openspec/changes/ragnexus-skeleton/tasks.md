@@ -21,9 +21,9 @@
 
 ## Phase 4 — Adapters 层
 
-- [ ] 9. adapters/embedder/openai_compat.py
-- [ ] 10. adapters/vector_store/pgvector.py + registry.py
-- [ ] 11. adapters/knowledge_base/pg.py + retrieve_log/pg.py + parsers/md_and_txt.py
+- [x] 9. adapters/embedder/openai_compat.py
+- [x] 10. adapters/vector_store/pgvector.py + registry.py
+- [x] 11. adapters/knowledge_base/pg.py + retrieve_log/pg.py + parsers/md_and_txt.py
 - [ ] 12. adapters/http/（3 router + error_handlers）
 
 ## Phase 5 — 装配

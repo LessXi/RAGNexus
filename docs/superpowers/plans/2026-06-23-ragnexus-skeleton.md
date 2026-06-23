@@ -121,30 +121,30 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Files:** Create: `adapters/embedder/openai_compat.py`; Test: `tests/unit/adapters/test_embedder.py`
 
-- [ ] Red: mock httpx — `test_embed_single_batch`(返回 vectors), `test_embed_multiple_batches`(batch=2, 验证并发), `test_429_retry`(第1次429→重试→成功), `test_max_retries_exhausted`(3次都失败→UpstreamError), `test_dimension_mismatch`(返回维度!=EMBED_DIM→RuntimeError)
-- [ ] Green: 实现 `OpenAICompatEmbedder` — __init__ 10参数（base_url, api_key, model, dim, batch_size, max_concurrency, max_retries, request_timeout, connect_timeout, retry_backoff_base），_ensure_client 用 httpx.Timeout，embed 用 asyncio.gather + Semaphore + 指数退避重试
-- [ ] `uv run pytest tests/unit/adapters/test_embedder.py -v` → PASS
-- [ ] Commit
+- [x] Red: mock httpx — `test_embed_single_batch`(返回 vectors), `test_embed_multiple_batches`(batch=2, 验证并发), `test_429_retry`(第1次429→重试→成功), `test_max_retries_exhausted`(3次都失败→UpstreamError), `test_dimension_mismatch`(返回维度!=EMBED_DIM→RuntimeError)
+- [x] Green: 实现 `OpenAICompatEmbedder` — __init__ 10参数（base_url, api_key, model, dim, batch_size, max_concurrency, max_retries, request_timeout, connect_timeout, retry_backoff_base），_ensure_client 用 httpx.Timeout，embed 用 asyncio.gather + Semaphore + 指数退避重试
+- [x] `uv run pytest tests/unit/adapters/test_embedder.py -v` → PASS
+- [x] Commit
 
 ### Task 10: adapters/vector_store/pgvector.py
 
 **Files:** Create: `adapters/vector_store/pgvector.py`, `adapters/vector_store/registry.py`; Test: `tests/unit/adapters/test_vector_store.py`
 
-- [ ] Red: mock asyncpg — `test_upsert_new_doc`(INSERT document + chunks), `test_upsert_duplicate_doc`(DuplicateDocumentError 1201), `test_search_by_vector`(返回 SearchHit[] 按 score 排序)
-- [ ] Green: 实现 `PgVectorStore` — connect/close 管理 asyncpg pool（register_vector, command_timeout=cfg.PG_COMMAND_TIMEOUT），upsert（查重 + INSERT documents + executemany chunks 在同一事务），search_by_vector（HNSW <=> 排序 + 1-distance 分数 + LIMIT）
-- [ ] Green: registry.py — 导出 PgVectorStore
-- [ ] `uv run pytest tests/unit/adapters/test_vector_store.py -v` → PASS
-- [ ] Commit
+- [x] Red: mock asyncpg — `test_upsert_new_doc`(INSERT document + chunks), `test_upsert_duplicate_doc`(DuplicateDocumentError 1201), `test_search_by_vector`(返回 SearchHit[] 按 score 排序)
+- [x] Green: 实现 `PgVectorStore` — connect/close 管理 asyncpg pool（register_vector, command_timeout=cfg.PG_COMMAND_TIMEOUT），upsert（查重 + INSERT documents + executemany chunks 在同一事务），search_by_vector（HNSW <=> 排序 + 1-distance 分数 + LIMIT）
+- [x] Green: registry.py — 导出 PgVectorStore
+- [x] `uv run pytest tests/unit/adapters/test_vector_store.py -v` → PASS
+- [x] Commit
 
 ### Task 11: adapters/knowledge_base/pg.py + adapters/retrieve_log/pg.py + adapters/parsers/md_and_txt.py
 
 **Files:** Create: `adapters/knowledge_base/pg.py`, `adapters/retrieve_log/pg.py`, `adapters/parsers/md_and_txt.py`; Test: 对应 test 文件
 
-- [ ] `PgKnowledgeBaseRepository`: create(nanoid kb_id + UNIQUE name_key → ConflictError), get, exists, doc_exists(SELECT documents)
-- [ ] `PgRetrieveLogRepository`: log(fire-and-forget INSERT retrieve_logs, 不返回结果)
-- [ ] `MarkdownAndTextParser`: parse .md（heading-aware 解析 → Section 列表，无标题时 raw_text）; parse .txt（直接 raw_text）
-- [ ] 全部单测 `uv run pytest tests/unit/adapters/ -v` → PASS
-- [ ] Commit
+- [x] `PgKnowledgeBaseRepository`: create(nanoid kb_id + UNIQUE name_key → ConflictError), get, exists, doc_exists(SELECT documents)
+- [x] `PgRetrieveLogRepository`: log(fire-and-forget INSERT retrieve_logs, 不返回结果)
+- [x] `MarkdownAndTextParser`: parse .md（heading-aware 解析 → Section 列表，无标题时 raw_text）; parse .txt（直接 raw_text）
+- [x] 全部单测 `uv run pytest tests/unit/adapters/ -v` → PASS
+- [x] Commit
 
 ---
 
