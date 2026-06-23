@@ -1,0 +1,39 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ragnexus
+      POSTGRES_PASSWORD: ragnexus
+      POSTGRES_DB: ragnexus
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ragnexus -d ragnexus"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  init-db:
+    image: postgres:16-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./docs/sql/schema.sql:/schema.sql:ro
+    entrypoint: ["sh", "-c"]
+    command: ["psql postgresql://ragnexus:ragnexus@db:5432/ragnexus -f /schema.sql"]
+    restart: "no"
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
