@@ -76,11 +76,11 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Files:** Create: `domain/ports.py`, `domain/errors.py`; Test: `tests/unit/domain/`
 
-- [ ] Red: 写 test_errors.py — `test_error_codes`(ValidationError=1000, NotFoundError=1100, ConflictError=1200, DuplicateDocumentError=1201, UnsupportedMediaTypeError=1300, PayloadTooLargeError=1301, EmptyFileError=1400, UpstreamError=1500, VectorStoreError=1501, ConfigError=1600), `test_http_status`, `test_error_fields`
-- [ ] Green: 实现 DomainError 基类 + 11 子类（每个带 code + http_status + message 类属性）
-- [ ] Green: 实现 5 个 Protocol：VectorStorePort, KnowledgeBasePort, EmbedderPort, ParserPort, RetrieveLogPort
-- [ ] `uv run pytest tests/unit/domain/ -v` → PASS
-- [ ] Commit
+- [x] Red: 写 test_errors.py — `test_error_codes`(ValidationError=1000, NotFoundError=1100, ConflictError=1200, DuplicateDocumentError=1201, UnsupportedMediaTypeError=1300, PayloadTooLargeError=1301, EmptyFileError=1400, UpstreamError=1500, VectorStoreError=1501, ConfigError=1600), `test_http_status`, `test_error_fields`
+- [x] Green: 实现 DomainError 基类 + 11 子类（每个带 code + http_status + message 类属性）
+- [x] Green: 实现 5 个 Protocol：VectorStorePort, KnowledgeBasePort, EmbedderPort, ParserPort, RetrieveLogPort
+- [x] `uv run pytest tests/unit/domain/ -v` → PASS
+- [x] Commit
 
 ---
 

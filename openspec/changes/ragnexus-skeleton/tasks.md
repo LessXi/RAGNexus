@@ -11,7 +11,7 @@
 ## Phase 2 — Domain 层
 
 - [x] 4. `domain/models.py`（6 个 dataclass）+ `domain/chunking.py`（`heading_aware_split` + `fixed_size_split`）
-- [ ] 5. `domain/ports.py`（5 个 Protocol）+ `domain/errors.py`（`DomainError` + 11 个子类，带 code + http_status）
+- [x] 5. `domain/ports.py`（5 个 Protocol）+ `domain/errors.py`（`DomainError` + 11 个子类，带 code + http_status）
 
 ## Phase 3 — Application 层
 
