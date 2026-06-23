@@ -1,7 +1,7 @@
 """Tests for PgVectorStore adapter — mock asyncpg pool."""
 
 import json
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -53,13 +53,13 @@ def sample_chunks():
             metadata={"chunk_index": 1, "filename": "test.md"},
         ),
     ]
-
-
 @pytest.fixture
 def mock_conn():
-    """Return an AsyncMock connection with transaction context manager."""
+    """Return a mock connection with transaction() as sync Mock returning a
+    real async context manager, so ``async with conn.transaction():`` works.
+    """
     conn = AsyncMock(name="conn")
-    conn.transaction.return_value = _TransactionCM()
+    conn.transaction = Mock(return_value=_TransactionCM())
     return conn
 
 
