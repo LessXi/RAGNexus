@@ -99,10 +99,10 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Files:** Create: `application/upload_doc_use_case.py`; Test: `tests/unit/application/test_upload_doc.py`
 
-- [ ] Red: mock 全部端口 — `test_upload_success`(返回 UploadResult), `test_file_too_large`(413), `test_wrong_extension`(415), `test_kb_not_found`(404), `test_duplicate_doc`(doc_exists → 409, **在解析前检测**), `test_empty_file`(422)
-- [ ] Green: 实现 `UploadDocumentUseCase.execute` — 文件大小/类型/KB存在/doc_id+查重/解析+切分（传 max_chars + overlap）/embedding + 重试/构造 chunks + common_meta（filename, file_hash, file_size, content_type）/事务 upsert（全有或全无）
-- [ ] `uv run pytest tests/unit/application/test_upload_doc.py -v` → PASS
-- [ ] Commit
+- [x] Red: mock 全部端口 — `test_upload_success`(返回 UploadResult), `test_file_too_large`(413), `test_wrong_extension`(415), `test_kb_not_found`(404), `test_duplicate_doc`(doc_exists → 409, **在解析前检测**), `test_empty_file`(422)
+- [x] Green: 实现 `UploadDocumentUseCase.execute` — 文件大小/类型/KB存在/doc_id+查重/解析+切分（传 max_chars + overlap）/embedding + 重试/构造 chunks + common_meta（filename, file_hash, file_size, content_type）/事务 upsert（全有或全无）
+- [x] `uv run pytest tests/unit/application/test_upload_doc.py -v` → PASS
+- [x] Commit
 
 ### Task 8: application/retrieve_use_case.py
 
