@@ -52,10 +52,10 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Files:** Create: `config.py`; Test: `tests/unit/test_config.py`
 
-- [ ] Red: 写测试 — `test_defaults` 验证 HOST=0.0.0.0, EMBED_DIM=1024, MAX_FILE_SIZE=10MB; `test_get_settings_is_singleton` 验证 lru_cache
-- [ ] Green: 实现 `Settings(BaseSettings)` 20 字段 + `@lru_cache get_settings()`
-- [ ] 运行 `uv run pytest tests/unit/test_config.py -v` → PASS
-- [ ] Commit
+- [x] Red: 写测试 — `test_defaults` 验证 HOST=0.0.0.0, EMBED_DIM=1024, MAX_FILE_SIZE=10MB; `test_get_settings_is_singleton` 验证 lru_cache
+- [x] Green: 实现 `Settings(BaseSettings)` 20 字段 + `@lru_cache get_settings()`
+- [x] 运行 `uv run pytest tests/unit/test_config.py -v` → PASS
+- [x] Commit
 
 ---
 

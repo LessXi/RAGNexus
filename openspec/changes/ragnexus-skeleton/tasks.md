@@ -6,7 +6,7 @@
 
 - [x] 1. 创建 `pyproject.toml`（依赖 + dev 依赖）、`.env.example`、`.gitignore`、`README.md`、`docs/sql/schema.sql`
 - [x] 2. 创建目录树（`domain/`、`application/`、`adapters/` 子目录）及空白 `__init__.py`
-- [ ] 3. 创建 `config.py`（pydantic-settings，20 个配置项）
+- [x] 3. 创建 `config.py`（pydantic-settings，20 个配置项）
 
 ## Phase 2 — Domain 层
 
