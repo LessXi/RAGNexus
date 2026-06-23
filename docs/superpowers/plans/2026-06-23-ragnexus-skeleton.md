@@ -154,10 +154,10 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Files:** Create: `adapters/http/create_kb_router.py`, `adapters/http/upload_doc_router.py`, `adapters/http/retrieve_router.py`, `adapters/http/error_handlers.py`; Test: `tests/unit/adapters/test_http.py`
 
-- [ ] 实现工厂函数 router 模式（`def create_router(uc: UseCase) -> APIRouter`），每个 router 使用 pydantic BaseModel（strict `extra="forbid"`）
-- [ ] error_handlers.py: `register_error_handlers(app)` → `@app.exception_handler(DomainError)` → JSONResponse(code, data: null, message, errors)
-- [ ] 单测 mock use case → 验证请求校验（name 长度/query 空/kb_ids 空/多余字段→422）和响应格式
-- [ ] Commit
+- [x] 实现工厂函数 router 模式（`def create_router(uc: UseCase) -> APIRouter`），每个 router 使用 pydantic BaseModel（strict `extra="forbid"`）
+- [x] error_handlers.py: `register_error_handlers(app)` → `@app.exception_handler(DomainError)` → JSONResponse(code, data: null, message, errors)
+- [x] 单测 mock use case → 验证请求校验（name 长度/query 空/kb_ids 空/多余字段→422）和响应格式
+- [x] Commit
 
 ### Task 13: composition.py + main.py
 
