@@ -90,10 +90,10 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Files:** Create: `application/create_kb_use_case.py`; Test: `tests/unit/application/test_create_kb.py`
 
-- [ ] Red: mock KnowledgeBasePort — `test_create_kb_success`(返回 KnowledgeBase), `test_name_too_short/too_long`(ValidationError), `test_duplicate_name`(ConflictError, name_key 冲突)
-- [ ] Green: 实现 `CreateKnowledgeBaseUseCase.execute(name: str)` — strip + 1-64 校验 + name_key = lower(name) + repo.create(name, name_key)
-- [ ] `uv run pytest tests/unit/application/test_create_kb.py -v` → PASS
-- [ ] Commit
+- [x] Red: mock KnowledgeBasePort — `test_create_kb_success`(返回 KnowledgeBase), `test_name_too_short/too_long`(ValidationError), `test_duplicate_name`(ConflictError, name_key 冲突)
+- [x] Green: 实现 `CreateKnowledgeBaseUseCase.execute(name: str)` — strip + 1-64 校验 + name_key = lower(name) + repo.create(name, name_key)
+- [x] `uv run pytest tests/unit/application/test_create_kb.py -v` → PASS
+- [x] Commit
 
 ### Task 7: application/upload_doc_use_case.py
 
