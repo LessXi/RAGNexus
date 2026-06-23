@@ -1,0 +1,16 @@
+{
+  "change": "ragnexus-skeleton",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "12fde26e783e98983a254cb54ad7bd0d5c921b4a79ba60b5180a6853e9f9ad2a",
+  "files": [
+    { "path": "openspec/changes/ragnexus-skeleton/proposal.md", "sha256": "90fa5768e7dc70e46637bc50ca4b0d6c769424c63e4a4e39af1e11b50af7ef12" },
+    { "path": "openspec/changes/ragnexus-skeleton/design.md", "sha256": "9a1e7f493d557636937b96a53b65f4672067cbe49c49f8b3e382de90ab692fff" },
+    { "path": "openspec/changes/ragnexus-skeleton/tasks.md", "sha256": "b1efe082327e60bde7ea3d0bdebe195be228fc3e768169866d0514f01b977db6" },
+    { "path": "openspec/changes/ragnexus-skeleton/specs/document-ingestion/spec.md", "sha256": "2ca152a35bdbff6ee67956d94853e467661749b2acc41a5a69990e6d29f850a2" },
+    { "path": "openspec/changes/ragnexus-skeleton/specs/knowledge-base-management/spec.md", "sha256": "bd0bbacb1e95b005f98880d4aca6a9b25b2656fd793b8849bef454ed0d9fb762" },
+    { "path": "openspec/changes/ragnexus-skeleton/specs/vector-retrieval/spec.md", "sha256": "636a775fbd981799bc05cbc3e1b6e61234ed8d78e03e29a6d926b91ce4d3e022" }
+  ]
+}

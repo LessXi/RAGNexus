@@ -1,0 +1,28 @@
+services:
+  test-db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ragnexus_test
+      POSTGRES_USER: ragnexus
+      POSTGRES_PASSWORD: ragnexus
+    volumes:
+      - test_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ragnexus -d ragnexus_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  test-init:
+    image: postgres:16
+    depends_on:
+      test-db:
+        condition: service_healthy
+    volumes:
+      - ./docs/sql/schema.sql:/schema.sql:ro
+    entrypoint: ["sh", "-c"]
+    command: ["psql postgresql://ragnexus:ragnexus@test-db:5432/ragnexus_test -f /schema.sql"]
+    restart: "no"
+
+volumes:
+  test_pgdata:
