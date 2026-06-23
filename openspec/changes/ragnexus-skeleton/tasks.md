@@ -31,7 +31,7 @@
 - [x] 13. composition.py + main.py
 
 ## Phase 6 — 测试 + 验收
-
+- [x] 14. 集成测试 + E2E + 验收
 - [ ] 14. 集成测试 + E2E + 验收
 
 > 完整工程规范：[`docs/3-pgvector-rag-cuddly-dream.md`](../../../docs/3-pgvector-rag-cuddly-dream.md)

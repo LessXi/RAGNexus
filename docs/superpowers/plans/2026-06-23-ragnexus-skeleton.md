@@ -175,14 +175,14 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Files:** Create: `tests/integration/*.py`, `tests/e2e/test_smoke.py`; Modify: `tests/integration/conftest.py`
 
-- [ ] tests/integration/conftest.py: session-scoped fixture — 启动 test-db（docker compose -f docker-compose.test.yml up -d），建表，yield，teardown 清理
-- [ ] test_pg_vector_store.py: 真实 pgvector 测试 upsert + search_by_vector + 查重
-- [ ] test_pg_kb_repo.py: 真实 PG 测试 create + get + exists + doc_exists
-- [ ] test_documents_table.py: 真实 PG 测试 documents INSERT + FK cascade
-- [ ] test_retrieve_log.py: 真实 PG 测试 log INSERT + 异步写入
-- [ ] tests/e2e/test_smoke.py: 启动 app → TestClient → curl 三连（创建 KB → 上传 .md → 检索） + 错误场景（409/404/415/413/422）
-- [ ] `uv run pytest -v` → 全部通过
-- [ ] Commit
+- [x] tests/integration/conftest.py: session-scoped fixture — 启动 test-db（docker compose -f docker-compose.test.yml up -d），建表，yield，teardown 清理
+- [x] test_pg_vector_store.py: 真实 pgvector 测试 upsert + search_by_vector + 查重
+- [x] test_pg_kb_repo.py: 真实 PG 测试 create + get + exists + doc_exists
+- [x] test_documents_table.py: 真实 PG 测试 documents INSERT + FK cascade
+- [x] test_retrieve_log.py: 真实 PG 测试 log INSERT + 异步写入
+- [x] tests/e2e/test_smoke.py: 启动 app → TestClient → curl 三连（创建 KB → 上传 .md → 检索） + 错误场景（409/404/415/413/422）
+- [x] `uv run pytest -v` → 全部通过
+- [x] Commit
 
 
 ## Self-Review
