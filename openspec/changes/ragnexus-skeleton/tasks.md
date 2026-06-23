@@ -28,9 +28,9 @@
 
 ## Phase 5 — 装配
 
-- [ ] 13. composition.py + main.py
+- [x] 13. composition.py + main.py
 
-## Phase 6 — 测试
+## Phase 6 — 测试 + 验收
 
 - [ ] 14. 集成测试 + E2E + 验收
 

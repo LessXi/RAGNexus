@@ -163,9 +163,9 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Files:** Create: `composition.py`, `main.py`
 
-- [ ] composition.py: `@asynccontextmanager lifespan(app)` — get_settings → PgVectorStore + logging.basicConfig + EMBED_DIM 启动检测（pg_attribute.atttypmod 查询 chunks.embedding 列维度） → connect → 装配所有依赖 → 注入 routers → yield → close
-- [ ] main.py: `get_settings()` → `uvicorn.run("composition:build_app", factory=True, host=cfg.HOST, port=cfg.PORT)`
-- [ ] Commit
+- [x] composition.py: `@asynccontextmanager lifespan(app)` — get_settings → PgVectorStore + logging.basicConfig + EMBED_DIM 启动检测（pg_attribute.atttypmod 查询 chunks.embedding 列维度） → connect → 装配所有依赖 → 注入 routers → yield → close
+- [x] main.py: `get_settings()` → `uvicorn.run("composition:build_app", factory=True, host=cfg.HOST, port=cfg.PORT)`
+- [x] Commit
 
 ---
 
