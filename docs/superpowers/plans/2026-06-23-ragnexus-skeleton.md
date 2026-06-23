@@ -44,9 +44,9 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Files:** Create: `domain/`, `application/`, `adapters/{http,vector_store,knowledge_base,embedder,parsers,retrieve_log}/`, `tests/{unit/{domain,application,adapters},integration,e2e}/` — 全部含 `__init__.py`
 
-- [ ] 创建全部目录和空白 `__init__.py`
-- [ ] `python -c "import domain; import application; import adapters; print('OK')"` → `OK`
-- [ ] Commit
+- [x] 创建全部目录和空白 `__init__.py`
+- [x] `python -c "import domain; import application; import adapters; print('OK')"` → `OK`
+- [x] Commit
 
 ### Task 3: config.py（pydantic-settings，20 配置项）
 
