@@ -108,9 +108,12 @@ class UploadDocumentUseCase:
             raise EmptyFileError("文件为空", errors=[{"field": "file", "reason": "文件内容为空"}])
 
         # 7. Chunk
-        texts = self._chunker(parsed, max_chars=self._chunk_max_chars, overlap=self._chunk_overlap)
-        if not texts:
+        chunk_dicts = self._chunker(parsed, max_chars=self._chunk_max_chars, overlap=self._chunk_overlap)
+        if not chunk_dicts:
             raise EmptyFileError("文件为空", errors=[{"field": "file", "reason": "文件内容为空"}])
+
+        # Extract texts for embedding
+        texts = [cd["text"] for cd in chunk_dicts]
 
         # 8. Embed
         vectors = await self._embedder.embed(texts)
@@ -127,14 +130,16 @@ class UploadDocumentUseCase:
                 id=f"{doc_id}:{i}",
                 kb_id=kb_id,
                 doc_id=doc_id,
-                text=t,
-                vector=v,
+                text=cd["text"],
+                vector=vectors[i],
                 metadata={
                     **common_meta,
                     "chunk_index": i,
+                    "heading": cd.get("heading"),
+                    "heading_level": cd.get("heading_level", 0),
                 },
             )
-            for i, (t, v) in enumerate(zip(texts, vectors))
+            for i, cd in enumerate(chunk_dicts)
         ]
 
         # 10. Transactional write (all-or-nothing)

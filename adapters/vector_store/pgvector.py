@@ -102,22 +102,33 @@ class PgVectorStore:
                 )
 
                 # 3. Batch insert chunks
-                await conn.executemany(
-                    """INSERT INTO chunks
-                       (id, kb_id, doc_id, text, metadata, embedding)
-                       VALUES ($1, $2, $3, $4, $5, $6)""",
-                    [
-                        (
-                            c.id,
-                            c.kb_id,
-                            c.doc_id,
-                            c.text,
-                            json.dumps(c.metadata),
-                            c.vector,
-                        )
-                        for c in chunks
-                    ],
-                )
+                try:
+                    await conn.executemany(
+                        """INSERT INTO chunks
+                           (id, kb_id, doc_id, text, metadata, embedding)
+                           VALUES ($1, $2, $3, $4, $5, $6)""",
+                        [
+                            (
+                                c.id,
+                                c.kb_id,
+                                c.doc_id,
+                                c.text,
+                                json.dumps(c.metadata),
+                                c.vector,
+                            )
+                            for c in chunks
+                        ],
+                    )
+                except asyncpg.UniqueViolationError:
+                    raise DuplicateDocumentError(
+                        f"doc_id={doc_id} 已存在",
+                        errors=[
+                            {
+                                "field": "doc_id",
+                                "reason": f"{doc_id} 已存在",
+                            }
+                        ],
+                    )
 
     async def search_by_vector(
         self,

@@ -98,6 +98,10 @@ class TestUploadDocument:
         assert first.metadata["file_size"] == len(file_bytes)
         assert first.metadata["content_type"] == "text/markdown"
 
+        # Heading metadata from Section info
+        assert first.metadata["heading"] == "Intro"
+        assert first.metadata["heading_level"] == 1
+
         # Transactional write called
         mock_store.upsert.assert_awaited_once_with("kb_test123", result.chunks)
 

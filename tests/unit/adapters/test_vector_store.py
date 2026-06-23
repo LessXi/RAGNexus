@@ -136,6 +136,20 @@ async def test_upsert_duplicate_doc(pg_store, mock_conn, sample_chunks):
     mock_conn.executemany.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_upsert_race_condition(pg_store, mock_conn, sample_chunks):
+    """When executemany raises UniqueViolationError → DuplicateDocumentError with code 1201."""
+    import asyncpg
+    mock_conn.fetchval.return_value = None  # application-level check passes
+    mock_conn.executemany.side_effect = asyncpg.UniqueViolationError("duplicate key value")
+
+    with pytest.raises(DuplicateDocumentError) as exc_info:
+        await pg_store.upsert("kb_test", sample_chunks)
+
+    assert exc_info.value.code == 1201
+    assert exc_info.value.http_status == 409
+
+
 # ── search_by_vector ────────────────────────────────────────────────────
 
 

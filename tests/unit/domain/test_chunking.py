@@ -9,7 +9,7 @@ def make_parsed(sections: list[Section], raw_text: str = "") -> ParsedDocument:
 
 
 def test_heading_aware_split_with_headings():
-    """Markdown with # headings should split by heading."""
+    """Markdown with # headings should split by heading, returning dicts with text/heading/heading_level."""
     parsed = make_parsed(
         sections=[
             Section(heading="Intro", level=1, content="Welcome to the docs."),
@@ -19,8 +19,13 @@ def test_heading_aware_split_with_headings():
     )
     chunks = heading_aware_split(parsed, max_chars=500, overlap=50)
     assert len(chunks) == 2
-    assert "# Intro" in chunks[0]
-    assert "# API" in chunks[1]
+    assert isinstance(chunks[0], dict)
+    assert chunks[0]["text"] == "# Intro\n\nWelcome to the docs."
+    assert chunks[0]["heading"] == "Intro"
+    assert chunks[0]["heading_level"] == 1
+    assert chunks[1]["text"] == "# API\n\nPOST /upload - upload files."
+    assert chunks[1]["heading"] == "API"
+    assert chunks[1]["heading_level"] == 1
 
 
 def test_fixed_size_split():

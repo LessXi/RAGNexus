@@ -98,7 +98,7 @@ class OpenAICompatEmbedder:
         # Validate dimensions
         for vec in flat:
             if len(vec) != self.dim:
-                raise RuntimeError(
+                raise UpstreamError(
                     f"embed dim 失配: 期望 {self.dim}, 实际 {len(vec)}"
                 )
 

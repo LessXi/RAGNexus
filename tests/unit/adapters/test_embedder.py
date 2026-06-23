@@ -154,12 +154,14 @@ class TestEmbed:
 
     @pytest.mark.asyncio
     async def test_dimension_mismatch(self, embedder):
-        """Returned dim != EMBED_DIM → RuntimeError."""
+        """Returned dim != EMBED_DIM → UpstreamError with code 1500."""
         emb, client = embedder
         wrong_dim_resp = _make_response(json_data={
             "data": [{"embedding": [0.1, 0.2, 0.3, 0.4]}],  # dim=4, not 3
         })
         client.post.return_value = wrong_dim_resp
 
-        with pytest.raises(RuntimeError, match="embed dim 失配"):
+        with pytest.raises(UpstreamError) as exc_info:
             await emb.embed(["hello"])
+
+        assert exc_info.value.code == 1500

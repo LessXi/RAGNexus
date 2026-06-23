@@ -201,3 +201,18 @@ class TestErrorHandler:
         assert data["data"] is None
         assert data["message"] == "测试错误"
         assert data["errors"] == [{"field": "test", "reason": "测试"}]
+
+    def test_validation_error_envelope(self, client):
+        """Pydantic validation error → unified error envelope with 422."""
+        resp = client.post(
+            "/v1/knowledge-bases:create",
+            json={"name": ""},  # min_length=1
+        )
+        assert resp.status_code == 422
+        data = resp.json()
+        assert data["code"] == 1000
+        assert data["data"] is None
+        assert data["message"] == "参数错误"
+        assert "errors" in data
+        assert len(data["errors"]) > 0
+        assert all("field" in e and "reason" in e for e in data["errors"])
