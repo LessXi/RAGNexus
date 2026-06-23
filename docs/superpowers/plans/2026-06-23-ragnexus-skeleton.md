@@ -108,10 +108,10 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Files:** Create: `application/retrieve_use_case.py`; Test: `tests/unit/application/test_retrieve.py`
 
-- [ ] Red: mock 全部端口 — `test_retrieve_success`(返回 hits[]), `test_query_empty/kb_ids_empty/top_k_oob`(422), `test_kb_not_found`(404), `test_retrieve_log_fire_and_forget`（日志异步写，失败不影响响应）
-- [ ] Green: 实现 `RetrieveUseCase.execute` — 校验 query/kb_ids/top_k → 逐个确认 KB 存在 → embedder.embed([query]) → store.search_by_vector → finally: asyncio.create_task(log_port.log) 吞异常
-- [ ] `uv run pytest tests/unit/application/test_retrieve.py -v` → PASS
-- [ ] Commit
+- [x] Red: mock 全部端口 — `test_retrieve_success`(返回 hits[]), `test_query_empty/kb_ids_empty/top_k_oob`(422), `test_kb_not_found`(404), `test_retrieve_log_fire_and_forget`（日志异步写，失败不影响响应）
+- [x] Green: 实现 `RetrieveUseCase.execute` — 校验 query/kb_ids/top_k → 逐个确认 KB 存在 → embedder.embed([query]) → store.search_by_vector → finally: asyncio.create_task(log_port.log) 吞异常
+- [x] `uv run pytest tests/unit/application/test_retrieve.py -v` → PASS
+- [x] Commit
 
 ---
 
