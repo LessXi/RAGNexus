@@ -65,12 +65,12 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 
 **Files:** Create: `domain/models.py`, `domain/chunking.py`; Test: `tests/unit/domain/`
 
-- [ ] Red: 写 test_models.py — `test_knowledge_base_creation`, `test_chunk_id_format`(doc_id:index), `test_searchhit_score_is_float`
-- [ ] Red: 写 test_chunking.py — `test_heading_aware_split`(带#标题的md), `test_fixed_size_split`(纯文本), `test_empty_input`, `test_overlap`
-- [ ] Green: 实现 6 个 dataclass（KnowledgeBase, Section, ParsedDocument, Chunk, SearchHit, UploadResult）
-- [ ] Green: 实现 `heading_aware_split(parsed, max_chars, overlap)` + `fixed_size_split(text, max_chars, overlap)` — 单段超长回退固定窗口重叠切分
-- [ ] `uv run pytest tests/unit/domain/ -v` → PASS
-- [ ] Commit
+- [x] Red: 写 test_models.py — `test_knowledge_base_creation`, `test_chunk_id_format`(doc_id:index), `test_searchhit_score_is_float`
+- [x] Red: 写 test_chunking.py — `test_heading_aware_split`(带#标题的md), `test_fixed_size_split`(纯文本), `test_empty_input`, `test_overlap`
+- [x] Green: 实现 6 个 dataclass（KnowledgeBase, Section, ParsedDocument, Chunk, SearchHit, UploadResult）
+- [x] Green: 实现 `heading_aware_split(parsed, max_chars, overlap)` + `fixed_size_split(text, max_chars, overlap)` — 单段超长回退固定窗口重叠切分
+- [x] `uv run pytest tests/unit/domain/ -v` → PASS
+- [x] Commit
 
 ### Task 5: domain/ports.py（5 Protocol）+ domain/errors.py（DomainError + 11 子类）
 
