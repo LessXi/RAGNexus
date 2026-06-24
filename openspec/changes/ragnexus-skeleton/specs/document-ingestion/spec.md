@@ -8,7 +8,7 @@
 
 ### Requirement: 文档上传
 
-本需求定义文档上传接口的请求格式、校验规则和幂等性保证。
+系统 **SHALL** 接受文档上传请求，包含文件大小/类型校验和幂等性保证。
 #### Scenario: 成功上传并索引
 - **GIVEN** 有效的 kb_id 和 .md 文件（≤10MB）
 - **WHEN** POST /v1/documents:upload
