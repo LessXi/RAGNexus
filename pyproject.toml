@@ -23,8 +23,8 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["ragnexus", "ragnexus.*"]
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 markers = [
     "integration: requires Docker with PostgreSQL + pgvector",
     "e2e: requires Docker with PostgreSQL + pgvector",
 ]
+addopts = "-m 'not integration and not e2e'"
