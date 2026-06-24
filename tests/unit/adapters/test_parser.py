@@ -1,9 +1,9 @@
 """Tests for MarkdownAndTextParser — TDD RED phase."""
 
 import pytest
-from ragnexus.domain.models import ParsedDocument, Section
 
 from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
+from ragnexus.domain.models import ParsedDocument
 
 
 @pytest.fixture
@@ -71,7 +71,7 @@ class TestParseTxt:
 
     def test_parse_txt_utf8(self, parser):
         """Plain text with UTF-8 content should decode correctly."""
-        content = "中文内容\n第二行".encode("utf-8")
+        content = "中文内容\n第二行".encode()
         result = parser.parse(content, "notes.txt")
 
         assert result.sections == []

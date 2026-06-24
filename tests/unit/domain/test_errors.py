@@ -1,17 +1,17 @@
 """Tests for domain/errors.py — DomainError hierarchy."""
 
 from ragnexus.domain.errors import (
-    DomainError,
-    ValidationError,
-    NotFoundError,
-    ConflictError,
-    DuplicateDocumentError,
-    UnsupportedMediaTypeError,
-    PayloadTooLargeError,
-    EmptyFileError,
-    UpstreamError,
-    VectorStoreError,
     ConfigError,
+    ConflictError,
+    DomainError,
+    DuplicateDocumentError,
+    EmptyFileError,
+    NotFoundError,
+    PayloadTooLargeError,
+    UnsupportedMediaTypeError,
+    UpstreamError,
+    ValidationError,
+    VectorStoreError,
 )
 
 

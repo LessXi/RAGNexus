@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from ragnexus.domain.models import KnowledgeBase, Chunk, SearchHit
+from ragnexus.domain.models import Chunk, KnowledgeBase, SearchHit
 
 
 def test_knowledge_base_creation():

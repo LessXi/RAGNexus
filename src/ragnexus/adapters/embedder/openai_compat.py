@@ -10,6 +10,7 @@ Implements EmbedderPort via an async HTTP client that supports:
 import asyncio
 
 import httpx
+
 from ragnexus.domain.errors import UpstreamError
 
 
@@ -67,10 +68,7 @@ class OpenAICompatEmbedder:
         assert client is not None, "Client not initialized"
 
         # Split into batches
-        batches = [
-            texts[i : i + self.batch_size]
-            for i in range(0, len(texts), self.batch_size)
-        ]
+        batches = [texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)]
 
         async def _embed_one(client: httpx.AsyncClient, batch: list[str]) -> list[list[float]]:
             async with self._sem:
@@ -90,9 +88,10 @@ class OpenAICompatEmbedder:
                     except httpx.HTTPError as e:
                         last_err = e
                         if attempt == self.max_retries - 1:
-                            raise UpstreamError(f"Embedder 失败: {e}")
+                            raise UpstreamError(f"Embedder 失败: {e}") from e
                         await asyncio.sleep(self.retry_backoff_base**attempt)
                 raise UpstreamError(f"Embedder 失败: {last_err}")
+
         # Concurrent execution via asyncio.gather
         results = await asyncio.gather(*[_embed_one(client, b) for b in batches])
         # Flatten
@@ -101,8 +100,6 @@ class OpenAICompatEmbedder:
         # Validate dimensions
         for vec in flat:
             if len(vec) != self.dim:
-                raise UpstreamError(
-                    f"embed dim 失配: 期望 {self.dim}, 实际 {len(vec)}"
-                )
+                raise UpstreamError(f"embed dim 失配: 期望 {self.dim}, 实际 {len(vec)}")
 
         return flat

@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock
 
 import asyncpg
 import pytest
-from ragnexus.domain.errors import ConflictError
-from ragnexus.domain.models import KnowledgeBase
 
 from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
+from ragnexus.domain.errors import ConflictError
+from ragnexus.domain.models import KnowledgeBase
 
 
 @pytest.fixture

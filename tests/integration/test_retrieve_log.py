@@ -95,10 +95,12 @@ class TestRetrieveLog:
 
         async with pg_pool.acquire() as conn:
             id1 = await conn.fetchval(
-                "SELECT id FROM retrieve_logs WHERE query=$1", f"first_{tag1}",
+                "SELECT id FROM retrieve_logs WHERE query=$1",
+                f"first_{tag1}",
             )
             id2 = await conn.fetchval(
-                "SELECT id FROM retrieve_logs WHERE query=$1", f"second_{tag2}",
+                "SELECT id FROM retrieve_logs WHERE query=$1",
+                f"second_{tag2}",
             )
             assert isinstance(id1, int)
             assert isinstance(id2, int)

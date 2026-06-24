@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from ragnexus.domain.models import KnowledgeBase, Chunk, SearchHit, ParsedDocument
+from ragnexus.domain.models import Chunk, KnowledgeBase, ParsedDocument, SearchHit
 
 
 class VectorStorePort(Protocol):
@@ -11,7 +11,10 @@ class VectorStorePort(Protocol):
     async def upsert(self, kb_id: str, chunks: list[Chunk]) -> None: ...
 
     async def search_by_vector(
-        self, query_vector: list[float], top_k: int, kb_ids: list[str],
+        self,
+        query_vector: list[float],
+        top_k: int,
+        kb_ids: list[str],
     ) -> list[SearchHit]: ...
 
 
@@ -43,6 +46,11 @@ class RetrieveLogPort(Protocol):
     """retrieve 日志（fire-and-forget）。骨架实现: PgRetrieveLogRepository。"""
 
     async def log(
-        self, *, query: str, kb_ids: list[str], top_k: int,
-        hit_count: int, latency_ms: int,
+        self,
+        *,
+        query: str,
+        kb_ids: list[str],
+        top_k: int,
+        hit_count: int,
+        latency_ms: int,
     ) -> None: ...

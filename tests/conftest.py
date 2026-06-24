@@ -43,7 +43,9 @@ def _start_compose() -> None:
     try:
         subprocess.run(
             ["docker", "compose", "-f", str(COMPOSE_FILE), "up", "-d", "test-db", "test-init"],
-            check=True, capture_output=True, timeout=120,
+            check=True,
+            capture_output=True,
+            timeout=120,
         )
         _compose_started = True
     except Exception as exc:
@@ -56,7 +58,8 @@ def _stop_compose() -> None:
     if _compose_started:
         subprocess.run(
             ["docker", "compose", "-f", str(COMPOSE_FILE), "down", "-v"],
-            capture_output=True, timeout=60,
+            capture_output=True,
+            timeout=60,
         )
         _compose_started = False
 

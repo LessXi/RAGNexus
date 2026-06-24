@@ -26,5 +26,9 @@ class PgRetrieveLogRepository:
             await conn.execute(
                 """INSERT INTO retrieve_logs (kb_ids, query, top_k, hit_count, latency_ms)
                    VALUES ($1, $2, $3, $4, $5)""",
-                kb_ids, query, top_k, hit_count, latency_ms,
+                kb_ids,
+                query,
+                top_k,
+                hit_count,
+                latency_ms,
             )

@@ -1,11 +1,12 @@
 """RetrieveUseCase — validates query, embeds, searches vector store, logs asynchronously."""
 
 import asyncio
+import contextlib
 import time
 
-from ragnexus.domain.errors import ValidationError, NotFoundError
+from ragnexus.domain.errors import NotFoundError, ValidationError
 from ragnexus.domain.models import SearchHit
-from ragnexus.domain.ports import EmbedderPort, VectorStorePort, KnowledgeBasePort, RetrieveLogPort
+from ragnexus.domain.ports import EmbedderPort, KnowledgeBasePort, RetrieveLogPort, VectorStorePort
 
 
 class RetrieveUseCase:
@@ -23,9 +24,7 @@ class RetrieveUseCase:
         self._store = store
         self._log_port = log_port
 
-    async def execute(
-        self, query: str, kb_ids: list[str], top_k: int = 5
-    ) -> list[SearchHit]:
+    async def execute(self, query: str, kb_ids: list[str], top_k: int = 5) -> list[SearchHit]:
         # 1. Validate inputs
         stripped = query.strip()
         if not stripped or len(query) > 2000:
@@ -61,7 +60,7 @@ class RetrieveUseCase:
         latency_ms: int,
     ) -> None:
         """Fire-and-forget log call — swallow any exception."""
-        try:
+        with contextlib.suppress(Exception):
             await self._log_port.log(
                 query=query,
                 kb_ids=kb_ids,
@@ -69,5 +68,3 @@ class RetrieveUseCase:
                 hit_count=hit_count,
                 latency_ms=latency_ms,
             )
-        except Exception:
-            pass

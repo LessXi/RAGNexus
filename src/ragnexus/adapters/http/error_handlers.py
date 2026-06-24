@@ -18,7 +18,8 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(DomainError)
     async def _domain_error_handler(
-        request: Request, exc: DomainError,
+        request: Request,
+        exc: DomainError,
     ) -> JSONResponse:
         return JSONResponse(
             status_code=exc.http_status,
@@ -32,14 +33,17 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error_handler(
-        request: Request, exc: RequestValidationError,
+        request: Request,
+        exc: RequestValidationError,
     ) -> JSONResponse:
         errors = []
         for e in exc.errors():
-            errors.append({
-                "field": ".".join(str(loc) for loc in e.get("loc", []) if loc != "body"),
-                "reason": e.get("msg", ""),
-            })
+            errors.append(
+                {
+                    "field": ".".join(str(loc) for loc in e.get("loc", []) if loc != "body"),
+                    "reason": e.get("msg", ""),
+                }
+            )
         return JSONResponse(
             status_code=422,
             content={

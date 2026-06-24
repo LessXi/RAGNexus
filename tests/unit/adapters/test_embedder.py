@@ -8,12 +8,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-from ragnexus.domain.errors import UpstreamError
 
+from ragnexus.domain.errors import UpstreamError
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def mock_client():
@@ -53,15 +54,17 @@ def embedder(mock_client, monkeypatch):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_response(status_code: int = 200,
-                   json_data: dict | None = None) -> MagicMock:
+
+def _make_response(status_code: int = 200, json_data: dict | None = None) -> MagicMock:
     """Build a canned httpx.Response-like object."""
     resp = MagicMock(spec=httpx.Response)
     resp.status_code = status_code
     resp.raise_for_status = MagicMock()
     if status_code >= 400:
         resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "mock error", request=MagicMock(), response=resp,
+            "mock error",
+            request=MagicMock(),
+            response=resp,
         )
     resp.json.return_value = json_data or {
         "data": [
@@ -75,6 +78,7 @@ def _make_response(status_code: int = 200,
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestEmbed:
     """OpenAICompatEmbedder.embed() test suite."""
@@ -100,17 +104,21 @@ class TestEmbed:
         emb, client = embedder
         # Each batch returns its own response
         client.post.side_effect = [
-            _make_response(json_data={
-                "data": [
-                    {"embedding": [0.1, 0.2, 0.3]},
-                    {"embedding": [0.4, 0.5, 0.6]},
-                ],
-            }),
-            _make_response(json_data={
-                "data": [
-                    {"embedding": [0.7, 0.8, 0.9]},
-                ],
-            }),
+            _make_response(
+                json_data={
+                    "data": [
+                        {"embedding": [0.1, 0.2, 0.3]},
+                        {"embedding": [0.4, 0.5, 0.6]},
+                    ],
+                }
+            ),
+            _make_response(
+                json_data={
+                    "data": [
+                        {"embedding": [0.7, 0.8, 0.9]},
+                    ],
+                }
+            ),
         ]
 
         result = await emb.embed(["a", "b", "c"])
@@ -156,9 +164,11 @@ class TestEmbed:
     async def test_dimension_mismatch(self, embedder):
         """Returned dim != EMBED_DIM → UpstreamError with code 1500."""
         emb, client = embedder
-        wrong_dim_resp = _make_response(json_data={
-            "data": [{"embedding": [0.1, 0.2, 0.3, 0.4]}],  # dim=4, not 3
-        })
+        wrong_dim_resp = _make_response(
+            json_data={
+                "data": [{"embedding": [0.1, 0.2, 0.3, 0.4]}],  # dim=4, not 3
+            }
+        )
         client.post.return_value = wrong_dim_resp
 
         with pytest.raises(UpstreamError) as exc_info:

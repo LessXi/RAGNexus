@@ -1,10 +1,10 @@
 """Integration tests for PgKnowledgeBaseRepository with real PostgreSQL."""
 
 import pytest
-from ragnexus.domain.errors import ConflictError
-from ragnexus.domain.models import KnowledgeBase
 
 from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
+from ragnexus.domain.errors import ConflictError
+from ragnexus.domain.models import KnowledgeBase
 
 pytestmark = [pytest.mark.integration]
 
@@ -74,7 +74,13 @@ class TestPgKbRepoDocExists:
             await conn.execute(
                 "INSERT INTO documents (doc_id, kb_id, filename, file_hash, file_size, content_type, chunk_count) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                doc_id, kb.id, "test.md", "abc123", 100, "text/markdown", 0,
+                doc_id,
+                kb.id,
+                "test.md",
+                "abc123",
+                100,
+                "text/markdown",
+                0,
             )
 
         assert await repo.doc_exists(doc_id) is True

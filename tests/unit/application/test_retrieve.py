@@ -1,12 +1,12 @@
 """Tests for RetrieveUseCase."""
 
-from unittest.mock import AsyncMock, PropertyMock
+from unittest.mock import AsyncMock
 
 import pytest
-from ragnexus.domain.errors import ValidationError, NotFoundError
-from ragnexus.domain.models import SearchHit
 
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
+from ragnexus.domain.errors import NotFoundError, ValidationError
+from ragnexus.domain.models import SearchHit
 
 
 @pytest.fixture
@@ -62,7 +62,9 @@ def sample_hits():
 
 
 @pytest.mark.asyncio
-async def test_retrieve_success(use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port, sample_hits):
+async def test_retrieve_success(
+    use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port, sample_hits
+):
     """Valid query/kb_ids/top_k should embed, search, and return SearchHit list with scores."""
     kb_ids = ["kb_test"]
     top_k = 5
@@ -78,14 +80,13 @@ async def test_retrieve_success(use_case, mock_kb_repo, mock_embedder, mock_stor
     assert all(isinstance(h.score, float) for h in result)
 
     mock_embedder.embed.assert_awaited_once_with(["test query"])
-    mock_store.search_by_vector.assert_awaited_once_with(
-        [0.1, 0.2, 0.3], top_k, kb_ids
-    )
+    mock_store.search_by_vector.assert_awaited_once_with([0.1, 0.2, 0.3], top_k, kb_ids)
     mock_kb_repo.exists.assert_awaited_once_with("kb_test")
 
     # log_port.log should have been called via create_task (fire-and-forget)
     # We just verify it was called (the task may or may not have completed)
     import asyncio
+
     await asyncio.sleep(0.01)  # yield to let the fire-and-forget task run
     mock_log_port.log.assert_awaited_once()
 
@@ -158,8 +159,11 @@ async def test_kb_not_found(use_case, mock_kb_repo, mock_embedder, mock_store, m
 
 
 @pytest.mark.asyncio
-async def test_multiple_kb_not_found(use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port):
+async def test_multiple_kb_not_found(
+    use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port
+):
     """Should check all kb_ids and fail on first missing one."""
+
     # First exists, second does not
     async def exists_side_effect(kb_id):
         return {"kb_good": True, "kb_bad": False}[kb_id]
@@ -178,7 +182,9 @@ async def test_multiple_kb_not_found(use_case, mock_kb_repo, mock_embedder, mock
 
 
 @pytest.mark.asyncio
-async def test_retrieve_log_fire_and_forget(use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port, sample_hits):
+async def test_retrieve_log_fire_and_forget(
+    use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port, sample_hits
+):
     """When log_port.log raises, the exception should be swallowed (fire-and-forget)."""
     mock_kb_repo.exists.return_value = True
     mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
@@ -191,5 +197,6 @@ async def test_retrieve_log_fire_and_forget(use_case, mock_kb_repo, mock_embedde
     assert result == sample_hits
     # Give the fire-and-forget task a chance to run/be swallowed
     import asyncio
+
     await asyncio.sleep(0.01)
     mock_log_port.log.assert_awaited_once()

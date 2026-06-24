@@ -42,7 +42,9 @@ class TestPgVectorStore:
             await conn.execute(
                 "INSERT INTO knowledge_bases (id, name, name_key) "
                 "VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
-                kb_id, kb_id, kb_id,
+                kb_id,
+                kb_id,
+                kb_id,
             )
 
     async def test_upsert_new_doc(self, store, pg_pool):
@@ -53,13 +55,19 @@ class TestPgVectorStore:
 
         chunks = [
             Chunk(
-                id=f"{doc_id}:0", kb_id=kb_id, doc_id=doc_id,
-                text="hello world", vector=_make_vec(0.1, 0.2, 0.3),
+                id=f"{doc_id}:0",
+                kb_id=kb_id,
+                doc_id=doc_id,
+                text="hello world",
+                vector=_make_vec(0.1, 0.2, 0.3),
                 metadata={"filename": "test.md", "chunk_index": 0},
             ),
             Chunk(
-                id=f"{doc_id}:1", kb_id=kb_id, doc_id=doc_id,
-                text="goodbye world", vector=_make_vec(0.9, 0.8, 0.7),
+                id=f"{doc_id}:1",
+                kb_id=kb_id,
+                doc_id=doc_id,
+                text="goodbye world",
+                vector=_make_vec(0.9, 0.8, 0.7),
                 metadata={"filename": "test.md", "chunk_index": 1},
             ),
         ]
@@ -69,7 +77,8 @@ class TestPgVectorStore:
         # Verify chunks were inserted
         async with pg_pool.acquire() as conn:
             count = await conn.fetchval(
-                "SELECT COUNT(*) FROM chunks WHERE doc_id=$1", doc_id,
+                "SELECT COUNT(*) FROM chunks WHERE doc_id=$1",
+                doc_id,
             )
             assert count == 2
 
@@ -81,8 +90,11 @@ class TestPgVectorStore:
 
         chunks = [
             Chunk(
-                id=f"{doc_id}:0", kb_id=kb_id, doc_id=doc_id,
-                text="first", vector=_make_vec(0.1, 0.2, 0.3),
+                id=f"{doc_id}:0",
+                kb_id=kb_id,
+                doc_id=doc_id,
+                text="first",
+                vector=_make_vec(0.1, 0.2, 0.3),
                 metadata={},
             ),
         ]
@@ -102,18 +114,27 @@ class TestPgVectorStore:
         # Insert chunks with distinct vectors (one-hot in first 3 dims)
         chunks = [
             Chunk(
-                id=f"{doc_id}:0", kb_id=kb_id, doc_id=doc_id,
-                text="apple pie", vector=_make_vec(1.0, 0.0, 0.0),
+                id=f"{doc_id}:0",
+                kb_id=kb_id,
+                doc_id=doc_id,
+                text="apple pie",
+                vector=_make_vec(1.0, 0.0, 0.0),
                 metadata={"food": "pie"},
             ),
             Chunk(
-                id=f"{doc_id}:1", kb_id=kb_id, doc_id=doc_id,
-                text="banana bread", vector=_make_vec(0.0, 1.0, 0.0),
+                id=f"{doc_id}:1",
+                kb_id=kb_id,
+                doc_id=doc_id,
+                text="banana bread",
+                vector=_make_vec(0.0, 1.0, 0.0),
                 metadata={"food": "bread"},
             ),
             Chunk(
-                id=f"{doc_id}:2", kb_id=kb_id, doc_id=doc_id,
-                text="cherry tart", vector=_make_vec(0.0, 0.0, 1.0),
+                id=f"{doc_id}:2",
+                kb_id=kb_id,
+                doc_id=doc_id,
+                text="cherry tart",
+                vector=_make_vec(0.0, 0.0, 1.0),
                 metadata={"food": "tart"},
             ),
         ]
@@ -143,17 +164,37 @@ class TestPgVectorStore:
         doc_b = f"doc_cross_b_{id(self)}"
         vec = _make_vec(0.5, 0.5, 0.0)
 
-        await store.upsert(kb_a, [
-            Chunk(id=f"{doc_a}:0", kb_id=kb_a, doc_id=doc_a,
-                  text="from A", vector=vec, metadata={}),
-        ])
-        await store.upsert(kb_b, [
-            Chunk(id=f"{doc_b}:0", kb_id=kb_b, doc_id=doc_b,
-                  text="from B", vector=vec, metadata={}),
-        ])
+        await store.upsert(
+            kb_a,
+            [
+                Chunk(
+                    id=f"{doc_a}:0",
+                    kb_id=kb_a,
+                    doc_id=doc_a,
+                    text="from A",
+                    vector=vec,
+                    metadata={},
+                ),
+            ],
+        )
+        await store.upsert(
+            kb_b,
+            [
+                Chunk(
+                    id=f"{doc_b}:0",
+                    kb_id=kb_b,
+                    doc_id=doc_b,
+                    text="from B",
+                    vector=vec,
+                    metadata={},
+                ),
+            ],
+        )
 
         hits = await store.search_by_vector(
-            query_vector=vec, top_k=10, kb_ids=[kb_a, kb_b],
+            query_vector=vec,
+            top_k=10,
+            kb_ids=[kb_a, kb_b],
         )
 
         assert len(hits) == 2

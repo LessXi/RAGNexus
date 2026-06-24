@@ -29,9 +29,7 @@ def _docker_available() -> bool:
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.skipif(
-        not _docker_available(), reason="Docker not available"
-    ),
+    pytest.mark.skipif(not _docker_available(), reason="Docker not available"),
 ]
 
 

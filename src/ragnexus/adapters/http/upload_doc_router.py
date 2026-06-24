@@ -1,6 +1,6 @@
 """Factory: upload_doc_router — POST /v1/documents:upload (multipart)."""
 
-from fastapi import APIRouter, Form, UploadFile, File
+from fastapi import APIRouter, File, Form, UploadFile
 
 
 def create_router(uc) -> APIRouter:
@@ -16,7 +16,7 @@ def create_router(uc) -> APIRouter:
     @router.post("/v1/documents:upload", status_code=201)
     async def upload_doc(
         kb_id: str = Form(...),
-        file: UploadFile = File(...),
+        file: UploadFile = File(...),  # noqa: B008
     ):
         content = await file.read()
         result = await uc.execute(

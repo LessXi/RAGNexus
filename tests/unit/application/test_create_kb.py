@@ -3,10 +3,10 @@
 from unittest.mock import AsyncMock
 
 import pytest
-from ragnexus.domain.errors import ValidationError, ConflictError
-from ragnexus.domain.models import KnowledgeBase
 
 from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
+from ragnexus.domain.errors import ConflictError, ValidationError
+from ragnexus.domain.models import KnowledgeBase
 
 
 @pytest.fixture
@@ -25,6 +25,7 @@ def use_case(mock_kb_repo):
 def sample_kb():
     """A KnowledgeBase instance for test assertions."""
     from datetime import datetime
+
     return KnowledgeBase(id="kb_test123", name="Test KB", created_at=datetime.now())
 
 

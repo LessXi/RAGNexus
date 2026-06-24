@@ -6,9 +6,9 @@ Required:
 """
 
 import os
-import subprocess
 
 import pytest
+
 from ragnexus.config import get_settings
 
 pytestmark = [
@@ -54,9 +54,7 @@ class TestE2ECreateKB:
 
     def test_empty_name_422(self, client):
         """Empty/blank name → 422 validation error."""
-        resp = client.post(
-            "/v1/knowledge-bases:create", json={"name": ""}
-        )
+        resp = client.post("/v1/knowledge-bases:create", json={"name": ""})
         assert resp.status_code == 422
 
         # Missing name field entirely

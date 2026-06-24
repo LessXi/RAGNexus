@@ -1,7 +1,7 @@
 """Tests for PgVectorStore adapter — mock asyncpg pool."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -53,6 +53,8 @@ def sample_chunks():
             metadata={"chunk_index": 1, "filename": "test.md"},
         ),
     ]
+
+
 @pytest.fixture
 def mock_conn():
     """Return a mock connection with transaction() as sync Mock returning a
@@ -140,6 +142,7 @@ async def test_upsert_duplicate_doc(pg_store, mock_conn, sample_chunks):
 async def test_upsert_race_condition(pg_store, mock_conn, sample_chunks):
     """When executemany raises UniqueViolationError → DuplicateDocumentError with code 1201."""
     import asyncpg
+
     mock_conn.fetchval.return_value = None  # application-level check passes
     mock_conn.executemany.side_effect = asyncpg.UniqueViolationError("duplicate key value")
 

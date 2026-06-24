@@ -8,13 +8,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from ragnexus.adapters.http.create_kb_router import create_router as create_kb_router
-from ragnexus.adapters.http.upload_doc_router import create_router as create_upload_router
-from ragnexus.adapters.http.retrieve_router import create_router as create_retrieve_router
 from ragnexus.adapters.http.error_handlers import register_error_handlers
-
+from ragnexus.adapters.http.retrieve_router import create_router as create_retrieve_router
+from ragnexus.adapters.http.upload_doc_router import create_router as create_upload_router
 from ragnexus.domain.errors import DomainError, UnsupportedMediaTypeError
-from ragnexus.domain.models import KnowledgeBase, UploadResult, SearchHit
-
+from ragnexus.domain.models import KnowledgeBase, SearchHit, UploadResult
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -61,9 +59,7 @@ class TestCreateKB:
             name="Test KB",
             created_at=datetime(2026, 6, 22, 10, 0, 0),
         )
-        resp = client.post(
-            "/v1/knowledge-bases:create", json={"name": "Test KB"}
-        )
+        resp = client.post("/v1/knowledge-bases:create", json={"name": "Test KB"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 0
@@ -75,21 +71,15 @@ class TestCreateKB:
     def test_validation(self, client, mock_kb_uc):
         """name too short / too long / missing → 422"""
         # empty → pydantic min_length=1
-        resp = client.post(
-            "/v1/knowledge-bases:create", json={"name": ""}
-        )
+        resp = client.post("/v1/knowledge-bases:create", json={"name": ""})
         assert resp.status_code == 422
 
         # too long → pydantic max_length=64
-        resp = client.post(
-            "/v1/knowledge-bases:create", json={"name": "A" * 65}
-        )
+        resp = client.post("/v1/knowledge-bases:create", json={"name": "A" * 65})
         assert resp.status_code == 422
 
         # missing name field
-        resp = client.post(
-            "/v1/knowledge-bases:create", json={}
-        )
+        resp = client.post("/v1/knowledge-bases:create", json={})
         assert resp.status_code == 422
 
 
@@ -192,9 +182,7 @@ class TestErrorHandler:
             "测试错误",
             errors=[{"field": "test", "reason": "测试"}],
         )
-        resp = client.post(
-            "/v1/knowledge-bases:create", json={"name": "Test"}
-        )
+        resp = client.post("/v1/knowledge-bases:create", json={"name": "Test"})
         assert resp.status_code == 500
         data = resp.json()
         assert data["code"] == 9999

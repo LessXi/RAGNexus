@@ -73,7 +73,9 @@ class UploadDocumentUseCase:
         if len(file_content) > self._max_file_size:
             raise PayloadTooLargeError(
                 "文件过大",
-                errors=[{"field": "file", "reason": f"文件大小超过 {self._max_file_size} 字节限制"}],
+                errors=[
+                    {"field": "file", "reason": f"文件大小超过 {self._max_file_size} 字节限制"}
+                ],
             )
 
         # 2. File extension check
@@ -81,7 +83,9 @@ class UploadDocumentUseCase:
         if ext not in self._allowed_exts:
             raise UnsupportedMediaTypeError(
                 f"不支持的文件类型: {ext}",
-                errors=[{"field": "filename", "reason": f"仅支持 {', '.join(self._allowed_exts)} 格式"}],
+                errors=[
+                    {"field": "filename", "reason": f"仅支持 {', '.join(self._allowed_exts)} 格式"}
+                ],
             )
 
         # 3. KB existence check
@@ -108,7 +112,9 @@ class UploadDocumentUseCase:
             raise EmptyFileError("文件为空", errors=[{"field": "file", "reason": "文件内容为空"}])
 
         # 7. Chunk
-        chunk_dicts = self._chunker(parsed, max_chars=self._chunk_max_chars, overlap=self._chunk_overlap)
+        chunk_dicts = self._chunker(
+            parsed, max_chars=self._chunk_max_chars, overlap=self._chunk_overlap
+        )
         if not chunk_dicts:
             raise EmptyFileError("文件为空", errors=[{"field": "file", "reason": "文件内容为空"}])
 
