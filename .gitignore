@@ -9,6 +9,16 @@ __pycache__/
 # Environment variables
 .env
 
+# Node (openspec CLI was the only consumer; this is a Python+uv repo)
+node_modules/
+
+# Oh My Pi harness — local agent tooling (whole dir)
+.pi/
+skills-lock.json
+
+# Code intelligence tool — local cache
+.codegraph/
+
 # Build artifacts
 dist/
 build/
@@ -42,3 +52,12 @@ data/
 
 # Git worktrees
 .worktrees/
+
+# AI workflow scaffolding (openspec / comet / superpowers)
+openspec/
+.comet/
+docs/superpowers/
+
+# Node package files — this is a Python+uv repo; node only served the openspec CLI
+package.json
+package-lock.json
