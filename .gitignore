@@ -1,6 +1,44 @@
-.worktrees/
-.venv
-__pycache__
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+
+# Environment variables
 .env
-.pytest_cache
-*.egg-info
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Test / coverage / linter caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# RAG project — local data & vector caches
+data/
+.chroma/
+.chromadb/
+.vector_store/
+
+# Git worktrees
+.worktrees/
