@@ -1,8 +1,8 @@
 """CreateKnowledgeBaseUseCase — validates input and delegates to repo."""
 
-from domain.errors import ValidationError
-from domain.models import KnowledgeBase
-from domain.ports import KnowledgeBasePort
+from ragnexus.domain.errors import ValidationError
+from ragnexus.domain.models import KnowledgeBase
+from ragnexus.domain.ports import KnowledgeBasePort
 
 
 class CreateKnowledgeBaseUseCase:

@@ -250,7 +250,7 @@ class UploadResult:
 ```python
 # domain/ports.py
 from typing import Protocol
-from domain.models import KnowledgeBase, Chunk, SearchHit, ParsedDocument
+from ragnexus.domain.models import KnowledgeBase, Chunk, SearchHit, ParsedDocument
 
 class VectorStorePort(Protocol):
     """向量存储 + 检索。骨架实现: pgvector。"""
@@ -668,7 +668,7 @@ class PgKnowledgeBaseRepository:
 
 ```python
 import re
-from domain.models import Section, ParsedDocument
+from ragnexus.domain.models import Section, ParsedDocument
 
 class MarkdownAndTextParser:
     def parse(self, content: bytes, filename: str) -> ParsedDocument:
@@ -727,7 +727,7 @@ class PgRetrieveLogRepository:
 # adapters/http/retrieve_router.py
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
-from application.retrieve_use_case import RetrieveUseCase
+from ragnexus.application.retrieve_use_case import RetrieveUseCase
 
 class RetrieveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")  # 严格模式
@@ -753,7 +753,7 @@ def retrieve_router(uc: RetrieveUseCase) -> APIRouter:
 # adapters/http/error_handlers.py
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from domain.errors import DomainError
+from ragnexus.domain.errors import DomainError
 
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
@@ -774,22 +774,22 @@ def register_error_handlers(app: FastAPI) -> None:
 ```python
 from contextlib import asynccontextmanager
 import logging
-from domain.errors import ConfigError
+from ragnexus.domain.errors import ConfigError
 from fastapi import FastAPI
-from config import get_settings
-from application.create_kb_use_case import CreateKnowledgeBaseUseCase
-from application.upload_doc_use_case import UploadDocumentUseCase
-from application.retrieve_use_case import RetrieveUseCase
-from domain.chunking import heading_aware_split
-from adapters.vector_store.pgvector import PgVectorStore
-from adapters.knowledge_base.pg import PgKnowledgeBaseRepository
-from adapters.embedder.openai_compat import OpenAICompatEmbedder
-from adapters.parsers.md_and_txt import MarkdownAndTextParser
-from adapters.retrieve_log.pg import PgRetrieveLogRepository
-from adapters.http.create_kb_router import create_kb_router
-from adapters.http.upload_doc_router import upload_doc_router
-from adapters.http.retrieve_router import retrieve_router
-from adapters.http.error_handlers import register_error_handlers
+from ragnexus.config import get_settings
+from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
+from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
+from ragnexus.application.retrieve_use_case import RetrieveUseCase
+from ragnexus.domain.chunking import heading_aware_split
+from ragnexus.adapters.vector_store.pgvector import PgVectorStore
+from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
+from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
+from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
+from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
+from ragnexus.adapters.http.create_kb_router import create_kb_router
+from ragnexus.adapters.http.upload_doc_router import upload_doc_router
+from ragnexus.adapters.http.retrieve_router import retrieve_router
+from ragnexus.adapters.http.error_handlers import register_error_handlers
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -848,11 +848,11 @@ def build_app() -> FastAPI:
 
 ```python
 import uvicorn
-from config import get_settings
+from ragnexus.config import get_settings
 
 if __name__ == "__main__":
     cfg = get_settings()
-    uvicorn.run("composition:build_app", factory=True, host=cfg.HOST, port=cfg.PORT)
+    uvicorn.run("ragnexus.composition:build_app", factory=True, host=cfg.HOST, port=cfg.PORT)
 ```
 
 ---

@@ -1,6 +1,6 @@
 """Tests for config.py — pydantic-settings with 20 fields."""
 
-from config import Settings, get_settings
+from ragnexus.config import Settings, get_settings
 
 
 def test_defaults(monkeypatch):
@@ -10,7 +10,7 @@ def test_defaults(monkeypatch):
     monkeypatch.delenv("PG_POOL_MIN", raising=False)
     monkeypatch.delenv("PG_POOL_MAX", raising=False)
     monkeypatch.delenv("PG_COMMAND_TIMEOUT", raising=False)
-    s = Settings(_env_file=None)  # skip .env to test built-in defaults
+    s = Settings(_env_file=None)  # type: ignore[call-arg]  # skip .env to test defaults
     assert s.HOST == "0.0.0.0"
     assert s.PORT == 8000
     assert s.LOG_LEVEL == "INFO"

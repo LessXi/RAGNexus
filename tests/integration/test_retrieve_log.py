@@ -2,7 +2,7 @@
 
 import pytest
 
-from adapters.retrieve_log.pg import PgRetrieveLogRepository
+from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
 
 pytestmark = [pytest.mark.integration]
 

@@ -7,9 +7,9 @@ They test real vector operations: upsert chunks and cosine-similarity search.
 import pytest
 import pytest_asyncio
 
-from adapters.vector_store.pgvector import PgVectorStore
-from domain.errors import DuplicateDocumentError
-from domain.models import Chunk, SearchHit
+from ragnexus.adapters.vector_store.pgvector import PgVectorStore
+from ragnexus.domain.errors import DuplicateDocumentError
+from ragnexus.domain.models import Chunk, SearchHit
 
 pytestmark = [pytest.mark.integration]
 

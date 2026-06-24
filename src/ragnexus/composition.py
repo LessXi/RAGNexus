@@ -2,7 +2,7 @@
 
 Usage::
 
-    from composition import build_app
+    from ragnexus.composition import build_app
     app = build_app()  # FastAPI instance with all wiring
 """
 
@@ -12,21 +12,21 @@ from contextlib import asynccontextmanager
 import asyncpg
 from fastapi import FastAPI
 
-from adapters.embedder.openai_compat import OpenAICompatEmbedder
-from adapters.http.create_kb_router import create_router as create_kb_router
-from adapters.http.error_handlers import register_error_handlers
-from adapters.http.retrieve_router import create_router as create_retrieve_router
-from adapters.http.upload_doc_router import create_router as create_upload_doc_router
-from adapters.knowledge_base.pg import PgKnowledgeBaseRepository
-from adapters.parsers.md_and_txt import MarkdownAndTextParser
-from adapters.retrieve_log.pg import PgRetrieveLogRepository
-from adapters.vector_store.pgvector import PgVectorStore
-from application.create_kb_use_case import CreateKnowledgeBaseUseCase
-from application.retrieve_use_case import RetrieveUseCase
-from application.upload_doc_use_case import UploadDocumentUseCase
-from config import get_settings
-from domain.chunking import heading_aware_split
-from domain.errors import ConfigError
+from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
+from ragnexus.adapters.http.create_kb_router import create_router as create_kb_router
+from ragnexus.adapters.http.error_handlers import register_error_handlers
+from ragnexus.adapters.http.retrieve_router import create_router as create_retrieve_router
+from ragnexus.adapters.http.upload_doc_router import create_router as create_upload_doc_router
+from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
+from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
+from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
+from ragnexus.adapters.vector_store.pgvector import PgVectorStore
+from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
+from ragnexus.application.retrieve_use_case import RetrieveUseCase
+from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
+from ragnexus.config import get_settings
+from ragnexus.domain.chunking import heading_aware_split
+from ragnexus.domain.errors import ConfigError
 
 
 @asynccontextmanager

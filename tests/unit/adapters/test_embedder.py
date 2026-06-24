@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-from domain.errors import UpstreamError
+from ragnexus.domain.errors import UpstreamError
 
 
 # ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ def embedder(mock_client, monkeypatch):
     """
     monkeypatch.setattr(httpx, "AsyncClient", MagicMock(return_value=mock_client))
 
-    from adapters.embedder.openai_compat import OpenAICompatEmbedder
+    from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
 
     emb = OpenAICompatEmbedder(
         base_url="http://test-host/v1",

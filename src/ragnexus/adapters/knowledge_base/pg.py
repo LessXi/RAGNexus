@@ -6,8 +6,8 @@ Implements KnowledgeBasePort over asyncpg.
 from nanoid import generate as nanoid_generate
 
 import asyncpg
-from domain.errors import ConflictError
-from domain.models import KnowledgeBase
+from ragnexus.domain.errors import ConflictError
+from ragnexus.domain.models import KnowledgeBase
 
 
 class PgKnowledgeBaseRepository:

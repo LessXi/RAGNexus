@@ -1,9 +1,9 @@
 """Tests for MarkdownAndTextParser — TDD RED phase."""
 
 import pytest
-from domain.models import ParsedDocument, Section
+from ragnexus.domain.models import ParsedDocument, Section
 
-from adapters.parsers.md_and_txt import MarkdownAndTextParser
+from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 """Tests for domain/chunking.py."""
 
-from domain.chunking import fixed_size_split, heading_aware_split
-from domain.models import ParsedDocument, Section
+from ragnexus.domain.chunking import fixed_size_split, heading_aware_split
+from ragnexus.domain.models import ParsedDocument, Section
 
 
 def make_parsed(sections: list[Section], raw_text: str = "") -> ParsedDocument:

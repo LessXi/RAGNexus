@@ -17,15 +17,15 @@ Returns UploadResult.
 import hashlib
 from collections.abc import Callable
 
-from domain.errors import (
+from ragnexus.domain.errors import (
     DuplicateDocumentError,
     EmptyFileError,
     NotFoundError,
     PayloadTooLargeError,
     UnsupportedMediaTypeError,
 )
-from domain.models import Chunk, UploadResult
-from domain.ports import EmbedderPort, KnowledgeBasePort, ParserPort, VectorStorePort
+from ragnexus.domain.models import Chunk, UploadResult
+from ragnexus.domain.ports import EmbedderPort, KnowledgeBasePort, ParserPort, VectorStorePort
 
 
 class UploadDocumentUseCase:
@@ -36,7 +36,7 @@ class UploadDocumentUseCase:
         kb_repo: KnowledgeBasePort,
         parser: ParserPort,
         embedder: EmbedderPort,
-        chunker: Callable[..., list[str]],
+        chunker: Callable[..., list[dict]],
         store: VectorStorePort,
         max_file_size: int = 10 * 1024 * 1024,
         allowed_exts: tuple[str, ...] = (".md", ".txt"),

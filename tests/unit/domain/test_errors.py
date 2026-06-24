@@ -1,6 +1,6 @@
 """Tests for domain/errors.py — DomainError hierarchy."""
 
-from domain.errors import (
+from ragnexus.domain.errors import (
     DomainError,
     ValidationError,
     NotFoundError,

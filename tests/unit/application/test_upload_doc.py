@@ -4,16 +4,16 @@ import hashlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from domain.errors import (
+from ragnexus.domain.errors import (
     DuplicateDocumentError,
     EmptyFileError,
     NotFoundError,
     PayloadTooLargeError,
     UnsupportedMediaTypeError,
 )
-from domain.models import Chunk, ParsedDocument, Section, UploadResult
+from ragnexus.domain.models import Chunk, ParsedDocument, Section, UploadResult
 
-from application.upload_doc_use_case import UploadDocumentUseCase
+from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ def mock_store():
 
 @pytest.fixture
 def use_case(mock_kb_repo, mock_embedder, mock_parser, mock_store):
-    from domain.chunking import heading_aware_split
+    from ragnexus.domain.chunking import heading_aware_split
     return UploadDocumentUseCase(
         kb_repo=mock_kb_repo,
         parser=mock_parser,
@@ -134,7 +134,7 @@ class TestUploadDocument:
     @pytest.mark.asyncio
     async def test_kb_not_found(self, mock_kb_repo, mock_embedder, mock_parser, mock_store):
         """Non-existent kb_id raises NotFoundError."""
-        from domain.chunking import heading_aware_split
+        from ragnexus.domain.chunking import heading_aware_split
         mock_kb_repo.exists.return_value = False
         uc = UploadDocumentUseCase(
             kb_repo=mock_kb_repo,
@@ -157,7 +157,7 @@ class TestUploadDocument:
         self, mock_kb_repo, mock_embedder, mock_parser, mock_store
     ):
         """Duplicate doc_id (SHA256 collision) raises DuplicateDocumentError BEFORE parsing."""
-        from domain.chunking import heading_aware_split
+        from ragnexus.domain.chunking import heading_aware_split
         mock_kb_repo.doc_exists.return_value = True
         uc = UploadDocumentUseCase(
             kb_repo=mock_kb_repo,
@@ -181,7 +181,7 @@ class TestUploadDocument:
     @pytest.mark.asyncio
     async def test_empty_file(self, mock_kb_repo, mock_embedder, mock_parser, mock_store):
         """File with no content (parser returns empty) raises EmptyFileError."""
-        from domain.chunking import heading_aware_split
+        from ragnexus.domain.chunking import heading_aware_split
         mock_parser.parse.return_value = ParsedDocument(
             filename="test.md",
             sections=[],

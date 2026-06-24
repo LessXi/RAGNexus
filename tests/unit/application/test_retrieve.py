@@ -3,10 +3,10 @@
 from unittest.mock import AsyncMock, PropertyMock
 
 import pytest
-from domain.errors import ValidationError, NotFoundError
-from domain.models import SearchHit
+from ragnexus.domain.errors import ValidationError, NotFoundError
+from ragnexus.domain.models import SearchHit
 
-from application.retrieve_use_case import RetrieveUseCase
+from ragnexus.application.retrieve_use_case import RetrieveUseCase
 
 
 @pytest.fixture

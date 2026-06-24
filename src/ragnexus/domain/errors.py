@@ -4,6 +4,7 @@
 class DomainError(Exception):
     code: int = 9999
     http_status: int = 500
+    message: str = ""
 
     def __init__(self, message: str | None = None, errors: list[dict] | None = None):
         super().__init__(message or self.message)

@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from domain.errors import DuplicateDocumentError
-from domain.models import Chunk, SearchHit
+from ragnexus.domain.errors import DuplicateDocumentError
+from ragnexus.domain.models import Chunk, SearchHit
 
 
 class _AcquireCM:
@@ -79,7 +79,7 @@ def mock_pool(mock_conn):
 @pytest.fixture
 def pg_store(mock_pool):
     """PgVectorStore with pool injected directly (bypass connect())."""
-    from adapters.vector_store.pgvector import PgVectorStore
+    from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 
     store = PgVectorStore(
         dsn="postgresql://t:t@localhost:5432/t",

@@ -5,7 +5,7 @@ Implements ParserPort. Heading-aware for .md, raw-text fallback for .txt.
 
 import re
 
-from domain.models import ParsedDocument, Section
+from ragnexus.domain.models import ParsedDocument, Section
 
 
 class MarkdownAndTextParser:

@@ -6,8 +6,8 @@ import subprocess
 import pytest
 from fastapi.testclient import TestClient
 
-from composition import build_app
-from config import get_settings
+from ragnexus.composition import build_app
+from ragnexus.config import get_settings
 
 TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
 

@@ -1,10 +1,10 @@
 """Integration tests for PgKnowledgeBaseRepository with real PostgreSQL."""
 
 import pytest
-from domain.errors import ConflictError
-from domain.models import KnowledgeBase
+from ragnexus.domain.errors import ConflictError
+from ragnexus.domain.models import KnowledgeBase
 
-from adapters.knowledge_base.pg import PgKnowledgeBaseRepository
+from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
 
 pytestmark = [pytest.mark.integration]
 

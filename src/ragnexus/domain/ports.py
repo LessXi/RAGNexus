@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from domain.models import KnowledgeBase, Chunk, SearchHit, ParsedDocument
+from ragnexus.domain.models import KnowledgeBase, Chunk, SearchHit, ParsedDocument
 
 
 class VectorStorePort(Protocol):

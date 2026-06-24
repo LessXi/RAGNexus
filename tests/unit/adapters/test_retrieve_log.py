@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from adapters.retrieve_log.pg import PgRetrieveLogRepository
+from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
 
 
 class _CtxAcquirer:

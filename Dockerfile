@@ -13,4 +13,4 @@ COPY . .
 RUN uv sync --no-dev --frozen
 
 EXPOSE 8000
-CMD ["uv", "run", "python", "-m", "uvicorn", "composition:build_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "python", "-m", "uvicorn", "ragnexus.composition:build_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,6 +1,6 @@
 """Text chunking strategies — heading-aware for .md, fixed-size for .txt."""
 
-from domain.models import ParsedDocument
+from ragnexus.domain.models import ParsedDocument
 
 
 def heading_aware_split(

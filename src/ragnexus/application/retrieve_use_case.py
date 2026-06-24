@@ -3,9 +3,9 @@
 import asyncio
 import time
 
-from domain.errors import ValidationError, NotFoundError
-from domain.models import SearchHit
-from domain.ports import EmbedderPort, VectorStorePort, KnowledgeBasePort, RetrieveLogPort
+from ragnexus.domain.errors import ValidationError, NotFoundError
+from ragnexus.domain.models import SearchHit
+from ragnexus.domain.ports import EmbedderPort, VectorStorePort, KnowledgeBasePort, RetrieveLogPort
 
 
 class RetrieveUseCase:

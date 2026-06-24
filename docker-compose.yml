@@ -31,9 +31,10 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
+    environment:
+      PG_DSN: postgresql://ragnexus:ragnexus@db:5432/ragnexus
     depends_on:
       init-db:
         condition: service_completed_successfully
-
 volumes:
   pgdata:

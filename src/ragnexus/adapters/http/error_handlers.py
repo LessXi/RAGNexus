@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from domain.errors import DomainError
+from ragnexus.domain.errors import DomainError
 
 
 def register_error_handlers(app: FastAPI) -> None:

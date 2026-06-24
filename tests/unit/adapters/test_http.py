@@ -7,13 +7,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from adapters.http.create_kb_router import create_router as create_kb_router
-from adapters.http.upload_doc_router import create_router as create_upload_router
-from adapters.http.retrieve_router import create_router as create_retrieve_router
-from adapters.http.error_handlers import register_error_handlers
+from ragnexus.adapters.http.create_kb_router import create_router as create_kb_router
+from ragnexus.adapters.http.upload_doc_router import create_router as create_upload_router
+from ragnexus.adapters.http.retrieve_router import create_router as create_retrieve_router
+from ragnexus.adapters.http.error_handlers import register_error_handlers
 
-from domain.errors import DomainError, UnsupportedMediaTypeError
-from domain.models import KnowledgeBase, UploadResult, SearchHit
+from ragnexus.domain.errors import DomainError, UnsupportedMediaTypeError
+from ragnexus.domain.models import KnowledgeBase, UploadResult, SearchHit
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────

@@ -5,8 +5,8 @@ import json
 import asyncpg
 from pgvector.asyncpg import register_vector
 
-from domain.errors import DuplicateDocumentError
-from domain.models import Chunk, SearchHit
+from ragnexus.domain.errors import DuplicateDocumentError
+from ragnexus.domain.models import Chunk, SearchHit
 
 
 class PgVectorStore:
@@ -65,6 +65,7 @@ class PgVectorStore:
         """
         if not chunks:
             return
+        assert self.pool is not None, "call connect() first"
         doc_id = chunks[0].doc_id
         async with self.pool.acquire() as conn:
             async with conn.transaction():
@@ -140,6 +141,7 @@ class PgVectorStore:
 
         Returns results sorted by descending score (``1 - cosine_distance``).
         """
+        assert self.pool is not None, "call connect() first"
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 """SELECT id, kb_id, doc_id, text, metadata,

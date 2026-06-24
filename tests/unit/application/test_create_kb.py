@@ -3,10 +3,10 @@
 from unittest.mock import AsyncMock
 
 import pytest
-from domain.errors import ValidationError, ConflictError
-from domain.models import KnowledgeBase
+from ragnexus.domain.errors import ValidationError, ConflictError
+from ragnexus.domain.models import KnowledgeBase
 
-from application.create_kb_use_case import CreateKnowledgeBaseUseCase
+from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
 
 
 @pytest.fixture

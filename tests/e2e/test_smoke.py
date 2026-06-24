@@ -9,7 +9,7 @@ import os
 import subprocess
 
 import pytest
-from config import get_settings
+from ragnexus.config import get_settings
 
 pytestmark = [
     pytest.mark.e2e,

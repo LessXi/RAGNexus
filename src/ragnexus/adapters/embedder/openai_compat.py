@@ -10,7 +10,7 @@ Implements EmbedderPort via an async HTTP client that supports:
 import asyncio
 
 import httpx
-from domain.errors import UpstreamError
+from ragnexus.domain.errors import UpstreamError
 
 
 class OpenAICompatEmbedder:
@@ -63,6 +63,8 @@ class OpenAICompatEmbedder:
             return []
 
         await self._ensure_client()
+        client = self._client
+        assert client is not None, "Client not initialized"
 
         # Split into batches
         batches = [
@@ -70,11 +72,12 @@ class OpenAICompatEmbedder:
             for i in range(0, len(texts), self.batch_size)
         ]
 
-        async def _embed_one(batch: list[str]) -> list[list[float]]:
+        async def _embed_one(client: httpx.AsyncClient, batch: list[str]) -> list[list[float]]:
             async with self._sem:
+                last_err: Exception | None = None
                 for attempt in range(self.max_retries):
                     try:
-                        r = await self._client.post(
+                        r = await client.post(
                             f"{self.base_url}/embeddings",
                             headers={"Authorization": f"Bearer {self.api_key}"},
                             json={"model": self.model, "input": batch},
@@ -85,13 +88,13 @@ class OpenAICompatEmbedder:
                         r.raise_for_status()
                         return [item["embedding"] for item in r.json()["data"]]
                     except httpx.HTTPError as e:
+                        last_err = e
                         if attempt == self.max_retries - 1:
                             raise UpstreamError(f"Embedder 失败: {e}")
                         await asyncio.sleep(self.retry_backoff_base**attempt)
-
+                raise UpstreamError(f"Embedder 失败: {last_err}")
         # Concurrent execution via asyncio.gather
-        results = await asyncio.gather(*[_embed_one(b) for b in batches])
-
+        results = await asyncio.gather(*[_embed_one(client, b) for b in batches])
         # Flatten
         flat = [vec for batch_vecs in results for vec in batch_vecs]
 
