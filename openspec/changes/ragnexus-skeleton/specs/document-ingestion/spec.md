@@ -6,8 +6,9 @@
 
 ## ADDED Requirements
 
-### 文档上传
+### Requirement: 文档上传
 
+本需求定义文档上传接口的请求格式、校验规则和幂等性保证。
 #### Scenario: 成功上传并索引
 - **GIVEN** 有效的 kb_id 和 .md 文件（≤10MB）
 - **WHEN** POST /v1/documents:upload
@@ -18,7 +19,7 @@
 - **WHEN** 再次上传
 - **THEN** 返回 409（code 1201），**解析/Embedding 前检测**
 
-### 文档处理
+### Requirement: 文档处理
 
 - **MUST** 同步索引：请求阻塞到所有 chunk 写入 pgvector 才返回
 - **MUST** doc_id = `"doc_" + sha256(file_bytes)[:16]`
@@ -28,15 +29,25 @@
 - **MUST** Embedding：batch_size=50, max_concurrency=5, 429 重试最多 3 次（指数退避），维度失配 → 502（code 1500）
 - **MUST** 事务写入 documents + chunks 表
 
-### 数据模型
+#### Scenario: Normal operation
+- **WHEN** 系统接收到符合规范的请求
+- **THEN** 按 MUST 语义返回预期响应
+### Requirement: 数据模型
 
 - **MUST** `documents` 表：`doc_id PK, kb_id FK, filename, file_hash (完整 SHA-256), file_size, content_type (text/markdown | text/plain), chunk_count, uploaded_at`
 - **MUST** `chunks` 表：`PRIMARY KEY (doc_id, id), kb_id FK, doc_id FK, text, metadata JSONB, embedding vector(1024)`
 - **MUST** Chunk metadata 包含：`{filename, file_hash, file_size, content_type, chunk_index, heading, heading_level}`
 
-### 响应
+#### Scenario: Normal operation
+- **WHEN** 系统接收到符合规范的请求
+- **THEN** 按 MUST 语义返回预期响应
+### Requirement: 响应
 
 - **MUST** 成功返回 201：`{code: 0, data: {doc_id, kb_id, chunk_count}}`
 - **MUST NOT** 返回 chunks 列表
 
 > 完整接口规范见 [`docs/3-pgvector-rag-cuddly-dream.md`](../../../../../docs/3-pgvector-rag-cuddly-dream.md) §1.2、§6.2、§8.2、§8.4、§10
+
+#### Scenario: Normal operation
+- **WHEN** 系统接收到符合规范的请求
+- **THEN** 按 MUST 语义返回预期响应
