@@ -3,9 +3,14 @@
 from config import Settings, get_settings
 
 
-def test_defaults():
-    """Verify default values are correct."""
-    s = Settings()
+def test_defaults(monkeypatch):
+    """Verify default values are correct (without .env or env var overrides)."""
+    monkeypatch.delenv("PG_DSN", raising=False)
+    monkeypatch.delenv("EMBED_API_KEY", raising=False)
+    monkeypatch.delenv("PG_POOL_MIN", raising=False)
+    monkeypatch.delenv("PG_POOL_MAX", raising=False)
+    monkeypatch.delenv("PG_COMMAND_TIMEOUT", raising=False)
+    s = Settings(_env_file=None)  # skip .env to test built-in defaults
     assert s.HOST == "0.0.0.0"
     assert s.PORT == 8000
     assert s.LOG_LEVEL == "INFO"

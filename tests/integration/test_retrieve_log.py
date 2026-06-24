@@ -4,10 +4,7 @@ import pytest
 
 from adapters.retrieve_log.pg import PgRetrieveLogRepository
 
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.asyncio,
-]
+pytestmark = [pytest.mark.integration]
 
 _TEST_COUNTER = 0
 

@@ -5,25 +5,30 @@ They test real vector operations: upsert chunks and cosine-similarity search.
 """
 
 import pytest
+import pytest_asyncio
 
 from adapters.vector_store.pgvector import PgVectorStore
 from domain.errors import DuplicateDocumentError
 from domain.models import Chunk, SearchHit
 
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.asyncio,
-]
+pytestmark = [pytest.mark.integration]
 
-# Port 5433 — test-db from docker-compose.test.yml
+TEST_DIM = 1024
 TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
-TEST_DIM = 3
+
+
+def _make_vec(*seed_vals: float) -> list[float]:
+    """Create a TEST_DIM-dim vector, padding with zeros after seed values."""
+    vec = [0.0] * TEST_DIM
+    for i, v in enumerate(seed_vals):
+        vec[i] = float(v)
+    return vec
 
 
 class TestPgVectorStore:
     """PgVectorStore upsert + search integration tests."""
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def store(self):
         """Create a PgVectorStore connected to test-db."""
         s = PgVectorStore(dsn=TEST_DSN, dim=TEST_DIM, pool_min=1, pool_max=2)
@@ -49,12 +54,12 @@ class TestPgVectorStore:
         chunks = [
             Chunk(
                 id=f"{doc_id}:0", kb_id=kb_id, doc_id=doc_id,
-                text="hello world", vector=[0.1, 0.2, 0.3],
+                text="hello world", vector=_make_vec(0.1, 0.2, 0.3),
                 metadata={"filename": "test.md", "chunk_index": 0},
             ),
             Chunk(
                 id=f"{doc_id}:1", kb_id=kb_id, doc_id=doc_id,
-                text="goodbye world", vector=[0.9, 0.8, 0.7],
+                text="goodbye world", vector=_make_vec(0.9, 0.8, 0.7),
                 metadata={"filename": "test.md", "chunk_index": 1},
             ),
         ]
@@ -77,7 +82,7 @@ class TestPgVectorStore:
         chunks = [
             Chunk(
                 id=f"{doc_id}:0", kb_id=kb_id, doc_id=doc_id,
-                text="first", vector=[0.1, 0.2, 0.3],
+                text="first", vector=_make_vec(0.1, 0.2, 0.3),
                 metadata={},
             ),
         ]
@@ -94,21 +99,21 @@ class TestPgVectorStore:
         doc_id = f"doc_search_{id(self)}"
         await self._ensure_kb(kb_id, pg_pool)
 
-        # Insert chunks with distinct vectors
+        # Insert chunks with distinct vectors (one-hot in first 3 dims)
         chunks = [
             Chunk(
                 id=f"{doc_id}:0", kb_id=kb_id, doc_id=doc_id,
-                text="apple pie", vector=[1.0, 0.0, 0.0],
+                text="apple pie", vector=_make_vec(1.0, 0.0, 0.0),
                 metadata={"food": "pie"},
             ),
             Chunk(
                 id=f"{doc_id}:1", kb_id=kb_id, doc_id=doc_id,
-                text="banana bread", vector=[0.0, 1.0, 0.0],
+                text="banana bread", vector=_make_vec(0.0, 1.0, 0.0),
                 metadata={"food": "bread"},
             ),
             Chunk(
                 id=f"{doc_id}:2", kb_id=kb_id, doc_id=doc_id,
-                text="cherry tart", vector=[0.0, 0.0, 1.0],
+                text="cherry tart", vector=_make_vec(0.0, 0.0, 1.0),
                 metadata={"food": "tart"},
             ),
         ]
@@ -116,7 +121,7 @@ class TestPgVectorStore:
 
         # Search for vectors close to apple pie
         hits = await store.search_by_vector(
-            query_vector=[0.95, 0.05, 0.0],
+            query_vector=_make_vec(0.95, 0.05, 0.0),
             top_k=3,
             kb_ids=[kb_id],
         )
@@ -136,7 +141,7 @@ class TestPgVectorStore:
 
         doc_a = f"doc_cross_a_{id(self)}"
         doc_b = f"doc_cross_b_{id(self)}"
-        vec = [0.5, 0.5, 0.0]
+        vec = _make_vec(0.5, 0.5, 0.0)
 
         await store.upsert(kb_a, [
             Chunk(id=f"{doc_a}:0", kb_id=kb_a, doc_id=doc_a,
@@ -162,7 +167,7 @@ class TestPgVectorStore:
         await self._ensure_kb(kb_id, pg_pool)
 
         hits = await store.search_by_vector(
-            query_vector=[0.1, 0.2, 0.3],
+            query_vector=_make_vec(0.1, 0.2, 0.3),
             top_k=5,
             kb_ids=[kb_id],
         )

@@ -6,10 +6,7 @@ from domain.models import KnowledgeBase
 
 from adapters.knowledge_base.pg import PgKnowledgeBaseRepository
 
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.asyncio,
-]
+pytestmark = [pytest.mark.integration]
 
 _KB_COUNTER = 0
 

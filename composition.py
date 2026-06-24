@@ -147,7 +147,6 @@ async def lifespan(app: FastAPI):
     app.include_router(create_kb_router(create_kb_uc))
     app.include_router(create_upload_doc_router(upload_doc_uc))
     app.include_router(create_retrieve_router(retrieve_uc))
-    register_error_handlers(app)
 
     # Stash references for teardown
     app.state.store = store
@@ -167,4 +166,7 @@ def build_app() -> FastAPI:
     (pool cleanup).  No external dependencies are required at construction
     time — the app is safe to import without a running database.
     """
-    return FastAPI(lifespan=lifespan)
+    app = FastAPI(lifespan=lifespan)
+    register_error_handlers(app)
+    app.middleware_stack = app.build_middleware_stack()
+    return app

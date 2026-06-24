@@ -27,4 +27,5 @@ markers = [
     "integration: requires Docker with PostgreSQL + pgvector",
     "e2e: requires Docker with PostgreSQL + pgvector",
 ]
+asyncio_mode = "auto"
 addopts = "-m 'not integration and not e2e'"

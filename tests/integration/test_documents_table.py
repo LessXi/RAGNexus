@@ -2,10 +2,7 @@
 
 import pytest
 
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.asyncio,
-]
+pytestmark = [pytest.mark.integration]
 
 
 class TestDocumentsTable:

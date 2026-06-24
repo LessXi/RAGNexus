@@ -154,8 +154,24 @@ class TestE2EFullFlow:
         assert resp.status_code == 200
         kb_id = resp.json()["data"]["kb_id"]
 
-        # 2. Upload .md file
-        content = b"# Hello\n\nThis is an E2E test document for RAGNexus."
+        content = (
+            b"# RAGNexus Overview\n\n"
+            b"RAGNexus is a RAG middleware platform that provides knowledge base management, "
+            b"document ingestion, and vector retrieval capabilities. "
+            b"It uses pgvector for vector storage and supports OpenAI-compatible embedding APIs.\n\n"
+            b"## Architecture\n\n"
+            b"The system follows a hexagonal architecture with three layers: domain, application, and adapters. "
+            b"Domain contains pure business logic and ports. Application orchestrates use cases. "
+            b"Adapters implement ports with concrete technologies like FastAPI, pgvector, and httpx.\n\n"
+            b"## Getting Started\n\n"
+            b"Clone the repository and run docker compose up to start the full stack. "
+            b"The app exposes three endpoints: create knowledge base, upload document, and retrieve. "
+            b"All endpoints use the Google colon syntax with POST method only.\n\n"
+            b"## Embedding\n\n"
+            b"Documents are chunked using heading-aware splitting with configurable chunk size and overlap. "
+            b"Each chunk is embedded via the configured embedder and stored in pgvector with HNSW indexing. "
+            b"Retrieval uses cosine similarity scoring with cross-knowledge-base global top-k merging."
+        )
         resp = client.post(
             "/v1/documents:upload",
             data={"kb_id": kb_id},
@@ -166,7 +182,9 @@ class TestE2EFullFlow:
         assert upload_data["code"] == 0
         assert upload_data["data"]["doc_id"]
         assert upload_data["data"]["kb_id"] == kb_id
-        assert upload_data["data"]["chunk_count"] >= 0
+        assert upload_data["data"]["chunk_count"] >= 2, (
+            f"Expected >= 2 chunks (multi-heading doc), got {upload_data['data']['chunk_count']}"
+        )
 
         # 3. Retrieve
         resp = client.post(
@@ -176,5 +194,7 @@ class TestE2EFullFlow:
         assert resp.status_code == 200
         retrieve_data = resp.json()
         assert retrieve_data["code"] == 0
-        assert retrieve_data["data"]["total"] >= 0
+        assert retrieve_data["data"]["total"] >= 1, (
+            f"Expected at least 1 hit, got {retrieve_data['data']['total']}"
+        )
         assert isinstance(retrieve_data["data"]["hits"], list)
