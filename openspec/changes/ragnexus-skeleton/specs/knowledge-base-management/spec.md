@@ -7,7 +7,7 @@
 ## ADDED Requirements
 
 ### Requirement: KB 创建
-本需求定义 `KB 创建` 的接口契约和数据模型。
+系统 **SHALL** KB 创建。
 
 
 #### Scenario: 成功创建知识库

@@ -7,7 +7,7 @@
 ## ADDED Requirements
 
 ### Requirement: 检索请求
-本需求定义 `检索请求` 的接口契约和数据模型。
+系统 **SHALL** 检索请求。
 
 
 #### Scenario: 成功检索
