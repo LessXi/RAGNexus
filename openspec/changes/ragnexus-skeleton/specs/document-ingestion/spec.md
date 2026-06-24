@@ -4,16 +4,19 @@
 
 提供文档上传 + 同步索引能力，将 .md/.txt 文件解析、切分、向量化后写入 pgvector。
 
-## Requirements
+## ADDED Requirements
 
 ### 文档上传
 
-- **MUST** 接受 `POST /v1/documents:upload`，`multipart/form-data`（`kb_id` + `file`）
-- **MUST** 文件大小 ≤ 10MB（超限 → 413，code 1301）
-- **MUST** 文件后缀仅 `.md` / `.txt`（其他 → 415，code 1300）
-- **MUST** 文件为空或解析无有效内容 → 422（code 1400）
-- **MUST** kb_id 不存在 → 404（code 1100）
-- **MUST** doc_id 重复（SHA-256 前 16 位）→ 409（code 1201），**在解析/Embedding 前检测**以节省资源
+#### Scenario: 成功上传并索引
+- **GIVEN** 有效的 kb_id 和 .md 文件（≤10MB）
+- **WHEN** POST /v1/documents:upload
+- **THEN** 返回 201，data 含 doc_id、kb_id、chunk_count；文件已解析、切分、向量化、写入 pgvector
+
+#### Scenario: 重复上传拒绝
+- **GIVEN** 同文件已上传（相同 SHA-256）
+- **WHEN** 再次上传
+- **THEN** 返回 409（code 1201），**解析/Embedding 前检测**
 
 ### 文档处理
 

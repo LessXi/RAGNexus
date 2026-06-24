@@ -4,14 +4,19 @@
 
 提供纯向量检索能力，给定查询文本，在指定知识库中检索最相关的文档片段。
 
-## Requirements
+## ADDED Requirements
 
 ### 检索请求
 
-- **MUST** 接受 `POST /v1/rag:retrieve`，请求体 `{"query": "<1-2000 字符>", "kb_ids": ["<1-5 个>"], "top_k": <1-50>}`
-- **MUST** strict 模式：多余字段（包括 `filter`）→ 422（code 1000）
-- **MUST** kb_ids 任一不存在 → 404（code 1100）
-- **MUST** query 为空 / kb_ids 为空 / top_k 越界 → 422（code 1000）
+#### Scenario: 成功检索
+- **GIVEN** 有效的 query、存在的 kb_ids、合法的 top_k
+- **WHEN** POST /v1/rag:retrieve
+- **THEN** 返回 200，data 含 total 和 hits[] 列表，按 score 降序排列
+
+#### Scenario: 多余字段拒绝
+- **GIVEN** 请求体含 filter 字段（不在 schema 中）
+- **WHEN** POST /v1/rag:retrieve
+- **THEN** 返回 422（code 1000），strict 模式拦截
 
 ### 检索逻辑
 
