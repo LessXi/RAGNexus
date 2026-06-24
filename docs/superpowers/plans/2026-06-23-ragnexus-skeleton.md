@@ -2,6 +2,7 @@
 change: ragnexus-skeleton
 design-doc: docs/superpowers/specs/2026-06-23-ragnexus-skeleton-design.md
 base-ref: 84e91291aca706876541454e2520973df10fe107
+archived-with: 2026-06-24-ragnexus-skeleton
 ---
 
 # RAGNexus 第一期骨架 — 实施计划
@@ -22,6 +23,7 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 - EMBED_DIM 启动检测（pg_attribute.atttypmod 查询 chunks.embedding 列维度）（ConfigError 1600），Docker Compose 一键拉起（推荐）
 - 同步索引，硬删除，全有或全无 embedder 批次失败
 
+archived-with: 2026-06-24-ragnexus-skeleton
 ---
 
 ## Phase 1 — 脚手架
@@ -57,6 +59,7 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 - [x] 运行 `uv run pytest tests/unit/test_config.py -v` → PASS
 - [x] Commit
 
+archived-with: 2026-06-24-ragnexus-skeleton
 ---
 
 ## Phase 2 — Domain 层
@@ -82,6 +85,7 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 - [x] `uv run pytest tests/unit/domain/ -v` → PASS
 - [x] Commit
 
+archived-with: 2026-06-24-ragnexus-skeleton
 ---
 
 ## Phase 3 — Application 层
@@ -113,6 +117,7 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 - [x] `uv run pytest tests/unit/application/test_retrieve.py -v` → PASS
 - [x] Commit
 
+archived-with: 2026-06-24-ragnexus-skeleton
 ---
 
 ## Phase 4 — Adapters 层
@@ -146,6 +151,7 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 - [x] 全部单测 `uv run pytest tests/unit/adapters/ -v` → PASS
 - [x] Commit
 
+archived-with: 2026-06-24-ragnexus-skeleton
 ---
 
 ## Phase 5 — HTTP + 装配
@@ -167,6 +173,7 @@ base-ref: 84e91291aca706876541454e2520973df10fe107
 - [x] main.py: `get_settings()` → `uvicorn.run("composition:build_app", factory=True, host=cfg.HOST, port=cfg.PORT)`
 - [x] Commit
 
+archived-with: 2026-06-24-ragnexus-skeleton
 ---
 
 ## Phase 6 — 测试 + 验收

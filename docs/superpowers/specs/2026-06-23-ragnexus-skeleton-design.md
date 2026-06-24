@@ -2,6 +2,8 @@
 comet_change: ragnexus-skeleton
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-06-24-ragnexus-skeleton
+status: final
 ---
 
 # RAGNexus 第一期骨架 — 技术设计
@@ -245,6 +247,8 @@ asyncpg Pool (min=1, max=10)
 | 全局 top_k 偏置（大 KB 占满）| 中 | 低 | 第一期 KB 量预期 <10，偏置不显著；第二期 KB 级限流 |
 | 单个 worker 大量并发 upload | 低 | 中（embedder 被压爆 → 502 雨） | uvicorn workers 自然限流；未来加全局 semaphore |
 
+archived-with: 2026-06-24-ragnexus-skeleton
+status: final
 ---
 
 > **OpenSpec 能力规格**：[`openspec/changes/ragnexus-skeleton/specs/`](../../openspec/changes/ragnexus-skeleton/specs/)
