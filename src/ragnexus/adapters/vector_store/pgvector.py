@@ -26,13 +26,11 @@ class PgVectorStore:
     def __init__(
         self,
         dsn: str,
-        dim: int,
         pool_min: int = 1,
         pool_max: int = 10,
         command_timeout: float = 30.0,
     ):
         self.dsn = dsn
-        self.dim = dim
         self.pool_min = pool_min
         self.pool_max = pool_max
         self.command_timeout = command_timeout

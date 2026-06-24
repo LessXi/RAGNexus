@@ -1,31 +1,15 @@
 """E2E test configuration — provides a real FastAPI TestClient wired to test-db."""
 
 import os
-import subprocess
 
 import pytest
 from fastapi.testclient import TestClient
 
 from ragnexus.composition import build_app
 from ragnexus.config import get_settings
+from tests.conftest import _docker_available
 
 TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
-
-
-def _docker_available() -> bool:
-    try:
-        return (
-            subprocess.run(
-                ["docker", "compose", "version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            ).returncode
-            == 0
-        )
-    except Exception:
-        return False
-
 
 pytestmark = [
     pytest.mark.e2e,

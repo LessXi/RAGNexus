@@ -11,12 +11,11 @@ from ragnexus.domain.errors import (
     UnsupportedMediaTypeError,
     UpstreamError,
     ValidationError,
-    VectorStoreError,
 )
 
 
 def test_error_codes():
-    """All 10 subclasses have distinct codes 1000–1600."""
+    """All 9 subclasses have distinct codes 1000–1600."""
     assert ValidationError.code == 1000
     assert NotFoundError.code == 1100
     assert ConflictError.code == 1200
@@ -25,7 +24,6 @@ def test_error_codes():
     assert PayloadTooLargeError.code == 1301
     assert EmptyFileError.code == 1400
     assert UpstreamError.code == 1500
-    assert VectorStoreError.code == 1501
     assert ConfigError.code == 1600
 
 
@@ -39,7 +37,6 @@ def test_http_status():
     assert PayloadTooLargeError.http_status == 413
     assert EmptyFileError.http_status == 422
     assert UpstreamError.http_status == 502
-    assert VectorStoreError.http_status == 502
     assert ConfigError.http_status == 500
 
 
@@ -47,11 +44,11 @@ def test_error_fields():
     """DomainError stores message and errors list correctly."""
 
     err2 = DomainError(message="oops", errors=[{"field": "name", "reason": "required"}])
-    assert err2.message_text == "oops"
+    assert err2.message == "oops"
     assert err2.errors == [{"field": "name", "reason": "required"}]
 
     err3 = DomainError(message="just text")
-    assert err3.message_text == "just text"
+    assert err3.message == "just text"
     assert err3.errors == []
 
     # Default code and http_status on base class
@@ -69,14 +66,6 @@ def test_inheritance():
     # But not the reverse
     assert not issubclass(ConflictError, DuplicateDocumentError)
 
-    # VectorStoreError inherits from UpstreamError
-    assert issubclass(VectorStoreError, UpstreamError)
-    assert issubclass(VectorStoreError, DomainError)
-    assert isinstance(VectorStoreError(), UpstreamError)
-    assert isinstance(VectorStoreError(), DomainError)
-    # But not the reverse
-    assert not issubclass(UpstreamError, VectorStoreError)
-
     # All error classes are DomainError subclasses
     for exc in [
         ValidationError,
@@ -87,7 +76,6 @@ def test_inheritance():
         PayloadTooLargeError,
         EmptyFileError,
         UpstreamError,
-        VectorStoreError,
         ConfigError,
     ]:
         assert issubclass(exc, DomainError), f"{exc.__name__} is not a DomainError subclass"
@@ -104,5 +92,4 @@ def test_error_instantiation():
     PayloadTooLargeError()
     EmptyFileError()
     UpstreamError("上游挂了")
-    VectorStoreError()
     ConfigError("配置错误")

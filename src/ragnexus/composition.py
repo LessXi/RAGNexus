@@ -56,7 +56,6 @@ async def lifespan(app: FastAPI):
     # --- 1. Vector store (owns its own pool with pgvector init) -----------
     store = PgVectorStore(
         dsn=cfg.PG_DSN,
-        dim=cfg.EMBED_DIM,
         pool_min=cfg.PG_POOL_MIN,
         pool_max=cfg.PG_POOL_MAX,
         command_timeout=cfg.PG_COMMAND_TIMEOUT,

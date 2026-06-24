@@ -34,7 +34,7 @@ def test_defaults(monkeypatch):
 
 
 def test_get_settings_is_singleton():
-    """get_settings() returns the same instance (lru_cache)."""
+    """get_settings() returns the same instance (@cache)."""
     s1 = get_settings()
     s2 = get_settings()
     assert s1 is s2

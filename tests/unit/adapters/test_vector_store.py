@@ -85,7 +85,6 @@ def pg_store(mock_pool):
 
     store = PgVectorStore(
         dsn="postgresql://t:t@localhost:5432/t",
-        dim=3,
     )
     store.pool = mock_pool
     return store

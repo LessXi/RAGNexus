@@ -3,7 +3,7 @@
 All settings are read from .env file with sensible defaults.
 """
 
-from functools import lru_cache
+from functools import cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
 
 
-@lru_cache
+@cache
 def get_settings() -> Settings:
     """Return cached Settings singleton."""
     return Settings()

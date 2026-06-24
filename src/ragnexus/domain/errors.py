@@ -7,8 +7,9 @@ class DomainError(Exception):
     message: str = ""
 
     def __init__(self, message: str | None = None, errors: list[dict] | None = None):
-        super().__init__(message or self.message)
-        self.message_text = message
+        super().__init__(message or self.__class__.message)
+        if message is not None:
+            self.message = message
         self.errors = errors or []
 
 
@@ -42,10 +43,6 @@ class EmptyFileError(DomainError):
 
 class UpstreamError(DomainError):
     code, http_status, message = 1500, 502, "上游服务异常"
-
-
-class VectorStoreError(UpstreamError):
-    code, http_status, message = 1501, 502, "向量库失败"
 
 
 class ConfigError(DomainError):

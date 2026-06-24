@@ -26,7 +26,7 @@ def register_error_handlers(app: FastAPI) -> None:
             content={
                 "code": exc.code,
                 "data": None,
-                "message": exc.message_text or exc.message,
+                "message": exc.message,
                 "errors": exc.errors,
             },
         )

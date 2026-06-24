@@ -14,6 +14,7 @@ node_modules/
 
 # Oh My Pi harness — local agent tooling (whole dir)
 .pi/
+.agents/
 skills-lock.json
 
 # Code intelligence tool — local cache

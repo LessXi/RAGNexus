@@ -35,4 +35,4 @@ def fixed_size_split(text: str, max_chars: int, overlap: int) -> list[str]:
     if not text:
         return []
     step = max_chars - overlap
-    return [text[i : i + max_chars] for i in range(0, max(len(text), 1), step)]
+    return [text[i : i + max_chars] for i in range(0, len(text), step)]

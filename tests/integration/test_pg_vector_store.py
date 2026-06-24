@@ -31,7 +31,7 @@ class TestPgVectorStore:
     @pytest_asyncio.fixture
     async def store(self):
         """Create a PgVectorStore connected to test-db."""
-        s = PgVectorStore(dsn=TEST_DSN, dim=TEST_DIM, pool_min=1, pool_max=2)
+        s = PgVectorStore(dsn=TEST_DSN, pool_min=1, pool_max=2)
         await s.connect()
         yield s
         await s.close()
