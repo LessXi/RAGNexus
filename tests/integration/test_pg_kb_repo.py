@@ -3,7 +3,7 @@
 import pytest
 
 from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
-from ragnexus.domain.errors import ConflictError
+from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import KnowledgeBase
 
 pytestmark = [pytest.mark.integration]
@@ -54,9 +54,9 @@ class TestPgKbRepoCreate:
         repo = PgKnowledgeBaseRepository(pg_pool)
         name = _unique_name("dup")
         await repo.create(name=name, name_key=name)
-        with pytest.raises(ConflictError) as exc_info:
+        with pytest.raises(AppError) as exc_info:
             await repo.create(name=name, name_key=name)
-        assert exc_info.value.code == 1200
+        assert exc_info.value.code == ErrorCode.RESOURCE_CONFLICT.code
         assert exc_info.value.http_status == 409
 
 

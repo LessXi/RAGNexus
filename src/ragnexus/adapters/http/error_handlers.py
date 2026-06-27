@@ -1,10 +1,10 @@
-"""Global error handlers for FastAPI — maps DomainError → JSONResponse."""
+"""Global error handlers for FastAPI — maps AppError → JSONResponse."""
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from ragnexus.domain.errors import DomainError
+from ragnexus.core.errors import AppError, ErrorCode
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -16,10 +16,10 @@ def register_error_handlers(app: FastAPI) -> None:
         {"code": int, "data": None, "message": str, "errors": list[dict]}
     """
 
-    @app.exception_handler(DomainError)
+    @app.exception_handler(AppError)
     async def _domain_error_handler(
         request: Request,
-        exc: DomainError,
+        exc: AppError,
     ) -> JSONResponse:
         return JSONResponse(
             status_code=exc.http_status,
@@ -47,7 +47,7 @@ def register_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=422,
             content={
-                "code": 1000,
+                "code": ErrorCode.PARAM_ERROR.code,
                 "data": None,
                 "message": "参数错误",
                 "errors": errors,

@@ -15,8 +15,12 @@ from fastapi import FastAPI
 from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
 from ragnexus.adapters.http.create_kb_router import create_router as create_kb_router
 from ragnexus.adapters.http.error_handlers import register_error_handlers
-from ragnexus.adapters.http.retrieve_router import create_router as create_retrieve_router
-from ragnexus.adapters.http.upload_doc_router import create_router as create_upload_doc_router
+from ragnexus.adapters.http.retrieve_router import (
+    create_router as create_retrieve_router,
+)
+from ragnexus.adapters.http.upload_doc_router import (
+    create_router as create_upload_doc_router,
+)
 from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
 from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
 from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
@@ -25,8 +29,8 @@ from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
 from ragnexus.config import get_settings
+from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.chunking import heading_aware_split
-from ragnexus.domain.errors import ConfigError
 
 
 @asynccontextmanager
@@ -64,7 +68,7 @@ async def lifespan(app: FastAPI):
 
     # --- 2. EMBED_DIM validation ------------------------------------------
     if store.pool is None:
-        raise ConfigError("向量库连接池未初始化")
+        raise AppError(ErrorCode.CONFIG_ERROR, "向量库连接池未初始化")
     try:
         actual_dim: int | None = await store.pool.fetchval(
             "SELECT atttypmod FROM pg_attribute a"
@@ -73,18 +77,21 @@ async def lifespan(app: FastAPI):
             " AND a.attname = 'embedding'",
         )
     except Exception as exc:
-        raise ConfigError(
+        raise AppError(
+            ErrorCode.CONFIG_ERROR,
             "无法检测 embedding 列维度——请确保 schema.sql 已执行且数据库可访问",
             errors=[{"field": "embedding", "reason": str(exc)}],
         ) from exc
 
     if actual_dim is None:
-        raise ConfigError(
+        raise AppError(
+            ErrorCode.CONFIG_ERROR,
             "chunks.embedding 列不存在——请先执行 docs/sql/schema.sql",
             errors=[{"field": "embedding", "reason": "列未找到"}],
         )
     if actual_dim not in (-1, cfg.EMBED_DIM):
-        raise ConfigError(
+        raise AppError(
+            ErrorCode.CONFIG_ERROR,
             f"EMBED_DIM 不匹配：数据库 chunks.embedding 为 vector({actual_dim})，"
             f"配置为 {cfg.EMBED_DIM}",
             errors=[

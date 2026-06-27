@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
-from ragnexus.domain.errors import ConflictError, ValidationError
+from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import KnowledgeBase
 
 
@@ -44,7 +44,7 @@ async def test_create_kb_success(use_case, mock_kb_repo, sample_kb):
 async def test_name_too_short(use_case, mock_kb_repo):
     """Empty or whitespace-only name after strip should raise ValidationError."""
     for bad_name in ("", "  "):
-        with pytest.raises(ValidationError) as exc_info:
+        with pytest.raises(AppError) as exc_info:
             await use_case.execute(bad_name)
         assert exc_info.value.errors[0]["field"] == "name"
     mock_kb_repo.create.assert_not_called()
@@ -54,7 +54,7 @@ async def test_name_too_short(use_case, mock_kb_repo):
 async def test_name_too_long(use_case, mock_kb_repo):
     """Name longer than 64 chars after strip should raise ValidationError."""
     long_name = "A" * 65
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await use_case.execute(long_name)
     assert exc_info.value.errors[0]["field"] == "name"
     mock_kb_repo.create.assert_not_called()
@@ -63,7 +63,9 @@ async def test_name_too_long(use_case, mock_kb_repo):
 @pytest.mark.asyncio
 async def test_duplicate_name(use_case, mock_kb_repo):
     """When repo.create raises ConflictError, the use case should propagate it."""
-    mock_kb_repo.create.side_effect = ConflictError("KB name already exists")
+    mock_kb_repo.create.side_effect = AppError(
+        ErrorCode.RESOURCE_CONFLICT, "KB name already exists"
+    )
 
-    with pytest.raises(ConflictError):
+    with pytest.raises(AppError):
         await use_case.execute("Duplicate KB")

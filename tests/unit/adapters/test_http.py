@@ -9,9 +9,13 @@ from fastapi.testclient import TestClient
 
 from ragnexus.adapters.http.create_kb_router import create_router as create_kb_router
 from ragnexus.adapters.http.error_handlers import register_error_handlers
-from ragnexus.adapters.http.retrieve_router import create_router as create_retrieve_router
-from ragnexus.adapters.http.upload_doc_router import create_router as create_upload_router
-from ragnexus.domain.errors import DomainError, UnsupportedMediaTypeError
+from ragnexus.adapters.http.retrieve_router import (
+    create_router as create_retrieve_router,
+)
+from ragnexus.adapters.http.upload_doc_router import (
+    create_router as create_upload_router,
+)
+from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import KnowledgeBase, SearchHit, UploadResult
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
@@ -109,9 +113,9 @@ class TestUploadDoc:
         assert data["message"] == "ok"
 
     def test_wrong_extension(self, client, mock_upload_uc):
-        mock_upload_uc.execute.side_effect = UnsupportedMediaTypeError(
+        mock_upload_uc.execute.side_effect = AppError(
+            ErrorCode.UNSUPPORTED_FORMAT,
             "不支持的文件类型: .pdf",
-            errors=[{"field": "filename", "reason": "仅支持 .md, .txt 格式"}],
         )
         resp = client.post(
             "/v1/documents:upload",
@@ -120,7 +124,7 @@ class TestUploadDoc:
         )
         assert resp.status_code == 415
         data = resp.json()
-        assert data["code"] == 1300
+        assert data["code"] == ErrorCode.UNSUPPORTED_FORMAT.code
         assert data["data"] is None
         assert "不支持的文件类型" in data["message"]
 
@@ -178,14 +182,15 @@ class TestErrorHandler:
     """DomainError → proper JSON error response"""
 
     def test_domain_error_response(self, client, mock_kb_uc):
-        mock_kb_uc.execute.side_effect = DomainError(
+        mock_kb_uc.execute.side_effect = AppError(
+            ErrorCode.SERVER_ERROR,
             "测试错误",
             errors=[{"field": "test", "reason": "测试"}],
         )
         resp = client.post("/v1/knowledge-bases:create", json={"name": "Test"})
         assert resp.status_code == 500
         data = resp.json()
-        assert data["code"] == 9999
+        assert data["code"] == ErrorCode.SERVER_ERROR.code
         assert data["data"] is None
         assert data["message"] == "测试错误"
         assert data["errors"] == [{"field": "test", "reason": "测试"}]
@@ -198,7 +203,7 @@ class TestErrorHandler:
         )
         assert resp.status_code == 422
         data = resp.json()
-        assert data["code"] == 1000
+        assert data["code"] == ErrorCode.PARAM_ERROR.code
         assert data["data"] is None
         assert data["message"] == "参数错误"
         assert "errors" in data

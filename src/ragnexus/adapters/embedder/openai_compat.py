@@ -11,7 +11,7 @@ import asyncio
 
 import httpx
 
-from ragnexus.domain.errors import UpstreamError
+from ragnexus.core.errors import AppError, ErrorCode
 
 
 class OpenAICompatEmbedder:
@@ -88,9 +88,9 @@ class OpenAICompatEmbedder:
                     except httpx.HTTPError as e:
                         last_err = e
                         if attempt == self.max_retries - 1:
-                            raise UpstreamError(f"Embedder 失败: {e}") from e
+                            raise AppError(ErrorCode.UPSTREAM_ERROR, f"Embedder 失败: {e}") from e
                         await asyncio.sleep(self.retry_backoff_base**attempt)
-                raise UpstreamError(f"Embedder 失败: {last_err}")
+                raise AppError(ErrorCode.UPSTREAM_ERROR, f"Embedder 失败: {last_err}")
 
         # Concurrent execution via asyncio.gather
         results = await asyncio.gather(*[_embed_one(client, b) for b in batches])
@@ -100,6 +100,9 @@ class OpenAICompatEmbedder:
         # Validate dimensions
         for vec in flat:
             if len(vec) != self.dim:
-                raise UpstreamError(f"embed dim 失配: 期望 {self.dim}, 实际 {len(vec)}")
+                raise AppError(
+                    ErrorCode.UPSTREAM_ERROR,
+                    f"embed dim 失配: 期望 {self.dim}, 实际 {len(vec)}",
+                )
 
         return flat

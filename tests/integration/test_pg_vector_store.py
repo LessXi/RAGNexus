@@ -8,7 +8,7 @@ import pytest
 import pytest_asyncio
 
 from ragnexus.adapters.vector_store.pgvector import PgVectorStore
-from ragnexus.domain.errors import DuplicateDocumentError
+from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import Chunk, SearchHit
 
 pytestmark = [pytest.mark.integration]
@@ -100,9 +100,9 @@ class TestPgVectorStore:
         ]
         await store.upsert(kb_id, chunks)  # first — succeeds
 
-        with pytest.raises(DuplicateDocumentError) as exc_info:
+        with pytest.raises(AppError) as exc_info:
             await store.upsert(kb_id, chunks)  # second — should fail
-        assert exc_info.value.code == 1201
+        assert exc_info.value.code == ErrorCode.RESOURCE_EXISTS.code
         assert exc_info.value.http_status == 409
 
     async def test_search_by_vector(self, store, pg_pool):

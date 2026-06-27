@@ -5,7 +5,7 @@ import json
 import asyncpg
 from pgvector.asyncpg import register_vector
 
-from ragnexus.domain.errors import DuplicateDocumentError
+from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import Chunk, SearchHit
 
 
@@ -72,7 +72,8 @@ class PgVectorStore:
                 doc_id,
             )
             if exists:
-                raise DuplicateDocumentError(
+                raise AppError(
+                    ErrorCode.RESOURCE_EXISTS,
                     f"doc_id={doc_id} 已存在",
                     errors=[
                         {
@@ -118,7 +119,8 @@ class PgVectorStore:
                     ],
                 )
             except asyncpg.UniqueViolationError as e:
-                raise DuplicateDocumentError(
+                raise AppError(
+                    ErrorCode.RESOURCE_EXISTS,
                     f"doc_id={doc_id} 已存在",
                     errors=[
                         {

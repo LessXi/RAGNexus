@@ -1,6 +1,6 @@
 """CreateKnowledgeBaseUseCase — validates input and delegates to repo."""
 
-from ragnexus.domain.errors import ValidationError
+from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import KnowledgeBase
 from ragnexus.domain.ports import KnowledgeBasePort
 
@@ -14,7 +14,8 @@ class CreateKnowledgeBaseUseCase:
     async def execute(self, name: str) -> KnowledgeBase:
         name = name.strip()
         if not (1 <= len(name) <= 64):
-            raise ValidationError(
+            raise AppError(
+                ErrorCode.PARAM_ERROR,
                 "name 长度必须在 1-64 之间",
                 errors=[{"field": "name", "reason": "长度必须在 1-64"}],
             )

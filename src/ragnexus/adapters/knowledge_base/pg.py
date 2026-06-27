@@ -6,7 +6,7 @@ Implements KnowledgeBasePort over asyncpg.
 import asyncpg
 from nanoid import generate as nanoid_generate
 
-from ragnexus.domain.errors import ConflictError
+from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import KnowledgeBase
 
 
@@ -28,7 +28,8 @@ class PgKnowledgeBaseRepository:
                 name_key,
             )
         except asyncpg.UniqueViolationError as e:
-            raise ConflictError(
+            raise AppError(
+                ErrorCode.RESOURCE_CONFLICT,
                 "知识库名称已存在",
                 errors=[{"field": "name", "reason": f"{name!r} 已存在"}],
             ) from e

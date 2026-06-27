@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from ragnexus.domain.errors import UpstreamError
+from ragnexus.core.errors import AppError, ErrorCode
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -95,7 +95,10 @@ class TestEmbed:
         assert result == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
         # Verify the request payload
         call_kwargs = client.post.call_args.kwargs
-        assert call_kwargs["json"] == {"model": "test-model", "input": ["hello", "world"]}
+        assert call_kwargs["json"] == {
+            "model": "test-model",
+            "input": ["hello", "world"],
+        }
         assert call_kwargs["headers"]["Authorization"] == "Bearer test-key"
 
     @pytest.mark.asyncio
@@ -153,10 +156,10 @@ class TestEmbed:
             json_data={"error": "service unavailable"},
         )
 
-        with pytest.raises(UpstreamError) as exc_info:
+        with pytest.raises(AppError) as exc_info:
             await emb.embed(["hello", "world"])
 
-        assert exc_info.value.code == 1500
+        assert exc_info.value.code == ErrorCode.UPSTREAM_ERROR.code
         assert exc_info.value.http_status == 502
         assert client.post.call_count == 3  # initial + 2 retries
 
@@ -171,7 +174,7 @@ class TestEmbed:
         )
         client.post.return_value = wrong_dim_resp
 
-        with pytest.raises(UpstreamError) as exc_info:
+        with pytest.raises(AppError) as exc_info:
             await emb.embed(["hello"])
 
-        assert exc_info.value.code == 1500
+        assert exc_info.value.code == ErrorCode.UPSTREAM_ERROR.code

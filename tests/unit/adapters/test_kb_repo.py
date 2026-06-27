@@ -7,7 +7,7 @@ import asyncpg
 import pytest
 
 from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
-from ragnexus.domain.errors import ConflictError
+from ragnexus.core.errors import AppError
 from ragnexus.domain.models import KnowledgeBase
 
 
@@ -30,7 +30,11 @@ class TestCreate:
     async def test_create_success(self, repo, mock_pool):
         """create() should INSERT a KB and return a KnowledgeBase domain model."""
         now = datetime.now()
-        mock_pool.fetchrow.return_value = {"id": "kb_abc123", "name": "My KB", "created_at": now}
+        mock_pool.fetchrow.return_value = {
+            "id": "kb_abc123",
+            "name": "My KB",
+            "created_at": now,
+        }
 
         result = await repo.create(name="My KB", name_key="my kb")
 
@@ -45,7 +49,7 @@ class TestCreate:
         """create() should raise ConflictError when name_key violates UNIQUE."""
         mock_pool.fetchrow.side_effect = asyncpg.UniqueViolationError("duplicate key value")
 
-        with pytest.raises(ConflictError) as exc_info:
+        with pytest.raises(AppError) as exc_info:
             await repo.create(name="Dup", name_key="dup")
 
         assert exc_info.value.errors[0]["field"] == "name"
@@ -58,7 +62,11 @@ class TestGet:
     async def test_get_found(self, repo, mock_pool):
         """get() should return KnowledgeBase when the row exists."""
         now = datetime.now()
-        mock_pool.fetchrow.return_value = {"id": "kb_abc", "name": "Test", "created_at": now}
+        mock_pool.fetchrow.return_value = {
+            "id": "kb_abc",
+            "name": "Test",
+            "created_at": now,
+        }
 
         result = await repo.get("kb_abc")
 
