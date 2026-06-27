@@ -167,7 +167,7 @@ def setup_logging(cfg: Settings) -> logging.handlers.QueueListener:
 
     _cleanup_old_logs(log_dir, retention_days=30)
 
-    # --- 队列（满则丢旧不阻塞）---
+    # --- 队列（满则丢弃当前新记录（最旧优先保留），不阻塞）---
     log_queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=cfg.LOG_QUEUE_SIZE)
 
     # --- 控制台 Handler（colorlog 彩色）---

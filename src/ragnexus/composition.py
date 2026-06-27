@@ -161,9 +161,14 @@ async def lifespan(app: FastAPI):
     yield
 
     # --- 7. Teardown ------------------------------------------------------
-    await store.close()
-    await _raw_repo_pool.close()
-    app.state.log_listener.stop()
+    # 用 try/finally 确保每个资源都会被清理，即使前置步骤抛出异常
+    try:
+        await store.close()
+    finally:
+        try:
+            await _raw_repo_pool.close()
+        finally:
+            app.state.log_listener.stop()
 
 
 def build_app() -> FastAPI:
