@@ -62,11 +62,11 @@ class UploadDocumentUseCase:
         """Run the full upload pipeline.
 
         Raises:
-            PayloadTooLargeError: file exceeds max_file_size.
-            UnsupportedMediaTypeError: extension not in allowed_exts.
-            NotFoundError: kb_id does not exist.
-            DuplicateDocumentError: doc_id already exists (detected before parse).
-            EmptyFileError: file has no parseable content.
+            AppError(ErrorCode.FILE_TOO_LARGE): file exceeds max_file_size.
+            AppError(ErrorCode.UNSUPPORTED_FORMAT): extension not in allowed_exts.
+            AppError(ErrorCode.NOT_FOUND): kb_id does not exist.
+            AppError(ErrorCode.RESOURCE_EXISTS): doc_id already exists (detected before parse).
+            AppError(ErrorCode.FILE_EMPTY): file has no parseable content.
         """
         # 1. File size check
         if len(file_content) > self._max_file_size:

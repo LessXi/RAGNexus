@@ -8,7 +8,7 @@ from ragnexus.core.errors import AppError, ErrorCode
 
 
 def register_error_handlers(app: FastAPI) -> None:
-    """Register two handlers that turn DomainError and RequestValidationError
+    """Register two handlers that turn AppError and RequestValidationError
     into consistent JSON error responses matching the spec.
 
     Response shape::

@@ -58,7 +58,7 @@ class PgVectorStore:
     async def upsert(self, kb_id: str, chunks: list[Chunk]) -> None:
         """Insert or reject chunks under a single transaction.
 
-        Raises ``DuplicateDocumentError`` (1201) when any chunk with
+        Raises ``AppError(ErrorCode.RESOURCE_EXISTS)`` when any chunk with
         the same ``doc_id`` already exists in the store.
         """
         if not chunks:

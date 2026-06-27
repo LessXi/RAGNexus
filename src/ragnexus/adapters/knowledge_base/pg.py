@@ -17,7 +17,7 @@ class PgKnowledgeBaseRepository:
         self.pool = pool
 
     async def create(self, name: str, name_key: str) -> KnowledgeBase:
-        """Insert a new knowledge base. Raises ConflictError on name_key duplicate."""
+        """Insert a new knowledge base. Raises AppError(ErrorCode.RESOURCE_CONFLICT) on name_key duplicate."""
         kb_id = "kb_" + nanoid_generate(size=8)
         try:
             row = await self.pool.fetchrow(
