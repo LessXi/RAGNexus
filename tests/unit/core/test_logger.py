@@ -16,7 +16,7 @@ import tempfile
 import time
 from collections.abc import Generator
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -218,6 +218,48 @@ class TestLogModelCall:
         assert len(requests) == 1
         assert "keyword prompt" in requests[0].prompt
 
+    async def test_log_model_content_false_omits_prompt_response(self) -> None:
+        """LOG_MODEL_CONTENT=False 时：记录 prompt_length/response_length 而不记录内容。"""
+        mock_cfg = Settings(LOG_MODEL_CONTENT=False)
+
+        @log_model_call("no-content-model")
+        async def mock_llm(prompt: str) -> str:
+            return "short response"
+
+        with patch("ragnexus.core.logger.get_settings", return_value=mock_cfg):
+            await mock_llm("hello world")
+
+        requests = self._by_event("MODEL_REQUEST")
+        responses = self._by_event("MODEL_RESPONSE")
+
+        assert len(requests) == 1
+        assert not hasattr(requests[0], "prompt"), "不应包含 prompt 内容"
+        assert requests[0].prompt_length == 11  # len("hello world")
+
+        assert len(responses) == 1
+        assert not hasattr(responses[0], "response"), "不应包含 response 内容"
+        assert responses[0].response_length == 14  # len("short response")
+
+    async def test_log_model_content_true_includes_content(self) -> None:
+        """LOG_MODEL_CONTENT=True（默认）时：保留原有行为，记录截断内容。"""
+        mock_cfg = Settings(LOG_MODEL_CONTENT=True)
+
+        @log_model_call("content-model")
+        async def mock_llm(prompt: str) -> str:
+            return "response text"
+
+        with patch("ragnexus.core.logger.get_settings", return_value=mock_cfg):
+            await mock_llm("prompt text")
+
+        requests = self._by_event("MODEL_REQUEST")
+        responses = self._by_event("MODEL_RESPONSE")
+
+        assert len(requests) == 1
+        assert "prompt text" in requests[0].prompt
+
+        assert len(responses) == 1
+        assert "response text" in responses[0].response
+
 
 # ============================================================================
 # TestLoggedPool
@@ -309,6 +351,18 @@ class TestLoggedPool:
         error_records = [r for r in self.records if r.levelno == logging.ERROR]
         assert len(error_records) == 1
         assert error_records[0].event_type == "DB_QUERY"
+
+    async def test_acquire_passthrough(self) -> None:
+        """acquire() 透传到底层 pool，返回原始 async context manager。"""
+        mock_pool = Mock(name="raw_pool")
+        mock_conn = Mock(name="conn")
+        mock_pool.acquire.return_value = mock_conn
+
+        logged = LoggedPool(mock_pool)
+        result = logged.acquire()
+
+        mock_pool.acquire.assert_called_once()
+        assert result is mock_conn, "应透传底层 pool.acquire() 的返回值"
 
 
 # ============================================================================

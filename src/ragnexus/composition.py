@@ -56,14 +56,20 @@ async def lifespan(app: FastAPI):
     log_listener = setup_logging(cfg)
     app.state.log_listener = log_listener
 
-    # --- 1. Vector store (owns its own pool with pgvector init) -----------
+    # --- 1. Vector store (external pool wrapped with LoggedPool) ----------
+    _raw_store_pool = await asyncpg.create_pool(
+        cfg.PG_DSN,
+        min_size=cfg.PG_POOL_MIN,
+        max_size=cfg.PG_POOL_MAX,
+        command_timeout=cfg.PG_COMMAND_TIMEOUT,
+    )
     store = PgVectorStore(
         dsn=cfg.PG_DSN,
         pool_min=cfg.PG_POOL_MIN,
         pool_max=cfg.PG_POOL_MAX,
         command_timeout=cfg.PG_COMMAND_TIMEOUT,
     )
-    await store.connect()
+    await store.connect(external_pool=LoggedPool(_raw_store_pool))
 
     # --- 2. EMBED_DIM validation ------------------------------------------
     if store.pool is None:
@@ -166,9 +172,12 @@ async def lifespan(app: FastAPI):
         await store.close()
     finally:
         try:
-            await _raw_repo_pool.close()
+            await _raw_store_pool.close()
         finally:
-            app.state.log_listener.stop()
+            try:
+                await _raw_repo_pool.close()
+            finally:
+                app.state.log_listener.stop()
 
 
 def build_app() -> FastAPI:

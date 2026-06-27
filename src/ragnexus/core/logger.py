@@ -25,7 +25,7 @@ from typing import Any
 
 from colorlog import ColoredFormatter
 
-from ragnexus.config import Settings
+from ragnexus.config import Settings, get_settings
 
 # ---------------------------------------------------------------------------
 # ContextVar — 请求级上下文字段注入
@@ -250,13 +250,16 @@ def log_model_call(model: str):
         async def call_llm(prompt: str) -> str:
             ...
 
-    记录字段：model / cost_ms / prompt（截断）/ response（截断）/ error（失败时）。
+    当 ``LOG_MODEL_CONTENT=True`` 时记录截断的 prompt/response 文本；
+    当 ``LOG_MODEL_CONTENT=False`` 时仅记录长度等元数据。
     """
 
     def decorator(func: Any) -> Any:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             start = time.monotonic()
+            cfg = get_settings()
+            log_content: bool = cfg.LOG_MODEL_CONTENT
 
             # --- MODEL_REQUEST ---
             extra_request: dict[str, Any] = {
@@ -269,9 +272,12 @@ def log_model_call(model: str):
             elif "prompt" in kwargs:
                 prompt_val = str(kwargs["prompt"])
             if prompt_val is not None:
-                extra_request["prompt"] = (
-                    prompt_val[:200] + "..." if len(prompt_val) > 200 else prompt_val
-                )
+                if log_content:
+                    extra_request["prompt"] = (
+                        prompt_val[:200] + "..." if len(prompt_val) > 200 else prompt_val
+                    )
+                else:
+                    extra_request["prompt_length"] = len(prompt_val)
             logger.info("模型调用开始", extra=extra_request)
 
             try:
@@ -285,10 +291,13 @@ def log_model_call(model: str):
                     "cost_ms": round(elapsed_ms, 2),
                 }
                 if result is not None:
-                    result_str = str(result)
-                    extra_response["response"] = (
-                        result_str[:200] + "..." if len(result_str) > 200 else result_str
-                    )
+                    if log_content:
+                        result_str = str(result)
+                        extra_response["response"] = (
+                            result_str[:200] + "..." if len(result_str) > 200 else result_str
+                        )
+                    else:
+                        extra_response["response_length"] = len(str(result))
                 logger.info("模型调用完成", extra=extra_response)
                 return result
 
@@ -336,6 +345,10 @@ class LoggedPool:
 
     async def execute(self, query: str, *args: Any, **kwargs: Any) -> Any:
         return await self._log("execute", query, self._pool.execute, *args, **kwargs)
+
+    def acquire(self) -> Any:
+        """透传 acquire()，返回底层 pool 的 async context manager。"""
+        return self._pool.acquire()
 
     async def _log(self, op: str, query: str, method: Any, *args: Any, **kwargs: Any) -> Any:
         start = time.monotonic()
