@@ -48,7 +48,7 @@ def app(mock_kb_uc, mock_upload_uc, mock_retrieve_uc):
 
 @pytest.fixture
 def client(app):
-    return TestClient(app)
+    return TestClient(app, raise_server_exceptions=False)
 
 
 # ── Create KB ─────────────────────────────────────────────────────────────
@@ -209,3 +209,68 @@ class TestErrorHandler:
         assert "errors" in data
         assert len(data["errors"]) > 0
         assert all("field" in e and "reason" in e for e in data["errors"])
+
+
+# ── Catch-All Error Handler ──────────────────────────────────────────────
+
+
+class TestCatchAllHandler:
+    """Unexpected exceptions → 500 + SYSTEM_ERROR log"""
+
+    def test_unexpected_exception_returns_500(self, client, mock_kb_uc):
+        """Generic Exception (not AppError) → 500 with SERVER_ERROR code."""
+        mock_kb_uc.execute.side_effect = Exception("boom!")
+
+        resp = client.post("/v1/knowledge-bases:create", json={"name": "Test"})
+
+        assert resp.status_code == 500
+        data = resp.json()
+        assert data["code"] == ErrorCode.SERVER_ERROR.code
+        assert data["message"] == ErrorCode.SERVER_ERROR.msg
+        assert data["errors"] == []
+
+    def test_app_error_not_intercepted_by_catchall(self, client, mock_kb_uc):
+        """AppError should still be handled by the domain error handler, not catch-all."""
+        mock_kb_uc.execute.side_effect = AppError(
+            ErrorCode.NOT_FOUND,
+            "知识库不存在",
+        )
+
+        resp = client.post("/v1/knowledge-bases:create", json={"name": "Test"})
+
+        # AppError handler returns the code from the AppError, not SERVER_ERROR
+        assert resp.status_code == 404
+        data = resp.json()
+        assert data["code"] == ErrorCode.NOT_FOUND.code
+        assert data["message"] == "知识库不存在"
+
+    def test_system_error_log_emitted(self, client, mock_kb_uc):
+        """Catch-all handler emits SYSTEM_ERROR log via logger.error."""
+        import logging
+
+        mock_kb_uc.execute.side_effect = ValueError("something broke")
+
+        # 收集 ragnexus logger 的 ERROR 级别日志
+        rag_logger = logging.getLogger("ragnexus")
+        rag_logger.setLevel(logging.DEBUG)
+        records: list[logging.LogRecord] = []
+        handler = logging.Handler()
+
+        # Monkey-patch emit 来捕获日志（pyright strict 下不可用 lambda）
+        def _capture(self, record):
+            records.append(record)
+
+        handler.emit = _capture.__get__(handler, logging.Handler)  # type: ignore[method-assign]
+        rag_logger.addHandler(handler)
+
+        try:
+            client.post("/v1/knowledge-bases:create", json={"name": "Test"})
+
+            # 应该至少有 1 条 ERROR 日志，其中包含 SYSTEM_ERROR
+            system_errors = [r for r in records if getattr(r, "event_type", "") == "SYSTEM_ERROR"]
+            assert len(system_errors) >= 1
+            assert getattr(system_errors[0], "error_type", "") == "ValueError"
+            assert "something broke" in str(getattr(system_errors[0], "error_message", ""))
+            assert hasattr(system_errors[0], "traceback")
+        finally:
+            rag_logger.removeHandler(handler)

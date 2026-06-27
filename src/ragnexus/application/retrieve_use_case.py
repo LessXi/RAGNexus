@@ -5,6 +5,7 @@ import contextlib
 import time
 
 from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.core.logger import logger
 from ragnexus.domain.models import SearchHit
 from ragnexus.domain.ports import (
     EmbedderPort,
@@ -72,4 +73,18 @@ class RetrieveUseCase:
                 top_k=top_k,
                 hit_count=hit_count,
                 latency_ms=latency_ms,
+            )
+
+        # BIZ_EVENT: 检索完成（用户可感知结果 + 外部副作用）
+        with contextlib.suppress(Exception):
+            logger.info(
+                "",
+                extra={
+                    "event_type": "BIZ_EVENT",
+                    "event": "retrieve_completed",
+                    "kb_ids": kb_ids,
+                    "top_k": top_k,
+                    "hit_count": hit_count,
+                    "latency_ms": latency_ms,
+                },
             )

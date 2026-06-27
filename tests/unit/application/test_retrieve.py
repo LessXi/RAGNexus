@@ -1,6 +1,6 @@
 """Tests for RetrieveUseCase."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -89,6 +89,36 @@ async def test_retrieve_success(
 
     await asyncio.sleep(0.01)  # yield to let the fire-and-forget task run
     mock_log_port.log.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_logs_biz_event(
+    use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port, sample_hits
+):
+    """Retrieve completion emits BIZ_EVENT log in finally block."""
+    import asyncio
+
+    mock_kb_repo.exists.return_value = True
+    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
+    mock_store.search_by_vector.return_value = sample_hits
+
+    with patch("ragnexus.core.logger.logger.info") as mock_info:
+        await use_case.execute(query="test query", kb_ids=["kb_test"], top_k=5)
+        await asyncio.sleep(0.01)  # yield to let the fire-and-forget task run
+
+        # 找到 BIZ_EVENT 调用
+        biz_calls = [
+            call
+            for call in mock_info.call_args_list
+            if call.kwargs.get("extra", {}).get("event_type") == "BIZ_EVENT"
+        ]
+        assert len(biz_calls) == 1
+        extra = biz_calls[0].kwargs["extra"]
+        assert extra["event"] == "retrieve_completed"
+        assert extra["kb_ids"] == ["kb_test"]
+        assert extra["top_k"] == 5
+        assert extra["hit_count"] == len(sample_hits)
+        assert extra["latency_ms"] >= 0
 
 
 @pytest.mark.asyncio

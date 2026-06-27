@@ -1,7 +1,7 @@
 """Tests for UploadDocumentUseCase — full pipeline TDD."""
 
 import hashlib
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -99,6 +99,34 @@ class TestUploadDocument:
 
         # Transactional write called
         mock_store.upsert.assert_awaited_once_with("kb_test123", result.chunks)
+
+    @pytest.mark.asyncio
+    async def test_upload_logs_biz_event(
+        self, use_case, mock_kb_repo, mock_embedder, mock_parser, mock_store
+    ):
+        """Successful upload emits BIZ_EVENT log with document_uploaded event."""
+        file_bytes = b"# Hello\n\nThis is a test document."
+
+        with patch("ragnexus.core.logger.logger.info") as mock_info:
+            await use_case.execute(
+                kb_id="kb_test123",
+                file_content=file_bytes,
+                filename="test.md",
+                content_type="text/markdown",
+            )
+
+            # 找到 BIZ_EVENT 调用
+            biz_calls = [
+                call
+                for call in mock_info.call_args_list
+                if call.kwargs.get("extra", {}).get("event_type") == "BIZ_EVENT"
+            ]
+            assert len(biz_calls) == 1
+            extra = biz_calls[0].kwargs["extra"]
+            assert extra["event"] == "document_uploaded"
+            assert extra["kb_id"] == "kb_test123"
+            assert extra["doc_id"].startswith("doc_")
+            assert extra["chunks"] > 0
 
     @pytest.mark.asyncio
     async def test_file_too_large(self, use_case):

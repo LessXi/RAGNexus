@@ -1,6 +1,7 @@
 """CreateKnowledgeBaseUseCase — validates input and delegates to repo."""
 
 from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.core.logger import logger
 from ragnexus.domain.models import KnowledgeBase
 from ragnexus.domain.ports import KnowledgeBasePort
 
@@ -20,4 +21,17 @@ class CreateKnowledgeBaseUseCase:
                 errors=[{"field": "name", "reason": "长度必须在 1-64"}],
             )
         name_key = name.lower()
-        return await self._kb_repo.create(name=name, name_key=name_key)
+        result = await self._kb_repo.create(name=name, name_key=name_key)
+
+        # BIZ_EVENT: 知识库创建成功（状态转换）
+        logger.info(
+            "",
+            extra={
+                "event_type": "BIZ_EVENT",
+                "event": "knowledge_base_created",
+                "kb_id": result.id,
+                "kb_name": result.name,
+            },
+        )
+
+        return result

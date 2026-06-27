@@ -1,6 +1,6 @@
 """Tests for CreateKnowledgeBaseUseCase."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -38,6 +38,27 @@ async def test_create_kb_success(use_case, mock_kb_repo, sample_kb):
 
     assert result is sample_kb
     mock_kb_repo.create.assert_awaited_once_with(name="Test KB", name_key="test kb")
+
+
+@pytest.mark.asyncio
+async def test_create_kb_logs_biz_event(use_case, mock_kb_repo, sample_kb):
+    """Successful KB creation emits BIZ_EVENT log with knowledge_base_created event."""
+    mock_kb_repo.create.return_value = sample_kb
+
+    with patch("ragnexus.core.logger.logger.info") as mock_info:
+        await use_case.execute("Test KB")
+
+        # 找到 BIZ_EVENT 调用
+        biz_calls = [
+            call
+            for call in mock_info.call_args_list
+            if call.kwargs.get("extra", {}).get("event_type") == "BIZ_EVENT"
+        ]
+        assert len(biz_calls) == 1
+        extra = biz_calls[0].kwargs["extra"]
+        assert extra["event"] == "knowledge_base_created"
+        assert extra["kb_id"] == sample_kb.id
+        assert extra["kb_name"] == sample_kb.name
 
 
 @pytest.mark.asyncio

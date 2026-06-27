@@ -18,6 +18,7 @@ import hashlib
 from collections.abc import Callable
 
 from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.core.logger import logger
 from ragnexus.domain.models import Chunk, UploadResult
 from ragnexus.domain.ports import (
     EmbedderPort,
@@ -167,4 +168,17 @@ class UploadDocumentUseCase:
 
         # 10. Transactional write (all-or-nothing)
         await self._store.upsert(kb_id, chunks)
+
+        # BIZ_EVENT: 文档上传成功（用户可感知结果）
+        logger.info(
+            "",
+            extra={
+                "event_type": "BIZ_EVENT",
+                "event": "document_uploaded",
+                "kb_id": kb_id,
+                "doc_id": doc_id,
+                "chunks": len(chunks),
+            },
+        )
+
         return UploadResult(doc_id=doc_id, kb_id=kb_id, chunks=chunks)
