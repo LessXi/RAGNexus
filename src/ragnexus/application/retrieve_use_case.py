@@ -4,9 +4,15 @@ import asyncio
 import contextlib
 import time
 
-from ragnexus.domain.errors import NotFoundError, ValidationError
+from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.core.logger import logger
 from ragnexus.domain.models import SearchHit
-from ragnexus.domain.ports import EmbedderPort, KnowledgeBasePort, RetrieveLogPort, VectorStorePort
+from ragnexus.domain.ports import (
+    EmbedderPort,
+    KnowledgeBasePort,
+    RetrieveLogPort,
+    VectorStorePort,
+)
 
 
 class RetrieveUseCase:
@@ -28,16 +34,16 @@ class RetrieveUseCase:
         # 1. Validate inputs
         stripped = query.strip()
         if not stripped or len(query) > 2000:
-            raise ValidationError("query 不能为空且长度不能超过 2000")
+            raise AppError(ErrorCode.PARAM_ERROR, "query 不能为空且长度不能超过 2000")
         if not kb_ids or len(kb_ids) > 5:
-            raise ValidationError("kb_ids 不能为空且最多 5 个")
+            raise AppError(ErrorCode.PARAM_ERROR, "kb_ids 不能为空且最多 5 个")
         if not (1 <= top_k <= 50):
-            raise ValidationError("top_k 必须在 1-50 之间")
+            raise AppError(ErrorCode.PARAM_ERROR, "top_k 必须在 1-50 之间")
 
         # 2. Validate all KBs exist
         for kb_id in kb_ids:
             if not await self._kb_repo.exists(kb_id):
-                raise NotFoundError(f"知识库不存在: {kb_id}")
+                raise AppError(ErrorCode.NOT_FOUND, f"知识库不存在: {kb_id}")
 
         # 3. Retrieve
         t0 = time.perf_counter()
@@ -67,4 +73,18 @@ class RetrieveUseCase:
                 top_k=top_k,
                 hit_count=hit_count,
                 latency_ms=latency_ms,
+            )
+
+        # BIZ_EVENT: 检索完成（用户可感知结果 + 外部副作用）
+        with contextlib.suppress(Exception):
+            logger.info(
+                "",
+                extra={
+                    "event_type": "BIZ_EVENT",
+                    "event": "retrieve_completed",
+                    "kb_ids": kb_ids,
+                    "top_k": top_k,
+                    "hit_count": hit_count,
+                    "latency_ms": latency_ms,
+                },
             )

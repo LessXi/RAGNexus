@@ -1,95 +1,141 @@
-"""Tests for domain/errors.py — DomainError hierarchy."""
+"""Tests for domain/errors.py — 验证从 core.errors 重新导出 AppError + ErrorCode。"""
 
-from ragnexus.domain.errors import (
-    ConfigError,
-    ConflictError,
-    DomainError,
-    DuplicateDocumentError,
-    EmptyFileError,
-    NotFoundError,
-    PayloadTooLargeError,
-    UnsupportedMediaTypeError,
-    UpstreamError,
-    ValidationError,
-)
+from ragnexus.core.errors import AppError, ErrorCode, raise_error
+
+# ============================================================================
+# 错误码值断言
+# ============================================================================
 
 
 def test_error_codes():
-    """All 9 subclasses have distinct codes 1000–1600."""
-    assert ValidationError.code == 1000
-    assert NotFoundError.code == 1100
-    assert ConflictError.code == 1200
-    assert DuplicateDocumentError.code == 1201
-    assert UnsupportedMediaTypeError.code == 1300
-    assert PayloadTooLargeError.code == 1301
-    assert EmptyFileError.code == 1400
-    assert UpstreamError.code == 1500
-    assert ConfigError.code == 1600
+    """验证迁移映射表中各 ErrorCode 的 code 值。"""
+    assert ErrorCode.PARAM_ERROR.code == 10001
+    assert ErrorCode.NOT_FOUND.code == 10300
+    assert ErrorCode.RESOURCE_CONFLICT.code == 10301
+    assert ErrorCode.RESOURCE_EXISTS.code == 10302
+    assert ErrorCode.UNSUPPORTED_FORMAT.code == 10400
+    assert ErrorCode.FILE_TOO_LARGE.code == 10401
+    assert ErrorCode.FILE_EMPTY.code == 10402
+    assert ErrorCode.UPSTREAM_ERROR.code == 10500
+    assert ErrorCode.CONFIG_ERROR.code == 50001
+
+
+# ============================================================================
+# HTTP 状态码断言
+# ============================================================================
 
 
 def test_http_status():
-    """Each error has the correct HTTP status."""
-    assert ValidationError.http_status == 422
-    assert NotFoundError.http_status == 404
-    assert ConflictError.http_status == 409
-    assert DuplicateDocumentError.http_status == 409
-    assert UnsupportedMediaTypeError.http_status == 415
-    assert PayloadTooLargeError.http_status == 413
-    assert EmptyFileError.http_status == 422
-    assert UpstreamError.http_status == 502
-    assert ConfigError.http_status == 500
+    """验证各 ErrorCode 的 http_status 值。"""
+    assert ErrorCode.PARAM_ERROR.http_status == 422
+    assert ErrorCode.NOT_FOUND.http_status == 404
+    assert ErrorCode.RESOURCE_CONFLICT.http_status == 409
+    assert ErrorCode.RESOURCE_EXISTS.http_status == 409
+    assert ErrorCode.UNSUPPORTED_FORMAT.http_status == 415
+    assert ErrorCode.FILE_TOO_LARGE.http_status == 413
+    assert ErrorCode.FILE_EMPTY.http_status == 422
+    assert ErrorCode.UPSTREAM_ERROR.http_status == 502
+    assert ErrorCode.CONFIG_ERROR.http_status == 500
+
+
+# ============================================================================
+# AppError 字段行为
+# ============================================================================
 
 
 def test_error_fields():
-    """DomainError stores message and errors list correctly."""
+    """AppError 正确存储 message 和 errors 列表。"""
+    err = AppError(
+        ErrorCode.PARAM_ERROR,
+        message="oops",
+        errors=[{"field": "name", "reason": "required"}],
+    )
+    assert err.message == "oops"
+    assert err.errors == [{"field": "name", "reason": "required"}]
 
-    err2 = DomainError(message="oops", errors=[{"field": "name", "reason": "required"}])
-    assert err2.message == "oops"
-    assert err2.errors == [{"field": "name", "reason": "required"}]
+    err2 = AppError(ErrorCode.PARAM_ERROR, message="just text")
+    assert err2.message == "just text"
+    assert err2.errors == []
 
-    err3 = DomainError(message="just text")
-    assert err3.message == "just text"
-    assert err3.errors == []
+    # 默认消息取自 ErrorCode.msg
+    err3 = AppError(ErrorCode.NOT_FOUND)
+    assert err3.code == 10300
+    assert err3.http_status == 404
+    assert err3.message == "资源不存在"
 
-    # Default code and http_status on base class
-    assert DomainError.code == 9999
-    assert DomainError.http_status == 500
+
+# ============================================================================
+# AppError 是 Exception 的子类
+# ============================================================================
 
 
 def test_inheritance():
-    """Subclass chains are correct."""
-    # DuplicateDocumentError inherits from ConflictError
-    assert issubclass(DuplicateDocumentError, ConflictError)
-    assert issubclass(DuplicateDocumentError, DomainError)
-    assert isinstance(DuplicateDocumentError(), ConflictError)
-    assert isinstance(DuplicateDocumentError(), DomainError)
-    # But not the reverse
-    assert not issubclass(ConflictError, DuplicateDocumentError)
+    """AppError 是 Exception 的子类，不是旧 DomainError 的子类。"""
+    assert issubclass(AppError, Exception)
+    assert isinstance(AppError(ErrorCode.PARAM_ERROR), Exception)
 
-    # All error classes are DomainError subclasses
-    for exc in [
-        ValidationError,
-        NotFoundError,
-        ConflictError,
-        DuplicateDocumentError,
-        UnsupportedMediaTypeError,
-        PayloadTooLargeError,
-        EmptyFileError,
-        UpstreamError,
-        ConfigError,
+    # 所有错误码都可以被 pytest.raises(AppError) 捕获
+    for code in [
+        ErrorCode.PARAM_ERROR,
+        ErrorCode.NOT_FOUND,
+        ErrorCode.RESOURCE_CONFLICT,
+        ErrorCode.RESOURCE_EXISTS,
+        ErrorCode.UNSUPPORTED_FORMAT,
+        ErrorCode.FILE_TOO_LARGE,
+        ErrorCode.FILE_EMPTY,
+        ErrorCode.UPSTREAM_ERROR,
+        ErrorCode.CONFIG_ERROR,
     ]:
-        assert issubclass(exc, DomainError), f"{exc.__name__} is not a DomainError subclass"
+        err = AppError(code)
+        assert isinstance(err, AppError), f"{code.name} 创建的实例应为 AppError"
+
+
+# ============================================================================
+# 实例化测试
+# ============================================================================
 
 
 def test_error_instantiation():
-    """Each error can be instantiated with or without message."""
-    ValidationError()
-    ValidationError("自定义验证错误")
-    NotFoundError("资源未找到")
-    ConflictError("冲突")
-    DuplicateDocumentError("文档已存在")
-    UnsupportedMediaTypeError()
-    PayloadTooLargeError()
-    EmptyFileError()
-    UpstreamError("上游挂了")
-    ConfigError("配置错误")
+    """每种错误码都可实例化，有无自定义消息均可。"""
+    AppError(ErrorCode.PARAM_ERROR)
+    AppError(ErrorCode.PARAM_ERROR, "自定义验证错误")
+    AppError(ErrorCode.NOT_FOUND, "资源未找到")
+    AppError(ErrorCode.RESOURCE_CONFLICT, "冲突")
+    AppError(ErrorCode.RESOURCE_EXISTS, "文档已存在")
+    AppError(ErrorCode.UNSUPPORTED_FORMAT)
+    AppError(ErrorCode.FILE_TOO_LARGE)
+    AppError(ErrorCode.FILE_EMPTY)
+    AppError(ErrorCode.UPSTREAM_ERROR, "上游挂了")
+    AppError(ErrorCode.CONFIG_ERROR, "配置错误")
+
+
+# ============================================================================
+# raise_error 快捷函数
+# ============================================================================
+
+
+def test_raise_error():
+    """raise_error 抛出 AppError。"""
+    import pytest
+
+    with pytest.raises(AppError) as exc_info:
+        raise_error(ErrorCode.CONFIG_ERROR, "配置不匹配")
+    assert exc_info.value.code == 50001
+    assert exc_info.value.http_status == 500
+    assert exc_info.value.message == "配置不匹配"
+
+
+# ============================================================================
+# 从 domain.errors 重新导出验证（兼容旧 import 路径）
+# ============================================================================
+
+
+def test_re_export_from_domain_errors():
+    """domain/errors.py 重新导出 AppError、ErrorCode、raise_error。"""
+    from ragnexus.domain.errors import AppError as DomainAppError
+    from ragnexus.domain.errors import ErrorCode as DomainErrorCode
+    from ragnexus.domain.errors import raise_error as domain_raise_error
+
+    assert DomainAppError is AppError
+    assert DomainErrorCode is ErrorCode
+    assert domain_raise_error is raise_error

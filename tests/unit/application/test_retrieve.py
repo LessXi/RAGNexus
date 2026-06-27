@@ -1,11 +1,11 @@
 """Tests for RetrieveUseCase."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
-from ragnexus.domain.errors import NotFoundError, ValidationError
+from ragnexus.core.errors import AppError
 from ragnexus.domain.models import SearchHit
 
 
@@ -92,10 +92,40 @@ async def test_retrieve_success(
 
 
 @pytest.mark.asyncio
+async def test_retrieve_logs_biz_event(
+    use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port, sample_hits
+):
+    """Retrieve completion emits BIZ_EVENT log in finally block."""
+    import asyncio
+
+    mock_kb_repo.exists.return_value = True
+    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
+    mock_store.search_by_vector.return_value = sample_hits
+
+    with patch("ragnexus.core.logger.logger.info") as mock_info:
+        await use_case.execute(query="test query", kb_ids=["kb_test"], top_k=5)
+        await asyncio.sleep(0.01)  # yield to let the fire-and-forget task run
+
+        # 找到 BIZ_EVENT 调用
+        biz_calls = [
+            call
+            for call in mock_info.call_args_list
+            if call.kwargs.get("extra", {}).get("event_type") == "BIZ_EVENT"
+        ]
+        assert len(biz_calls) == 1
+        extra = biz_calls[0].kwargs["extra"]
+        assert extra["event"] == "retrieve_completed"
+        assert extra["kb_ids"] == ["kb_test"]
+        assert extra["top_k"] == 5
+        assert extra["hit_count"] == len(sample_hits)
+        assert extra["latency_ms"] >= 0
+
+
+@pytest.mark.asyncio
 async def test_query_empty(use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port):
     """Empty or whitespace-only query should raise ValidationError."""
     for bad_query in ("", "  "):
-        with pytest.raises(ValidationError):
+        with pytest.raises(AppError):
             await use_case.execute(query=bad_query, kb_ids=["kb_test"], top_k=5)
     mock_kb_repo.exists.assert_not_called()
     mock_embedder.embed.assert_not_called()
@@ -106,7 +136,7 @@ async def test_query_empty(use_case, mock_kb_repo, mock_embedder, mock_store, mo
 async def test_query_too_long(use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port):
     """Query longer than 2000 chars should raise ValidationError."""
     long_query = "A" * 2001
-    with pytest.raises(ValidationError):
+    with pytest.raises(AppError):
         await use_case.execute(query=long_query, kb_ids=["kb_test"], top_k=5)
     mock_kb_repo.exists.assert_not_called()
     mock_embedder.embed.assert_not_called()
@@ -116,7 +146,7 @@ async def test_query_too_long(use_case, mock_kb_repo, mock_embedder, mock_store,
 @pytest.mark.asyncio
 async def test_kb_ids_empty(use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port):
     """Empty kb_ids list should raise ValidationError."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(AppError):
         await use_case.execute(query="test query", kb_ids=[], top_k=5)
     mock_kb_repo.exists.assert_not_called()
     mock_embedder.embed.assert_not_called()
@@ -126,7 +156,7 @@ async def test_kb_ids_empty(use_case, mock_kb_repo, mock_embedder, mock_store, m
 @pytest.mark.asyncio
 async def test_kb_ids_too_many(use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port):
     """More than 5 kb_ids should raise ValidationError."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(AppError):
         await use_case.execute(query="test query", kb_ids=["a", "b", "c", "d", "e", "f"], top_k=5)
     mock_kb_repo.exists.assert_not_called()
     mock_embedder.embed.assert_not_called()
@@ -137,7 +167,7 @@ async def test_kb_ids_too_many(use_case, mock_kb_repo, mock_embedder, mock_store
 async def test_top_k_oob(use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port):
     """top_k < 1 or > 50 should raise ValidationError."""
     for bad_top_k in (0, 51):
-        with pytest.raises(ValidationError):
+        with pytest.raises(AppError):
             await use_case.execute(query="test query", kb_ids=["kb_test"], top_k=bad_top_k)
     mock_kb_repo.exists.assert_not_called()
     mock_embedder.embed.assert_not_called()
@@ -149,7 +179,7 @@ async def test_kb_not_found(use_case, mock_kb_repo, mock_embedder, mock_store, m
     """When any kb_id does not exist, should raise NotFoundError."""
     mock_kb_repo.exists.return_value = False
 
-    with pytest.raises(NotFoundError) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await use_case.execute(query="test query", kb_ids=["kb_missing"], top_k=5)
 
     assert "kb_missing" in str(exc_info.value)
@@ -170,7 +200,7 @@ async def test_multiple_kb_not_found(
 
     mock_kb_repo.exists.side_effect = exists_side_effect
 
-    with pytest.raises(NotFoundError) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         await use_case.execute(
             query="test query",
             kb_ids=["kb_good", "kb_bad"],

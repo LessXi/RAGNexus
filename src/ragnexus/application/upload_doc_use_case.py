@@ -17,15 +17,15 @@ Returns UploadResult.
 import hashlib
 from collections.abc import Callable
 
-from ragnexus.domain.errors import (
-    DuplicateDocumentError,
-    EmptyFileError,
-    NotFoundError,
-    PayloadTooLargeError,
-    UnsupportedMediaTypeError,
-)
+from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.core.logger import logger
 from ragnexus.domain.models import Chunk, UploadResult
-from ragnexus.domain.ports import EmbedderPort, KnowledgeBasePort, ParserPort, VectorStorePort
+from ragnexus.domain.ports import (
+    EmbedderPort,
+    KnowledgeBasePort,
+    ParserPort,
+    VectorStorePort,
+)
 
 
 class UploadDocumentUseCase:
@@ -63,34 +63,43 @@ class UploadDocumentUseCase:
         """Run the full upload pipeline.
 
         Raises:
-            PayloadTooLargeError: file exceeds max_file_size.
-            UnsupportedMediaTypeError: extension not in allowed_exts.
-            NotFoundError: kb_id does not exist.
-            DuplicateDocumentError: doc_id already exists (detected before parse).
-            EmptyFileError: file has no parseable content.
+            AppError(ErrorCode.FILE_TOO_LARGE): file exceeds max_file_size.
+            AppError(ErrorCode.UNSUPPORTED_FORMAT): extension not in allowed_exts.
+            AppError(ErrorCode.NOT_FOUND): kb_id does not exist.
+            AppError(ErrorCode.RESOURCE_EXISTS): doc_id already exists (detected before parse).
+            AppError(ErrorCode.FILE_EMPTY): file has no parseable content.
         """
         # 1. File size check
         if len(file_content) > self._max_file_size:
-            raise PayloadTooLargeError(
+            raise AppError(
+                ErrorCode.FILE_TOO_LARGE,
                 "文件过大",
                 errors=[
-                    {"field": "file", "reason": f"文件大小超过 {self._max_file_size} 字节限制"}
+                    {
+                        "field": "file",
+                        "reason": f"文件大小超过 {self._max_file_size} 字节限制",
+                    }
                 ],
             )
 
         # 2. File extension check
         ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         if ext not in self._allowed_exts:
-            raise UnsupportedMediaTypeError(
+            raise AppError(
+                ErrorCode.UNSUPPORTED_FORMAT,
                 f"不支持的文件类型: {ext}",
                 errors=[
-                    {"field": "filename", "reason": f"仅支持 {', '.join(self._allowed_exts)} 格式"}
+                    {
+                        "field": "filename",
+                        "reason": f"仅支持 {', '.join(self._allowed_exts)} 格式",
+                    }
                 ],
             )
 
         # 3. KB existence check
         if not await self._kb_repo.exists(kb_id):
-            raise NotFoundError(
+            raise AppError(
+                ErrorCode.NOT_FOUND,
                 "知识库不存在",
                 errors=[{"field": "kb_id", "reason": f"{kb_id} 不存在"}],
             )
@@ -101,7 +110,8 @@ class UploadDocumentUseCase:
 
         # 5. Dedup check (before parsing — avoid wasted work)
         if await self._kb_repo.doc_exists(doc_id):
-            raise DuplicateDocumentError(
+            raise AppError(
+                ErrorCode.RESOURCE_EXISTS,
                 "文档已存在",
                 errors=[{"field": "doc_id", "reason": f"{doc_id} 已存在"}],
             )
@@ -109,14 +119,22 @@ class UploadDocumentUseCase:
         # 6. Parse
         parsed = self._parser.parse(file_content, filename)
         if not parsed.sections and not parsed.raw_text:
-            raise EmptyFileError("文件为空", errors=[{"field": "file", "reason": "文件内容为空"}])
+            raise AppError(
+                ErrorCode.FILE_EMPTY,
+                "文件为空",
+                errors=[{"field": "file", "reason": "文件内容为空"}],
+            )
 
         # 7. Chunk
         chunk_dicts = self._chunker(
             parsed, max_chars=self._chunk_max_chars, overlap=self._chunk_overlap
         )
         if not chunk_dicts:
-            raise EmptyFileError("文件为空", errors=[{"field": "file", "reason": "文件内容为空"}])
+            raise AppError(
+                ErrorCode.FILE_EMPTY,
+                "文件为空",
+                errors=[{"field": "file", "reason": "文件内容为空"}],
+            )
 
         # Extract texts for embedding
         texts = [cd["text"] for cd in chunk_dicts]
@@ -150,4 +168,17 @@ class UploadDocumentUseCase:
 
         # 10. Transactional write (all-or-nothing)
         await self._store.upsert(kb_id, chunks)
+
+        # BIZ_EVENT: 文档上传成功（用户可感知结果）
+        logger.info(
+            "",
+            extra={
+                "event_type": "BIZ_EVENT",
+                "event": "document_uploaded",
+                "kb_id": kb_id,
+                "doc_id": doc_id,
+                "chunks": len(chunks),
+            },
+        )
+
         return UploadResult(doc_id=doc_id, kb_id=kb_id, chunks=chunks)

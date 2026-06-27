@@ -33,7 +33,7 @@
 |---|---|
 | 请求 | `application/json`：`{ "name": "产品手册 v1" }` |
 | 成功（200）| `{ "code": 0, "data": { "kb_id": "kb_abc12345", "name": "产品手册 v1", "created_at": "2026-06-22T10:00:00.000Z" }, "message": "ok" }` |
-| 失败（409）| `{ "code": 1200, "message": "知识库名称已存在", "errors": [{"field": "name", "reason": "..."}] }` |
+| 失败（409）| `{ "code": 10301, "message": "知识库名称已存在", "errors": [{"field": "name", "reason": "..."}] }` |
 | 失败（422）| name 为空或超长（1-64 字符） |
 
 ### 1.2 `POST /v1/documents:upload`
@@ -71,22 +71,44 @@
 | 码 | HTTP | 含义 |
 |---|---|---|
 | 0 | 200 | 成功 |
-| 1000 | 422 | 参数错误 |
-| 1100 | 404 | KB 不存在 |
-| 1200 | 409 | KB 重名 |
-| 1201 | 409 | doc_id 重复 |
-| 1300 | 415 | 文件类型不支持 |
-| 1301 | 413 | 文件过大（>10MB）|
-| 1400 | 422 | 文件为空 |
-| 1500 | 502 | Embedder 失败 |
-| 1501 | 502 | 向量库失败 |
-| 9999 | 500 | 内部错误 |
+| 10001 | 422 | 参数错误 |
+| 10002 | 422 | 缺少必要参数 |
+| 10003 | 422 | 参数格式无效 |
+| 10004 | 422 | 参数超出允许范围 |
+| 10200 | 401 | 未授权，请登录 |
+| 10201 | 403 | 权限不足 |
+| 10202 | 401 | 登录已过期 |
+| 10300 | 404 | 资源不存在 |
+| 10301 | 409 | 资源冲突 |
+| 10302 | 409 | 资源已存在 |
+| 10400 | 415 | 不支持的文件类型 |
+| 10401 | 413 | 文件过大 |
+| 10402 | 422 | 文件为空 |
+| 10500 | 502 | 上游服务异常 |
+| 10501 | 504 | 上游服务超时 |
+| 20001 | 504 | 接口请求超时 |
+| 20002 | 429 | 接口调用超限 |
+| 20003 | 405 | 请求方法错误 |
+| 30001 | 500 | 数据库操作失败 |
+| 30002 | 503 | 数据库连接失败 |
+| 30003 | 504 | 数据库查询超时 |
+| 30004 | 409 | 数据已存在 |
+| 40000 | 502 | 大模型调用失败 |
+| 40001 | 504 | 大模型响应超时 |
+| 40002 | 502 | 大模型未返回有效内容 |
+| 40003 | 422 | 内容违规 |
+| 40004 | 422 | 上下文长度超限 |
+| 40005 | 429 | 大模型调用频率超限 |
+| 40006 | 503 | 模型不存在或未部署 |
+| 50000 | 500 | 服务器异常 |
+| 50001 | 500 | 服务配置错误 |
+| 50002 | 503 | 系统繁忙，请稍后再试 |
 
 `message` 固定中文文案，与 code 绑死。错误响应格式：
 
 ```json
 {
-  "code": 1100,
+  "code": 10300,
   "data": null,
   "message": "知识库不存在",
   "errors": [{"field": "kb_id", "reason": "kb_abc 不存在"}]
@@ -130,9 +152,10 @@ RAGNexus/
 ├── domain/                              # 纯业务
 │   ├── models.py                        # KnowledgeBase, Chunk, SearchHit, Section, ParsedDocument
 │   ├── ports.py                         # VectorStorePort, EmbedderPort, KnowledgeBasePort, ParserPort, RetrieveLogPort
-│   ├── errors.py                        # DomainError + 11 个子类（带 code + http_status）
+│   ├── errors.py                        # DomainError（遗留）— 保留向后兼容
 │   └── chunking.py                      # heading_aware_split + fixed_size_split
-│
+├── core/                                # 核心基础设施
+│   └── errors.py                        # ErrorCode(IntEnum) + AppError + raise_error
 ├── application/                         # 业务用例
 │   ├── create_kb_use_case.py
 │   ├── upload_doc_use_case.py
@@ -280,45 +303,36 @@ class RetrieveLogPort(Protocol):
                   hit_count: int, latency_ms: int) -> None: ...
 ```
 
-### 5.1 领域异常
+### 5.1 统一错误码（core/errors.py）
 
 ```python
-# domain/errors.py
-class DomainError(Exception):
-    code: int = 9999
-    http_status: int = 500
-    def __init__(self, message: str | None = None, errors: list[dict] | None = None):
-        super().__init__(message or self.message)
-        self.message_text = message
-        self.errors = errors or []
+# core/errors.py
+from enum import IntEnum
 
-class ValidationError(DomainError):
-    code, http_status, message = 1000, 422, "参数错误"
+class ErrorCode(IntEnum):
+    """统一错误码枚举，每个成员为 (code, http_status, msg) 三元组。"""
+    # 成功
+    SUCCESS = (0, 200, "成功")
+    # 参数校验
+    PARAM_ERROR = (10001, 422, "参数错误")
+    PARAM_MISSING = (10002, 422, "缺少必要参数")
+    # …（共 33 个成员，详见 1.4 错误码表）
 
-class NotFoundError(DomainError):
-    code, http_status, message = 1100, 404, "资源不存在"
+    @property
+    def code(self) -> int: ...
+    @property
+    def http_status(self) -> int: ...
+    @property
+    def msg(self) -> str: ...
 
-class ConflictError(DomainError):
-    code, http_status, message = 1200, 409, "资源冲突"
+class AppError(Exception):
+    """RAGNexus 统一应用异常。"""
+    def __init__(self, code: ErrorCode, message: str | None = None, errors: list[dict] | None = None): ...
 
-class DuplicateDocumentError(ConflictError):
-    code, http_status, message = 1201, 409, "文档已存在"
-
-class UnsupportedMediaTypeError(DomainError):
-    code, http_status, message = 1300, 415, "不支持的文件类型"
-
-class PayloadTooLargeError(DomainError):
-    code, http_status, message = 1301, 413, "文件过大"
-
-class EmptyFileError(DomainError):
-    code, http_status, message = 1400, 422, "文件为空"
-
-class UpstreamError(DomainError):  # Embedder/向量库
-    code, http_status, message = 1500, 502, "上游服务异常"
-
-class VectorStoreError(UpstreamError):
-    code, http_status, message = 1501, 502, "向量库失败"
+def raise_error(code: ErrorCode, message: str | None = None, errors: list[dict] | None = None): ...
 ```
+
+旧领域异常类（`DomainError` 及其子类）保留在 `domain/errors.py` 中，作为 `AppError` 的别名以保持向后兼容。新代码统一使用 `AppError(ErrorCode.XXX)`。
 
 ---
 

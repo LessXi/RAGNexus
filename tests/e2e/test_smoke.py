@@ -10,6 +10,7 @@ import os
 import pytest
 
 from ragnexus.config import get_settings
+from ragnexus.core.errors import ErrorCode
 
 pytestmark = [
     pytest.mark.e2e,
@@ -43,13 +44,13 @@ class TestE2ECreateKB:
         assert "created_at" in data["data"]
 
     def test_create_duplicate_kb_409(self, client):
-        """Same name → 409 Conflict (code 1200)."""
+        """Same name → 409 Conflict (code 10301)."""
         name = "E2E Duplicate Test"
         client.post("/v1/knowledge-bases:create", json={"name": name})
         resp = client.post("/v1/knowledge-bases:create", json={"name": name})
         assert resp.status_code == 409
         data = resp.json()
-        assert data["code"] == 1200
+        assert data["code"] == ErrorCode.RESOURCE_CONFLICT.code
         assert data["data"] is None
 
     def test_empty_name_422(self, client):
@@ -73,7 +74,7 @@ class TestE2EUploadErrors:
             files={"file": ("test.md", b"# Hello\nWorld", "text/markdown")},
         )
         assert resp.status_code == 404
-        assert resp.json()["code"] == 1100
+        assert resp.json()["code"] == ErrorCode.NOT_FOUND.code
 
     def test_upload_wrong_extension_415(self, client):
         """Uploading .pdf → 415."""
@@ -83,7 +84,7 @@ class TestE2EUploadErrors:
             files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
         )
         assert resp.status_code == 415
-        assert resp.json()["code"] == 1300
+        assert resp.json()["code"] == ErrorCode.UNSUPPORTED_FORMAT.code
 
     def test_upload_over_max_size_413(self, client):
         """File > 10MB → 413 Payload Too Large."""
@@ -94,7 +95,7 @@ class TestE2EUploadErrors:
             files={"file": ("big.md", oversized, "text/markdown")},
         )
         assert resp.status_code == 413
-        assert resp.json()["code"] == 1301
+        assert resp.json()["code"] == ErrorCode.FILE_TOO_LARGE.code
 
 
 class TestE2ERetrieveErrors:
@@ -107,7 +108,7 @@ class TestE2ERetrieveErrors:
             json={"query": "test", "kb_ids": ["kb_nonexistent_e2e"], "top_k": 5},
         )
         assert resp.status_code == 404
-        assert resp.json()["code"] == 1100
+        assert resp.json()["code"] == ErrorCode.NOT_FOUND.code
 
     def test_retrieve_extra_field_422(self, client):
         """Extra ``filter`` field (model_config extra=forbid) → 422."""

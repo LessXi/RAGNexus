@@ -6,7 +6,6 @@ Usage::
     app = build_app()  # FastAPI instance with all wiring
 """
 
-import logging
 from contextlib import asynccontextmanager
 
 import asyncpg
@@ -15,8 +14,13 @@ from fastapi import FastAPI
 from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
 from ragnexus.adapters.http.create_kb_router import create_router as create_kb_router
 from ragnexus.adapters.http.error_handlers import register_error_handlers
-from ragnexus.adapters.http.retrieve_router import create_router as create_retrieve_router
-from ragnexus.adapters.http.upload_doc_router import create_router as create_upload_doc_router
+from ragnexus.adapters.http.middleware import LoggingMiddleware
+from ragnexus.adapters.http.retrieve_router import (
+    create_router as create_retrieve_router,
+)
+from ragnexus.adapters.http.upload_doc_router import (
+    create_router as create_upload_doc_router,
+)
 from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
 from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
 from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
@@ -25,8 +29,9 @@ from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
 from ragnexus.config import get_settings
+from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.core.logger import LoggedPool, setup_logging
 from ragnexus.domain.chunking import heading_aware_split
-from ragnexus.domain.errors import ConfigError
 
 
 @asynccontextmanager
@@ -48,23 +53,27 @@ async def lifespan(app: FastAPI):
     cfg = get_settings()
 
     # --- Logging -----------------------------------------------------------
-    logging.basicConfig(
-        level=getattr(logging, cfg.LOG_LEVEL.upper(), logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    log_listener = setup_logging(cfg)
+    app.state.log_listener = log_listener
 
-    # --- 1. Vector store (owns its own pool with pgvector init) -----------
+    # --- 1. Vector store (external pool wrapped with LoggedPool) ----------
+    _raw_store_pool = await asyncpg.create_pool(
+        cfg.PG_DSN,
+        min_size=cfg.PG_POOL_MIN,
+        max_size=cfg.PG_POOL_MAX,
+        command_timeout=cfg.PG_COMMAND_TIMEOUT,
+    )
     store = PgVectorStore(
         dsn=cfg.PG_DSN,
         pool_min=cfg.PG_POOL_MIN,
         pool_max=cfg.PG_POOL_MAX,
         command_timeout=cfg.PG_COMMAND_TIMEOUT,
     )
-    await store.connect()
+    await store.connect(external_pool=LoggedPool(_raw_store_pool))
 
     # --- 2. EMBED_DIM validation ------------------------------------------
     if store.pool is None:
-        raise ConfigError("向量库连接池未初始化")
+        raise AppError(ErrorCode.CONFIG_ERROR, "向量库连接池未初始化")
     try:
         actual_dim: int | None = await store.pool.fetchval(
             "SELECT atttypmod FROM pg_attribute a"
@@ -73,18 +82,21 @@ async def lifespan(app: FastAPI):
             " AND a.attname = 'embedding'",
         )
     except Exception as exc:
-        raise ConfigError(
+        raise AppError(
+            ErrorCode.CONFIG_ERROR,
             "无法检测 embedding 列维度——请确保 schema.sql 已执行且数据库可访问",
             errors=[{"field": "embedding", "reason": str(exc)}],
         ) from exc
 
     if actual_dim is None:
-        raise ConfigError(
+        raise AppError(
+            ErrorCode.CONFIG_ERROR,
             "chunks.embedding 列不存在——请先执行 docs/sql/schema.sql",
             errors=[{"field": "embedding", "reason": "列未找到"}],
         )
     if actual_dim not in (-1, cfg.EMBED_DIM):
-        raise ConfigError(
+        raise AppError(
+            ErrorCode.CONFIG_ERROR,
             f"EMBED_DIM 不匹配：数据库 chunks.embedding 为 vector({actual_dim})，"
             f"配置为 {cfg.EMBED_DIM}",
             errors=[
@@ -96,12 +108,13 @@ async def lifespan(app: FastAPI):
         )
 
     # --- 3. Shared repository pool (KB metadata + retrieve log) -----------
-    repo_pool = await asyncpg.create_pool(
+    _raw_repo_pool = await asyncpg.create_pool(
         cfg.PG_DSN,
         min_size=cfg.PG_POOL_MIN,
         max_size=cfg.PG_POOL_MAX,
         command_timeout=cfg.PG_COMMAND_TIMEOUT,
     )
+    repo_pool = LoggedPool(_raw_repo_pool)
 
     # --- 4. Adapters ------------------------------------------------------
     embedder = OpenAICompatEmbedder(
@@ -117,8 +130,8 @@ async def lifespan(app: FastAPI):
         retry_backoff_base=cfg.EMBED_RETRY_BACKOFF_BASE,
     )
     parser = MarkdownAndTextParser()
-    kb_repo = PgKnowledgeBaseRepository(pool=repo_pool)
-    log_repo = PgRetrieveLogRepository(pool=repo_pool)
+    kb_repo = PgKnowledgeBaseRepository(pool=repo_pool)  # type: ignore[arg-type]
+    log_repo = PgRetrieveLogRepository(pool=repo_pool)  # type: ignore[arg-type]
 
     # Chunker: pass raw function so use case controls max_chars/overlap
     chunker = heading_aware_split
@@ -154,8 +167,17 @@ async def lifespan(app: FastAPI):
     yield
 
     # --- 7. Teardown ------------------------------------------------------
-    await store.close()
-    await repo_pool.close()
+    # 用 try/finally 确保每个资源都会被清理，即使前置步骤抛出异常
+    try:
+        await store.close()
+    finally:
+        try:
+            await _raw_store_pool.close()
+        finally:
+            try:
+                await _raw_repo_pool.close()
+            finally:
+                app.state.log_listener.stop()
 
 
 def build_app() -> FastAPI:
@@ -167,5 +189,6 @@ def build_app() -> FastAPI:
     """
     app = FastAPI(lifespan=lifespan)
     register_error_handlers(app)
+    app.add_middleware(LoggingMiddleware)
     app.middleware_stack = app.build_middleware_stack()
     return app

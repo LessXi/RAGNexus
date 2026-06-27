@@ -1,18 +1,12 @@
 """Tests for UploadDocumentUseCase — full pipeline TDD."""
 
 import hashlib
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
-from ragnexus.domain.errors import (
-    DuplicateDocumentError,
-    EmptyFileError,
-    NotFoundError,
-    PayloadTooLargeError,
-    UnsupportedMediaTypeError,
-)
+from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import ParsedDocument, Section, UploadResult
 
 
@@ -107,30 +101,58 @@ class TestUploadDocument:
         mock_store.upsert.assert_awaited_once_with("kb_test123", result.chunks)
 
     @pytest.mark.asyncio
-    async def test_file_too_large(self, use_case):
-        """File exceeding MAX_FILE_SIZE raises PayloadTooLargeError."""
-        file_bytes = b"x" * (10 * 1024 * 1024 + 1)
-        with pytest.raises(PayloadTooLargeError) as exc:
+    async def test_upload_logs_biz_event(
+        self, use_case, mock_kb_repo, mock_embedder, mock_parser, mock_store
+    ):
+        """Successful upload emits BIZ_EVENT log with document_uploaded event."""
+        file_bytes = b"# Hello\n\nThis is a test document."
+
+        with patch("ragnexus.core.logger.logger.info") as mock_info:
             await use_case.execute(
                 kb_id="kb_test123",
                 file_content=file_bytes,
                 filename="test.md",
                 content_type="text/markdown",
             )
-        assert exc.value.code == 1301
+
+            # 找到 BIZ_EVENT 调用
+            biz_calls = [
+                call
+                for call in mock_info.call_args_list
+                if call.kwargs.get("extra", {}).get("event_type") == "BIZ_EVENT"
+            ]
+            assert len(biz_calls) == 1
+            extra = biz_calls[0].kwargs["extra"]
+            assert extra["event"] == "document_uploaded"
+            assert extra["kb_id"] == "kb_test123"
+            assert extra["doc_id"].startswith("doc_")
+            assert extra["chunks"] > 0
+
+    @pytest.mark.asyncio
+    async def test_file_too_large(self, use_case):
+        """File exceeding MAX_FILE_SIZE raises PayloadTooLargeError."""
+        file_bytes = b"x" * (10 * 1024 * 1024 + 1)
+        with pytest.raises(AppError) as exc:
+            await use_case.execute(
+                kb_id="kb_test123",
+                file_content=file_bytes,
+                filename="test.md",
+                content_type="text/markdown",
+            )
+        assert exc.value.code == ErrorCode.FILE_TOO_LARGE.code
 
     @pytest.mark.asyncio
     async def test_wrong_extension(self, use_case):
         """File with unsupported extension raises UnsupportedMediaTypeError."""
         for bad_name in ("test.pdf", "test.docx", "image.png", "notes"):
-            with pytest.raises(UnsupportedMediaTypeError) as exc:
+            with pytest.raises(AppError) as exc:
                 await use_case.execute(
                     kb_id="kb_test123",
                     file_content=b"some content",
                     filename=bad_name,
                     content_type="application/octet-stream",
                 )
-            assert exc.value.code == 1300
+            assert exc.value.code == ErrorCode.UNSUPPORTED_FORMAT.code
 
     @pytest.mark.asyncio
     async def test_kb_not_found(self, mock_kb_repo, mock_embedder, mock_parser, mock_store):
@@ -145,14 +167,14 @@ class TestUploadDocument:
             chunker=heading_aware_split,
             store=mock_store,
         )
-        with pytest.raises(NotFoundError) as exc:
+        with pytest.raises(AppError) as exc:
             await uc.execute(
                 kb_id="kb_nonexistent",
                 file_content=b"content",
                 filename="test.md",
                 content_type="text/markdown",
             )
-        assert exc.value.code == 1100
+        assert exc.value.code == ErrorCode.NOT_FOUND.code
 
     @pytest.mark.asyncio
     async def test_duplicate_doc(self, mock_kb_repo, mock_embedder, mock_parser, mock_store):
@@ -167,14 +189,14 @@ class TestUploadDocument:
             chunker=heading_aware_split,
             store=mock_store,
         )
-        with pytest.raises(DuplicateDocumentError) as exc:
+        with pytest.raises(AppError) as exc:
             await uc.execute(
                 kb_id="kb_test123",
                 file_content=b"some content",
                 filename="test.md",
                 content_type="text/markdown",
             )
-        assert exc.value.code == 1201
+        assert exc.value.code == ErrorCode.RESOURCE_EXISTS.code
 
         # Parser should NOT have been called (dedup check before parsing)
         mock_parser.parse.assert_not_called()
@@ -196,11 +218,11 @@ class TestUploadDocument:
             chunker=heading_aware_split,
             store=mock_store,
         )
-        with pytest.raises(EmptyFileError) as exc:
+        with pytest.raises(AppError) as exc:
             await uc.execute(
                 kb_id="kb_test123",
                 file_content=b"",
                 filename="test.md",
                 content_type="text/markdown",
             )
-        assert exc.value.code == 1400
+        assert exc.value.code == ErrorCode.FILE_EMPTY.code

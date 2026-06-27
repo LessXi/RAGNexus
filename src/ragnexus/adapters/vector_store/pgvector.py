@@ -1,11 +1,12 @@
 """PgVectorStore — PostgreSQL + pgvector implementation of VectorStorePort."""
 
 import json
+from typing import Any
 
 import asyncpg
 from pgvector.asyncpg import register_vector
 
-from ragnexus.domain.errors import DuplicateDocumentError
+from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import Chunk, SearchHit
 
 
@@ -34,10 +35,19 @@ class PgVectorStore:
         self.pool_min = pool_min
         self.pool_max = pool_max
         self.command_timeout = command_timeout
-        self.pool: asyncpg.Pool | None = None
+        self.pool: asyncpg.Pool | Any = None
+        self._owns_pool: bool = False
 
-    async def connect(self) -> None:
-        """Create asyncpg connection pool with pgvector extension registered."""
+    async def connect(self, external_pool: Any = None) -> None:
+        """创建连接池或接受外部注入的 pool。
+
+        若 external_pool 为 None，内部创建 asyncpg.Pool（保持向后兼容）；
+        否则直接使用传入的 pool（例如 LoggedPool 包装后的实例），不负责关闭。
+        """
+        if external_pool is not None:
+            self.pool = external_pool
+            self._owns_pool = False
+            return
 
         async def _init_conn(conn: asyncpg.Connection) -> None:
             await register_vector(conn)
@@ -49,16 +59,17 @@ class PgVectorStore:
             command_timeout=self.command_timeout,
             init=_init_conn,
         )
+        self._owns_pool = True
 
     async def close(self) -> None:
-        """Close the connection pool."""
-        if self.pool is not None:
+        """Close the connection pool — only if we own it."""
+        if self._owns_pool and self.pool is not None:
             await self.pool.close()
 
     async def upsert(self, kb_id: str, chunks: list[Chunk]) -> None:
         """Insert or reject chunks under a single transaction.
 
-        Raises ``DuplicateDocumentError`` (1201) when any chunk with
+        Raises ``AppError(ErrorCode.RESOURCE_EXISTS)`` when any chunk with
         the same ``doc_id`` already exists in the store.
         """
         if not chunks:
@@ -72,7 +83,8 @@ class PgVectorStore:
                 doc_id,
             )
             if exists:
-                raise DuplicateDocumentError(
+                raise AppError(
+                    ErrorCode.RESOURCE_EXISTS,
                     f"doc_id={doc_id} 已存在",
                     errors=[
                         {
@@ -118,7 +130,8 @@ class PgVectorStore:
                     ],
                 )
             except asyncpg.UniqueViolationError as e:
-                raise DuplicateDocumentError(
+                raise AppError(
+                    ErrorCode.RESOURCE_EXISTS,
                     f"doc_id={doc_id} 已存在",
                     errors=[
                         {
