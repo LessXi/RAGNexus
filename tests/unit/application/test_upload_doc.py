@@ -155,7 +155,9 @@ class TestUploadDocument:
             assert exc.value.code == ErrorCode.UNSUPPORTED_FORMAT.code
 
     @pytest.mark.asyncio
-    async def test_kb_not_found(self, mock_kb_repo, mock_embedder, mock_parser, mock_store):
+    async def test_kb_not_found(
+        self, mock_kb_repo, mock_embedder, mock_parser, mock_store
+    ):
         """Non-existent kb_id raises NotFoundError."""
         from ragnexus.domain.chunking import heading_aware_split
 
@@ -177,8 +179,10 @@ class TestUploadDocument:
         assert exc.value.code == ErrorCode.NOT_FOUND.code
 
     @pytest.mark.asyncio
-    async def test_duplicate_doc(self, mock_kb_repo, mock_embedder, mock_parser, mock_store):
-        """Duplicate doc_id (SHA256 collision) raises DuplicateDocumentError BEFORE parsing."""
+    async def test_duplicate_doc(
+        self, mock_kb_repo, mock_embedder, mock_parser, mock_store
+    ):
+        """Duplicate doc_id (SHA256 collision) raises AppError BEFORE parsing."""
         from ragnexus.domain.chunking import heading_aware_split
 
         mock_kb_repo.doc_exists.return_value = True
@@ -202,7 +206,9 @@ class TestUploadDocument:
         mock_parser.parse.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_empty_file(self, mock_kb_repo, mock_embedder, mock_parser, mock_store):
+    async def test_empty_file(
+        self, mock_kb_repo, mock_embedder, mock_parser, mock_store
+    ):
         """File with no content (parser returns empty) raises EmptyFileError."""
         from ragnexus.domain.chunking import heading_aware_split
 

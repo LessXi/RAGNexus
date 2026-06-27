@@ -77,6 +77,9 @@ class PgVectorStore:
         assert self.pool is not None, "call connect() first"
         doc_id = chunks[0].doc_id
         async with self.pool.acquire() as conn, conn.transaction():
+            await register_vector(
+                conn
+            )  # 注册 pgvector 编码器（external_pool 场景必需）
             # 1. Deduplicate check (application-level guard + UNIQUE index)
             exists = await conn.fetchval(
                 "SELECT 1 FROM chunks WHERE doc_id = $1 LIMIT 1",
@@ -94,41 +97,39 @@ class PgVectorStore:
                     ],
                 )
 
-            # 2. Insert document metadata row
-            first = chunks[0]
-            await conn.execute(
-                """INSERT INTO documents
-                       (doc_id, kb_id, filename, file_hash,
-                        file_size, content_type, chunk_count)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7)
-                       ON CONFLICT (doc_id) DO NOTHING""",
-                first.doc_id,
-                first.kb_id,
-                first.metadata.get("filename", ""),
-                first.metadata.get("file_hash", ""),
-                first.metadata.get("file_size", 0),
-                first.metadata.get("content_type"),
-                len(chunks),
-            )
-
-            # 3. Batch insert chunks
             try:
-                await conn.executemany(
-                    """INSERT INTO chunks
-                           (id, kb_id, doc_id, text, metadata, embedding)
-                           VALUES ($1, $2, $3, $4, $5, $6)""",
-                    [
-                        (
-                            c.id,
-                            c.kb_id,
-                            c.doc_id,
-                            c.text,
-                            json.dumps(c.metadata),
-                            c.vector,
-                        )
-                        for c in chunks
-                    ],
+                # 2. Insert document metadata row
+                first = chunks[0]
+                await conn.execute(
+                    """INSERT INTO documents
+                           (doc_id, kb_id, filename, file_hash,
+                            file_size, content_type, chunk_count)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7)
+                           ON CONFLICT (doc_id) DO NOTHING""",
+                    first.doc_id,
+                    first.kb_id,
+                    first.metadata.get("filename", ""),
+                    first.metadata.get("file_hash", ""),
+                    first.metadata.get("file_size", 0),
+                    first.metadata.get("content_type"),
+                    len(chunks),
                 )
+
+                # 3. Batch insert chunks
+                # 使用逐条 execute 而非 executemany：executemany 的二进制协议
+                # 无法正确序列化 list[float] → pgvector 类型，而单条 execute 可以
+                for c in chunks:
+                    await conn.execute(
+                        """INSERT INTO chunks
+                               (id, kb_id, doc_id, text, metadata, embedding)
+                               VALUES ($1, $2, $3, $4, $5, $6)""",
+                        c.id,
+                        c.kb_id,
+                        c.doc_id,
+                        c.text,
+                        json.dumps(c.metadata),
+                        c.vector,
+                    )
             except asyncpg.UniqueViolationError as e:
                 raise AppError(
                     ErrorCode.RESOURCE_EXISTS,
@@ -153,6 +154,7 @@ class PgVectorStore:
         """
         assert self.pool is not None, "call connect() first"
         async with self.pool.acquire() as conn:
+            await register_vector(conn)  # 注册 pgvector 编码器
             rows = await conn.fetch(
                 """SELECT id, kb_id, doc_id, text, metadata,
                           1 - (embedding <=> $1) AS score

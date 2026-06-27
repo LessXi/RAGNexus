@@ -106,26 +106,31 @@ async def test_upsert_new_doc(pg_store, mock_conn, sample_chunks):
         "doc_test",
     )
 
-    # 2) documents insert
-    mock_conn.execute.assert_awaited_once()
-    sql, *params = mock_conn.execute.await_args.args
-    assert "INSERT INTO documents" in sql
-    assert params[0] == "doc_test"
+    # 2) documents insert（第一次 execute 调用）
+    docs_calls = [
+        c
+        for c in mock_conn.execute.await_args_list
+        if "INSERT INTO documents" in c.args[0]
+    ]
+    assert len(docs_calls) == 1
+    assert docs_calls[0].args[1] == "doc_test"
 
-    # 3) chunks executemany
-    mock_conn.executemany.assert_awaited_once()
-    exec_sql, exec_rows = mock_conn.executemany.await_args.args
-    assert "INSERT INTO chunks" in exec_sql
-    assert len(exec_rows) == 2
-    assert exec_rows[0][0] == "doc_test:0"
-    assert exec_rows[1][0] == "doc_test:1"
-    assert json.loads(exec_rows[0][4])["chunk_index"] == 0
-    assert exec_rows[0][5] == [0.1, 0.2, 0.3]
+    # 3) chunks insert（逐条 execute）
+    chunk_calls = [
+        c
+        for c in mock_conn.execute.await_args_list
+        if "INSERT INTO chunks" in c.args[0]
+    ]
+    assert len(chunk_calls) == 2
+    assert chunk_calls[0].args[1] == "doc_test:0"
+    assert chunk_calls[1].args[1] == "doc_test:1"
+    assert json.loads(chunk_calls[0].args[5])["chunk_index"] == 0
+    assert chunk_calls[0].args[6] == [0.1, 0.2, 0.3]
 
 
 @pytest.mark.asyncio
 async def test_upsert_duplicate_doc(pg_store, mock_conn, sample_chunks):
-    """Duplicate doc_id raises DuplicateDocumentError with code 1201."""
+    """Duplicate doc_id raises AppError(ErrorCode.RESOURCE_EXISTS)."""
     mock_conn.fetchval.return_value = 1  # doc already exists
 
     with pytest.raises(AppError) as exc_info:
@@ -134,16 +139,15 @@ async def test_upsert_duplicate_doc(pg_store, mock_conn, sample_chunks):
     assert exc_info.value.code == ErrorCode.RESOURCE_EXISTS.code
     assert exc_info.value.http_status == 409
     mock_conn.execute.assert_not_called()
-    mock_conn.executemany.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_upsert_race_condition(pg_store, mock_conn, sample_chunks):
-    """When executemany raises UniqueViolationError → DuplicateDocumentError with code 1201."""
+    """When execute raises UniqueViolationError → AppError(ErrorCode.RESOURCE_EXISTS)."""
     import asyncpg
 
     mock_conn.fetchval.return_value = None  # application-level check passes
-    mock_conn.executemany.side_effect = asyncpg.UniqueViolationError("duplicate key value")
+    mock_conn.execute.side_effect = asyncpg.UniqueViolationError("duplicate key value")
 
     with pytest.raises(AppError) as exc_info:
         await pg_store.upsert("kb_test", sample_chunks)

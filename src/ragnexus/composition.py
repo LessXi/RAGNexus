@@ -56,128 +56,134 @@ async def lifespan(app: FastAPI):
     log_listener = setup_logging(cfg)
     app.state.log_listener = log_listener
 
-    # --- 1. Vector store (external pool wrapped with LoggedPool) ----------
-    _raw_store_pool = await asyncpg.create_pool(
-        cfg.PG_DSN,
-        min_size=cfg.PG_POOL_MIN,
-        max_size=cfg.PG_POOL_MAX,
-        command_timeout=cfg.PG_COMMAND_TIMEOUT,
-    )
-    store = PgVectorStore(
-        dsn=cfg.PG_DSN,
-        pool_min=cfg.PG_POOL_MIN,
-        pool_max=cfg.PG_POOL_MAX,
-        command_timeout=cfg.PG_COMMAND_TIMEOUT,
-    )
-    await store.connect(external_pool=LoggedPool(_raw_store_pool))
+    # --- 资源追踪（启动阶段抛异常时确保已创建资源被清理）---
+    _raw_store_pool = None
+    _raw_repo_pool = None
+    store = None
 
-    # --- 2. EMBED_DIM validation ------------------------------------------
-    if store.pool is None:
-        raise AppError(ErrorCode.CONFIG_ERROR, "向量库连接池未初始化")
     try:
-        actual_dim: int | None = await store.pool.fetchval(
-            "SELECT atttypmod FROM pg_attribute a"
-            " JOIN pg_class c ON c.oid = a.attrelid"
-            " WHERE c.relname = 'chunks'"
-            " AND a.attname = 'embedding'",
+        # --- 1. Vector store (external pool wrapped with LoggedPool) ----------
+        _raw_store_pool = await asyncpg.create_pool(
+            cfg.PG_DSN,
+            min_size=cfg.PG_POOL_MIN,
+            max_size=cfg.PG_POOL_MAX,
+            command_timeout=cfg.PG_COMMAND_TIMEOUT,
         )
-    except Exception as exc:
-        raise AppError(
-            ErrorCode.CONFIG_ERROR,
-            "无法检测 embedding 列维度——请确保 schema.sql 已执行且数据库可访问",
-            errors=[{"field": "embedding", "reason": str(exc)}],
-        ) from exc
-
-    if actual_dim is None:
-        raise AppError(
-            ErrorCode.CONFIG_ERROR,
-            "chunks.embedding 列不存在——请先执行 docs/sql/schema.sql",
-            errors=[{"field": "embedding", "reason": "列未找到"}],
+        store = PgVectorStore(
+            dsn=cfg.PG_DSN,
+            pool_min=cfg.PG_POOL_MIN,
+            pool_max=cfg.PG_POOL_MAX,
+            command_timeout=cfg.PG_COMMAND_TIMEOUT,
         )
-    if actual_dim not in (-1, cfg.EMBED_DIM):
-        raise AppError(
-            ErrorCode.CONFIG_ERROR,
-            f"EMBED_DIM 不匹配：数据库 chunks.embedding 为 vector({actual_dim})，"
-            f"配置为 {cfg.EMBED_DIM}",
-            errors=[
-                {
-                    "field": "EMBED_DIM",
-                    "reason": f"数据库维度为 {actual_dim}",
-                },
-            ],
-        )
+        await store.connect(external_pool=LoggedPool(_raw_store_pool))
 
-    # --- 3. Shared repository pool (KB metadata + retrieve log) -----------
-    _raw_repo_pool = await asyncpg.create_pool(
-        cfg.PG_DSN,
-        min_size=cfg.PG_POOL_MIN,
-        max_size=cfg.PG_POOL_MAX,
-        command_timeout=cfg.PG_COMMAND_TIMEOUT,
-    )
-    repo_pool = LoggedPool(_raw_repo_pool)
-
-    # --- 4. Adapters ------------------------------------------------------
-    embedder = OpenAICompatEmbedder(
-        base_url=cfg.EMBED_BASE_URL,
-        api_key=cfg.EMBED_API_KEY,
-        model=cfg.EMBED_MODEL,
-        dim=cfg.EMBED_DIM,
-        batch_size=cfg.EMBED_BATCH_SIZE,
-        max_concurrency=cfg.EMBED_MAX_CONCURRENCY,
-        max_retries=cfg.EMBED_MAX_RETRIES,
-        request_timeout=cfg.EMBED_REQUEST_TIMEOUT,
-        connect_timeout=cfg.EMBED_CONNECT_TIMEOUT,
-        retry_backoff_base=cfg.EMBED_RETRY_BACKOFF_BASE,
-    )
-    parser = MarkdownAndTextParser()
-    kb_repo = PgKnowledgeBaseRepository(pool=repo_pool)  # type: ignore[arg-type]
-    log_repo = PgRetrieveLogRepository(pool=repo_pool)  # type: ignore[arg-type]
-
-    # Chunker: pass raw function so use case controls max_chars/overlap
-    chunker = heading_aware_split
-
-    # --- 5. Use cases -----------------------------------------------------
-    create_kb_uc = CreateKnowledgeBaseUseCase(kb_repo=kb_repo)
-    upload_doc_uc = UploadDocumentUseCase(
-        kb_repo=kb_repo,
-        parser=parser,
-        embedder=embedder,
-        chunker=chunker,
-        store=store,
-        max_file_size=cfg.MAX_FILE_SIZE,
-        chunk_max_chars=cfg.CHUNK_MAX_CHARS,
-        chunk_overlap=cfg.CHUNK_OVERLAP,
-    )
-    retrieve_uc = RetrieveUseCase(
-        kb_repo=kb_repo,
-        embedder=embedder,
-        store=store,
-        log_port=log_repo,
-    )
-
-    # --- 6. Routers -------------------------------------------------------
-    app.include_router(create_kb_router(create_kb_uc))
-    app.include_router(create_upload_doc_router(upload_doc_uc))
-    app.include_router(create_retrieve_router(retrieve_uc))
-
-    # Stash references for teardown
-    app.state.store = store
-    app.state.repo_pool = repo_pool
-
-    yield
-
-    # --- 7. Teardown ------------------------------------------------------
-    # 用 try/finally 确保每个资源都会被清理，即使前置步骤抛出异常
-    try:
-        await store.close()
-    finally:
+        # --- 2. EMBED_DIM validation ------------------------------------------
+        if store.pool is None:
+            raise AppError(ErrorCode.CONFIG_ERROR, "向量库连接池未初始化")
         try:
-            await _raw_store_pool.close()
+            actual_dim: int | None = await store.pool.fetchval(
+                "SELECT atttypmod FROM pg_attribute a"
+                " JOIN pg_class c ON c.oid = a.attrelid"
+                " WHERE c.relname = 'chunks'"
+                " AND a.attname = 'embedding'",
+            )
+        except Exception as exc:
+            raise AppError(
+                ErrorCode.CONFIG_ERROR,
+                "无法检测 embedding 列维度——请确保 schema.sql 已执行且数据库可访问",
+                errors=[{"field": "embedding", "reason": str(exc)}],
+            ) from exc
+
+        if actual_dim is None:
+            raise AppError(
+                ErrorCode.CONFIG_ERROR,
+                "chunks.embedding 列不存在——请先执行 docs/sql/schema.sql",
+                errors=[{"field": "embedding", "reason": "列未找到"}],
+            )
+        if actual_dim not in (-1, cfg.EMBED_DIM):
+            raise AppError(
+                ErrorCode.CONFIG_ERROR,
+                f"EMBED_DIM 不匹配：数据库 chunks.embedding 为 vector({actual_dim})，"
+                f"配置为 {cfg.EMBED_DIM}",
+                errors=[
+                    {
+                        "field": "EMBED_DIM",
+                        "reason": f"数据库维度为 {actual_dim}",
+                    },
+                ],
+            )
+
+        # --- 3. Shared repository pool (KB metadata + retrieve log) -----------
+        _raw_repo_pool = await asyncpg.create_pool(
+            cfg.PG_DSN,
+            min_size=cfg.PG_POOL_MIN,
+            max_size=cfg.PG_POOL_MAX,
+            command_timeout=cfg.PG_COMMAND_TIMEOUT,
+        )
+        repo_pool = LoggedPool(_raw_repo_pool)
+
+        # --- 4. Adapters ------------------------------------------------------
+        embedder = OpenAICompatEmbedder(
+            base_url=cfg.EMBED_BASE_URL,
+            api_key=cfg.EMBED_API_KEY,
+            model=cfg.EMBED_MODEL,
+            dim=cfg.EMBED_DIM,
+            batch_size=cfg.EMBED_BATCH_SIZE,
+            max_concurrency=cfg.EMBED_MAX_CONCURRENCY,
+            max_retries=cfg.EMBED_MAX_RETRIES,
+            request_timeout=cfg.EMBED_REQUEST_TIMEOUT,
+            connect_timeout=cfg.EMBED_CONNECT_TIMEOUT,
+            retry_backoff_base=cfg.EMBED_RETRY_BACKOFF_BASE,
+        )
+        parser = MarkdownAndTextParser()
+        kb_repo = PgKnowledgeBaseRepository(pool=repo_pool)  # type: ignore[arg-type]
+        log_repo = PgRetrieveLogRepository(pool=repo_pool)  # type: ignore[arg-type]
+
+        # Chunker: pass raw function so use case controls max_chars/overlap
+        chunker = heading_aware_split
+
+        # --- 5. Use cases -----------------------------------------------------
+        create_kb_uc = CreateKnowledgeBaseUseCase(kb_repo=kb_repo)
+        upload_doc_uc = UploadDocumentUseCase(
+            kb_repo=kb_repo,
+            parser=parser,
+            embedder=embedder,
+            chunker=chunker,
+            store=store,
+            max_file_size=cfg.MAX_FILE_SIZE,
+            chunk_max_chars=cfg.CHUNK_MAX_CHARS,
+            chunk_overlap=cfg.CHUNK_OVERLAP,
+        )
+        retrieve_uc = RetrieveUseCase(
+            kb_repo=kb_repo,
+            embedder=embedder,
+            store=store,
+            log_port=log_repo,
+        )
+
+        # --- 6. Routers -------------------------------------------------------
+        app.include_router(create_kb_router(create_kb_uc))
+        app.include_router(create_upload_doc_router(upload_doc_uc))
+        app.include_router(create_retrieve_router(retrieve_uc))
+
+        # Stash references for teardown
+        app.state.store = store
+        app.state.repo_pool = repo_pool
+
+        yield
+
+    finally:
+        # 确保所有资源被清理，即使启动阶段抛出异常
+        # 清理顺序：后创建的先关闭
+        try:
+            if _raw_repo_pool is not None:
+                await _raw_repo_pool.close()
         finally:
             try:
-                await _raw_repo_pool.close()
+                if _raw_store_pool is not None:
+                    await _raw_store_pool.close()
             finally:
-                app.state.log_listener.stop()
+                log_listener.stop()
 
 
 def build_app() -> FastAPI:

@@ -64,22 +64,25 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             },
         )
 
-        # 4. 调用路由
+        # 4. 调用路由（try/finally 确保异常路径也记录 API_RESPONSE 并清理上下文）
         t0 = time.perf_counter()
-        response = await call_next(request)
-        cost_ms = (time.perf_counter() - t0) * 1000
+        response = None
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            cost_ms = (time.perf_counter() - t0) * 1000
+            status = response.status_code if response is not None else 500
 
-        # 5. 记录 API_RESPONSE
-        logger.info(
-            "",
-            extra={
-                "event_type": "API_RESPONSE",
-                "status": response.status_code,
-                "cost_ms": round(cost_ms, 2),
-            },
-        )
+            # 5. 记录 API_RESPONSE
+            logger.info(
+                "",
+                extra={
+                    "event_type": "API_RESPONSE",
+                    "status": status,
+                    "cost_ms": round(cost_ms, 2),
+                },
+            )
 
-        # 6. 清理 ContextVar
-        clear_log_context()
-
-        return response
+            # 6. 清理 ContextVar
+            clear_log_context()

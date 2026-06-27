@@ -83,7 +83,7 @@ class TestPgVectorStore:
             assert count == 2
 
     async def test_upsert_duplicate_doc_raises(self, store, pg_pool):
-        """Same doc_id again should raise DuplicateDocumentError."""
+        """Same doc_id again should raise AppError(ErrorCode.RESOURCE_EXISTS)."""
         kb_id = f"kb_up_dup_{id(self)}"
         doc_id = f"doc_up_dup_{id(self)}"
         await self._ensure_kb(kb_id, pg_pool)

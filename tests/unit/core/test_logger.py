@@ -22,6 +22,7 @@ import pytest
 
 from ragnexus.config import Settings
 from ragnexus.core.logger import (
+    CallerFilter,
     ContextAdapter,
     LoggedPool,
     _log_ctx,
@@ -123,7 +124,9 @@ class TestContextAdapter:
         set_log_context(req_id="abc123", user_id="user1")
         adapter = ContextAdapter(logging.getLogger("test_adapter"), {})
 
-        msg, kwargs = adapter.process("test msg", {"extra": {"event_type": "API_REQUEST"}})
+        msg, kwargs = adapter.process(
+            "test msg", {"extra": {"event_type": "API_REQUEST"}}
+        )
 
         assert kwargs["extra"]["req_id"] == "abc123"
         assert kwargs["extra"]["user_id"] == "user1"
@@ -287,7 +290,9 @@ class TestLoggedPool:
         result = await logged.fetch("SELECT * FROM users WHERE active = $1", True)
 
         assert len(result) == 2
-        mock_pool.fetch.assert_called_once_with("SELECT * FROM users WHERE active = $1", True)
+        mock_pool.fetch.assert_called_once_with(
+            "SELECT * FROM users WHERE active = $1", True
+        )
 
         db_records = self._db_records()
         assert len(db_records) == 1
@@ -309,8 +314,8 @@ class TestLoggedPool:
         assert len(db_records) == 1
         assert db_records[0].op == "fetchrow"
         assert db_records[0].table == "users"
-        # dict 有 __len__，1 个 key → rows=1
-        assert db_records[0].rows == 1
+        # fetchrow 返回单 Record（非 list），rows 固定为 0
+        assert db_records[0].rows == 0
 
     async def test_fetchval_logs_db_query(self) -> None:
         mock_pool = AsyncMock()
@@ -383,7 +388,9 @@ class TestSetupLogging:
 
                 # QueueHandler 应已配置
                 queue_handlers = [
-                    h for h in rag_logger.handlers if isinstance(h, logging.handlers.QueueHandler)
+                    h
+                    for h in rag_logger.handlers
+                    if isinstance(h, logging.handlers.QueueHandler)
                 ]
                 assert len(queue_handlers) == 1, "应配置 1 个 QueueHandler"
 
@@ -395,7 +402,9 @@ class TestSetupLogging:
 
                 # 检查日志文件已创建
                 log_files = list(Path(tmpdir).rglob("*.log"))
-                assert len(log_files) >= 2, f"应有 app.log 和 error.log，实际文件: {log_files}"
+                assert (
+                    len(log_files) >= 2
+                ), f"应有 app.log 和 error.log，实际文件: {log_files}"
 
             finally:
                 listener.stop()
@@ -407,7 +416,9 @@ class TestSetupLogging:
 
             try:
                 rag_logger = _get_rag_logger()
-                assert rag_logger.propagate is False, "ragnexus logger 不应传播到根 logger"
+                assert (
+                    rag_logger.propagate is False
+                ), "ragnexus logger 不应传播到根 logger"
             finally:
                 listener.stop()
 
@@ -425,6 +436,63 @@ class TestSetupLogging:
             listener2.stop()
 
             # 两次调用后 handler 数应一致（因为 clear 了旧的）
-            assert handler_count_1 == handler_count_2, (
-                f"handler count changed: {handler_count_1} → {handler_count_2}"
-            )
+            assert (
+                handler_count_1 == handler_count_2
+            ), f"handler count changed: {handler_count_1} → {handler_count_2}"
+
+
+class TestCallerFilter:
+    """测试 CallerFilter 将 _caller_* 映射到 record 属性。"""
+
+    @staticmethod
+    def _make_record(extra_attrs: dict) -> logging.LogRecord:
+        """创建一个带有自定义 extra 属性的 LogRecord。"""
+        record = logging.LogRecord(
+            name="ragnexus",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="test",
+            args=(),
+            exc_info=None,
+        )
+        for k, v in extra_attrs.items():
+            setattr(record, k, v)
+        return record
+
+    def test_without_caller_attrs_falls_back_to_record(self) -> None:
+        """未设置 _caller_* 时回退到 record 自身的 module/funcName/lineno。"""
+        record = self._make_record({})
+        f = CallerFilter()
+        f.filter(record)
+        assert record.caller_module == record.module
+        assert record.caller_func == record.funcName
+        assert record.caller_lineno == record.lineno
+
+    def test_with_caller_attrs_uses_them(self) -> None:
+        """设置 _caller_* 后使用 _caller_* 的值。"""
+        record = self._make_record(
+            {
+                "_caller_module": "pgvector",
+                "_caller_func": "upsert",
+                "_caller_lineno": 123,
+            }
+        )
+        f = CallerFilter()
+        f.filter(record)
+        assert record.caller_module == "pgvector"
+        assert record.caller_func == "upsert"
+        assert record.caller_lineno == 123
+
+    def test_partial_caller_attrs(self) -> None:
+        """部分 _caller_* 为空时各自回退。"""
+        record = self._make_record(
+            {"_caller_module": "middleware", "_caller_func": "", "_caller_lineno": 0}
+        )
+        f = CallerFilter()
+        f.filter(record)
+        assert record.caller_module == "middleware"
+        # 空字符串 → False → 回退到 record.funcName
+        assert record.caller_func == record.funcName
+        # 0 → False → 回退到 record.lineno
+        assert record.caller_lineno == record.lineno
