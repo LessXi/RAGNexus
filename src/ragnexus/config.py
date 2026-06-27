@@ -1,7 +1,4 @@
-"""Application configuration via pydantic-settings.
-
-All settings are read from .env file with sensible defaults.
-"""
+"""应用配置 — 基于 pydantic-settings，从 .env 文件读取。"""
 
 from functools import cache
 
@@ -50,5 +47,5 @@ class Settings(BaseSettings):
 
 @cache
 def get_settings() -> Settings:
-    """Return cached Settings singleton."""
+    """返回缓存的 Settings 单例。"""
     return Settings()

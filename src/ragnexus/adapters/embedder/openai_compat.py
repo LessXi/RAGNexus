@@ -1,10 +1,10 @@
-"""OpenAI-compatible embedding adapter — OpenAICompatEmbedder.
+"""OpenAI 兼容嵌入适配器 — OpenAICompatEmbedder。
 
-Implements EmbedderPort via an async HTTP client that supports:
-- Batch splitting (EMBED_BATCH_SIZE)
-- Concurrency control (asyncio.Semaphore)
-- Retry with exponential backoff (429/HTTPError)
-- Configurable timeouts
+基于异步 HTTP 客户端实现 EmbedderPort，支持：
+- 批次拆分（EMBED_BATCH_SIZE）
+- 并发控制（asyncio.Semaphore）
+- 指数退避重试（429/HTTPError）
+- 可配置超时
 """
 
 import asyncio
@@ -16,10 +16,9 @@ from ragnexus.core.logger import log_model_call
 
 
 class OpenAICompatEmbedder:
-    """Embed texts via any OpenAI-compatible embedding API.
+    """通过任意 OpenAI 兼容嵌入 API 将文本转为向量。
 
-    Parameters match ``config.Settings`` fields one-to-one so construction
-    can be as simple as ``OpenAICompatEmbedder(**settings)``.
+    参数与 ``config.Settings`` 字段一一对应，构造即 ``OpenAICompatEmbedder(**settings)``。
     """
 
     def __init__(
@@ -49,7 +48,7 @@ class OpenAICompatEmbedder:
         self._sem = asyncio.Semaphore(max_concurrency)
 
     async def _ensure_client(self) -> None:
-        """Lazy-init the shared httpx.AsyncClient."""
+        """惰性初始化共享的 httpx.AsyncClient。"""
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(
@@ -59,10 +58,10 @@ class OpenAICompatEmbedder:
 
     @log_model_call("text-embedding-v3", prompt_arg=1)
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """Embed a list of texts.
+        """将文本列表转为向量列表。
 
-        Splits into batches, runs them concurrently under the semaphore,
-        retries on 429/HTTPError, and validates all returned dimensions.
+        拆分为批次，在信号量下并发运行，
+        对 429/HTTPError 重试，并校验所有返回向量维度。
         """
         if not texts:
             return []

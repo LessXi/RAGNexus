@@ -1,17 +1,17 @@
-"""UploadDocumentUseCase — orchestrates file validation, parsing, chunking, embedding, and storage.
+"""UploadDocumentUseCase — 编排文件校验、解析、分块、嵌入和存储。
 
-The full pipeline:
-1. File size check (≤ max_file_size, default 10MB)
-2. File extension check (.md / .txt only)
-3. KB existence check
-4. doc_id = SHA256(file_content)[:16] with "doc_" prefix
-5. Dedup check via kb_repo.doc_exists()
-6. Parse (ParserPort)
-7. Chunk (injected chunker function)
-8. Embed (EmbedderPort, batch/concurrency handled internally)
-9. Construct Chunk list with common_meta
-10. Transactional upsert (store.upsert)
-Returns UploadResult.
+完整流水线：
+1. 文件大小检查（≤ max_file_size，默认 10MB）
+2. 文件扩展名检查（仅 .md / .txt）
+3. KB 存在性检查
+4. doc_id = SHA256(file_content)[:16] 加 "doc_" 前缀
+5. 去重检查 via kb_repo.doc_exists()
+6. 解析（ParserPort）
+7. 分块（注入的 chunker 函数）
+8. 嵌入（EmbedderPort，批次/并发内部处理）
+9. 构造带 common_meta 的 Chunk 列表
+10. 事务性 upsert（store.upsert）
+返回 UploadResult。
 """
 
 import hashlib
@@ -29,7 +29,7 @@ from ragnexus.domain.ports import (
 
 
 class UploadDocumentUseCase:
-    """Upload a document to a knowledge base — full synchronous pipeline."""
+    """上传文档到知识库 — 完整同步流水线。"""
 
     def __init__(
         self,
@@ -60,14 +60,14 @@ class UploadDocumentUseCase:
         filename: str,
         content_type: str,
     ) -> UploadResult:
-        """Run the full upload pipeline.
+        """运行完整上传流水线。
 
         Raises:
-            AppError(ErrorCode.FILE_TOO_LARGE): file exceeds max_file_size.
-            AppError(ErrorCode.UNSUPPORTED_FORMAT): extension not in allowed_exts.
-            AppError(ErrorCode.NOT_FOUND): kb_id does not exist.
-            AppError(ErrorCode.RESOURCE_EXISTS): doc_id already exists (detected before parse).
-            AppError(ErrorCode.FILE_EMPTY): file has no parseable content.
+            AppError(ErrorCode.FILE_TOO_LARGE): 文件超过大小限制。
+            AppError(ErrorCode.UNSUPPORTED_FORMAT): 不支持的文件扩展名。
+            AppError(ErrorCode.NOT_FOUND): kb_id 不存在。
+            AppError(ErrorCode.RESOURCE_EXISTS): doc_id 已存在（解析前检测）。
+            AppError(ErrorCode.FILE_EMPTY): 文件无可解析内容。
         """
         # 1. File size check
         if len(file_content) > self._max_file_size:
@@ -117,7 +117,7 @@ class UploadDocumentUseCase:
             )
 
         # 6. Parse
-        parsed = self._parser.parse(file_content, filename)
+        parsed = await self._parser.parse(file_content, filename)
         if not parsed.sections and not parsed.raw_text:
             raise AppError(
                 ErrorCode.FILE_EMPTY,

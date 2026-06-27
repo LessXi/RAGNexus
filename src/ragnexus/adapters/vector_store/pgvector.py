@@ -1,4 +1,4 @@
-"""PgVectorStore — PostgreSQL + pgvector implementation of VectorStorePort."""
+"""PgVectorStore — 基于 PostgreSQL + pgvector 的 VectorStorePort 实现。"""
 
 import json
 from typing import Any
@@ -62,15 +62,14 @@ class PgVectorStore:
         self._owns_pool = True
 
     async def close(self) -> None:
-        """Close the connection pool — only if we own it."""
+        """关闭连接池 — 仅当自己持有时。"""
         if self._owns_pool and self.pool is not None:
             await self.pool.close()
 
     async def upsert(self, kb_id: str, chunks: list[Chunk]) -> None:
-        """Insert or reject chunks under a single transaction.
+        """在单事务中插入或拒绝 chunk。
 
-        Raises ``AppError(ErrorCode.RESOURCE_EXISTS)`` when any chunk with
-        the same ``doc_id`` already exists in the store.
+        当存在相同 ``doc_id`` 的 chunk 时抛出 ``AppError(ErrorCode.RESOURCE_EXISTS)``。
         """
         if not chunks:
             return
@@ -148,9 +147,9 @@ class PgVectorStore:
         top_k: int,
         kb_ids: list[str],
     ) -> list[SearchHit]:
-        """Cosine-similarity search via pgvector ``<=>`` operator.
+        """通过 pgvector ``<=>`` 运算符进行余弦相似度搜索。
 
-        Returns results sorted by descending score (``1 - cosine_distance``).
+        按分数降序返回结果（``1 - cosine_distance``）。
         """
         assert self.pool is not None, "call connect() first"
         async with self.pool.acquire() as conn:

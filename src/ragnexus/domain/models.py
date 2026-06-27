@@ -1,4 +1,4 @@
-"""Domain models — pure dataclasses, no framework dependencies."""
+"""领域模型 — 纯 dataclass，无框架依赖。"""
 
 from dataclasses import dataclass, field
 from datetime import datetime

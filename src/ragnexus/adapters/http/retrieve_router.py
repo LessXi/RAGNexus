@@ -1,4 +1,4 @@
-"""Factory: retrieve_router — POST /v1/rag:retrieve."""
+"""工厂函数: retrieve_router — POST /v1/rag:retrieve。"""
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -12,11 +12,11 @@ class _RetrieveRequest(BaseModel):
 
 
 def create_router(uc) -> APIRouter:
-    """Return an APIRouter with a single POST endpoint.
+    """返回含单个 POST 端点的 APIRouter。
 
-    ``uc`` must have ``async def execute(
+    ``uc`` 必须提供 ``async def execute(
         *, query: str, kb_ids: list[str], top_k: int,
-    ) -> list[SearchHit]``.
+    ) -> list[SearchHit]``。
     """
 
     router = APIRouter()

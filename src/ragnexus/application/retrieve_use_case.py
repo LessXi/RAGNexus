@@ -1,4 +1,4 @@
-"""RetrieveUseCase — validates query, embeds, searches vector store, logs asynchronously."""
+"""RetrieveUseCase — 校验查询、嵌入向量、搜索向量库、异步记录日志。"""
 
 import asyncio
 import contextlib
@@ -16,7 +16,7 @@ from ragnexus.domain.ports import (
 
 
 class RetrieveUseCase:
-    """Search chunks by query across knowledge bases."""
+    """跨知识库按查询搜索 chunk。"""
 
     def __init__(
         self,
@@ -30,10 +30,12 @@ class RetrieveUseCase:
         self._store = store
         self._log_port = log_port
 
-    async def execute(self, query: str, kb_ids: list[str], top_k: int = 5) -> list[SearchHit]:
-        # 1. Validate inputs
-        stripped = query.strip()
-        if not stripped or len(query) > 2000:
+    async def execute(
+        self, query: str, kb_ids: list[str], top_k: int = 5
+    ) -> list[SearchHit]:
+        # 1. Validate inputs（统一使用 stripped query，避免空格进入向量和日志）
+        query = query.strip()
+        if not query or len(query) > 2000:
             raise AppError(ErrorCode.PARAM_ERROR, "query 不能为空且长度不能超过 2000")
         if not kb_ids or len(kb_ids) > 5:
             raise AppError(ErrorCode.PARAM_ERROR, "kb_ids 不能为空且最多 5 个")
@@ -45,7 +47,7 @@ class RetrieveUseCase:
             if not await self._kb_repo.exists(kb_id):
                 raise AppError(ErrorCode.NOT_FOUND, f"知识库不存在: {kb_id}")
 
-        # 3. Retrieve
+        # 3. Retrieve（使用已 stripped 的 query）
         t0 = time.perf_counter()
         hits: list[SearchHit] = []
         try:
@@ -55,7 +57,9 @@ class RetrieveUseCase:
         finally:
             latency_ms = int((time.perf_counter() - t0) * 1000)
             hit_count = len(hits)
-            asyncio.create_task(self._safe_log(query, kb_ids, top_k, hit_count, latency_ms))
+            asyncio.create_task(
+                self._safe_log(query, kb_ids, top_k, hit_count, latency_ms)
+            )
 
     async def _safe_log(
         self,
@@ -65,8 +69,8 @@ class RetrieveUseCase:
         hit_count: int,
         latency_ms: int,
     ) -> None:
-        """Fire-and-forget log call — swallow any exception."""
-        with contextlib.suppress(Exception):
+        """Fire-and-forget log call — 异常被捕获并在 debug 级别记录，不中断主流程。"""
+        try:
             await self._log_port.log(
                 query=query,
                 kb_ids=kb_ids,
@@ -74,9 +78,11 @@ class RetrieveUseCase:
                 hit_count=hit_count,
                 latency_ms=latency_ms,
             )
+        except Exception:
+            logger.debug("retrieve 日志写入失败", exc_info=True)
 
         # BIZ_EVENT: 检索完成（用户可感知结果 + 外部副作用）
-        with contextlib.suppress(Exception):
+        try:
             logger.info(
                 "",
                 extra={
@@ -88,3 +94,5 @@ class RetrieveUseCase:
                     "latency_ms": latency_ms,
                 },
             )
+        except Exception:
+            logger.debug("BIZ_EVENT 日志写入失败", exc_info=True)

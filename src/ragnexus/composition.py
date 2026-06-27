@@ -36,19 +36,19 @@ from ragnexus.domain.chunking import heading_aware_split
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan — wire dependencies, yield, tear down.
+    """应用生命周期 — 注入依赖、运行、清理。
 
-    Startup sequence:
-    1. Load settings
-    2. Configure logging
-    3. Create and connect PgVectorStore (creates asyncpg pool with pgvector)
-    4. Detect chunks.embedding dimension from pg_catalog
-    5. Validate EMBED_DIM matches (or is -1 for untyped vector)
-    6. Create shared repository pool
-    7. Instantiate all adapters, use cases, and routers
-    8. Inject into app
-    9. yield → serve
-    10. Close pools
+    启动流程:
+    1. 加载配置
+    2. 配置日志
+    3. 创建并连接 PgVectorStore（创建含 pgvector 的 asyncpg 连接池）
+    4. 从 pg_catalog 检测 chunks.embedding 维度
+    5. 校验 EMBED_DIM 匹配（或 -1 表示无类型向量）
+    6. 创建共享仓库连接池
+    7. 实例化所有适配器、用例和路由
+    8. 注入到 app
+    9. yield → 运行
+    10. 关闭连接池
     """
     cfg = get_settings()
 
@@ -187,11 +187,10 @@ async def lifespan(app: FastAPI):
 
 
 def build_app() -> FastAPI:
-    """Return a fully-wired FastAPI application.
+    """返回完全装配的 FastAPI 应用。
 
-    The lifespan context manager handles startup (DI wiring) and shutdown
-    (pool cleanup).  No external dependencies are required at construction
-    time — the app is safe to import without a running database.
+    lifespan 上下文管理器处理启动（DI 注入）和关闭（连接池清理）。
+    构造时不需要外部依赖 — app 可安全导入，无需运行中的数据库。
     """
     app = FastAPI(lifespan=lifespan)
     register_error_handlers(app)

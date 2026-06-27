@@ -1,13 +1,13 @@
-"""PgRetrieveLogRepository — outbound adapter for retrieve logging.
+"""PgRetrieveLogRepository — 检索日志适配器。
 
-Implements RetrieveLogPort over asyncpg (fire-and-forget semantics).
+基于 asyncpg 实现 RetrieveLogPort（fire-and-forget 语义）。
 """
 
 import asyncpg
 
 
 class PgRetrieveLogRepository:
-    """Postgres (asyncpg) adapter for writing retrieve log entries."""
+    """Postgres (asyncpg) 检索日志写入适配器。"""
 
     def __init__(self, pool: asyncpg.Pool):
         self.pool = pool
@@ -21,7 +21,7 @@ class PgRetrieveLogRepository:
         hit_count: int,
         latency_ms: int,
     ) -> None:
-        """Insert a retrieve_log row (fire-and-forget)."""
+        """插入一条检索日志（fire-and-forget）。"""
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """INSERT INTO retrieve_logs (kb_ids, query, top_k, hit_count, latency_ms)

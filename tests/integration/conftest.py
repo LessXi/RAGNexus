@@ -30,10 +30,10 @@ async def _wait_for_db(dsn: str, timeout: int = 30) -> None:
 
 
 @pytest_asyncio.fixture
-async def pg_pool(ensure_test_db) -> AsyncIterator[asyncpg.Pool]:
+async def pg_pool(_apply_schema) -> AsyncIterator[asyncpg.Pool]:
     """Per-test asyncpg pool — fresh pool on pytest-asyncio's loop each test.
 
-    Depends on ``ensure_test_db`` (session-scoped) which starts Docker Compose.
+    Depends on root conftest's ``_apply_schema`` (session-scoped).
     """
     await _wait_for_db(TEST_DSN)
     pool = await asyncpg.create_pool(

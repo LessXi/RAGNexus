@@ -1,6 +1,6 @@
-"""MarkdownAndTextParser — inbound adapter for document parsing.
+"""MarkdownAndTextParser — 文档解析适配器。
 
-Implements ParserPort. Heading-aware for .md, raw-text fallback for .txt.
+实现 ParserPort。.md 按标题解析，.txt 退回原始文本。
 """
 
 import re
@@ -9,17 +9,17 @@ from ragnexus.domain.models import ParsedDocument, Section
 
 
 class MarkdownAndTextParser:
-    """Parse markdown (heading-aware) or plain text (raw)."""
+    """解析 Markdown（按标题分段）或纯文本（原始）。"""
 
-    def parse(self, content: bytes, filename: str) -> ParsedDocument:
-        """Parse content bytes into a ParsedDocument based on file extension."""
+    async def parse(self, content: bytes, filename: str) -> ParsedDocument:
+        """按文件扩展名将字节内容解析为 ParsedDocument。"""
         text = content.decode("utf-8", errors="replace")
         if filename.lower().endswith(".md"):
             return self._parse_markdown(text, filename)
         return ParsedDocument(filename=filename, sections=[], raw_text=text)
 
     def _parse_markdown(self, text: str, filename: str) -> ParsedDocument:
-        """Split markdown text into sections by heading level."""
+        """按标题级别将 Markdown 文本拆分为章节。"""
         sections: list[Section] = []
         current_heading: str | None = None
         current_level: int = 0

@@ -1,14 +1,14 @@
-"""Factory: upload_doc_router — POST /v1/documents:upload (multipart)."""
+"""工厂函数: upload_doc_router — POST /v1/documents:upload（multipart）。"""
 
 from fastapi import APIRouter, File, Form, UploadFile
 
 
 def create_router(uc) -> APIRouter:
-    """Return an APIRouter with a single multipart POST endpoint.
+    """返回含单个 multipart POST 端点的 APIRouter。
 
-    ``uc`` must have ``async def execute(
+    ``uc`` 必须提供 ``async def execute(
         *, kb_id: str, file_content: bytes, filename: str, content_type: str,
-    ) -> UploadResult``.
+    ) -> UploadResult``。
     """
 
     router = APIRouter()

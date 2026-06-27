@@ -1,4 +1,4 @@
-"""CreateKnowledgeBaseUseCase — validates input and delegates to repo."""
+"""CreateKnowledgeBaseUseCase — 校验输入并委托给 repo 创建知识库。"""
 
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import logger
@@ -7,7 +7,7 @@ from ragnexus.domain.ports import KnowledgeBasePort
 
 
 class CreateKnowledgeBaseUseCase:
-    """Create a knowledge base with validated name."""
+    """创建经过校验的知识库。"""
 
     def __init__(self, kb_repo: KnowledgeBasePort) -> None:
         self._kb_repo = kb_repo

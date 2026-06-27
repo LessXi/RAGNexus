@@ -1,4 +1,4 @@
-"""Factory: create_kb_router — POST /v1/knowledge-bases:create."""
+"""工厂函数: create_kb_router — POST /v1/knowledge-bases:create。"""
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -10,9 +10,9 @@ class _CreateKBRequest(BaseModel):
 
 
 def create_router(uc) -> APIRouter:
-    """Return an APIRouter with a single POST endpoint.
+    """返回含单个 POST 端点的 APIRouter。
 
-    ``uc`` must have ``async def execute(*, name: str) -> KnowledgeBase``.
+    ``uc`` 必须提供 ``async def execute(*, name: str) -> KnowledgeBase``。
     """
 
     router = APIRouter()

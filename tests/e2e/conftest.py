@@ -18,13 +18,12 @@ pytestmark = [
 
 
 @pytest.fixture(scope="module")
-def client(ensure_test_db):
+def client(_apply_schema, ensure_test_db):
     """Return a TestClient with the real app wired to the test DB.
 
-    The ``ensure_test_db`` dependency ensures Docker Compose is running before
-    the app attempts to connect to the test database.
+    The ``_apply_schema`` dependency ensures tables exist before the app starts;
+    ``ensure_test_db`` ensures Docker Compose is running.
     """
-    # Override PG_DSN to point at test-db (port 5433)
     os.environ["PG_DSN"] = TEST_DSN
     os.environ["PG_POOL_MIN"] = "1"
     os.environ["PG_POOL_MAX"] = "3"

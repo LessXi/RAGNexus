@@ -21,10 +21,12 @@ def mock_kb_repo():
 @pytest.fixture
 def mock_parser():
     parser = MagicMock()
-    parser.parse.return_value = ParsedDocument(
-        filename="test.md",
-        sections=[Section(heading="Intro", level=1, content="Hello world.")],
-        raw_text="# Intro\n\nHello world.",
+    parser.parse = AsyncMock(
+        return_value=ParsedDocument(
+            filename="test.md",
+            sections=[Section(heading="Intro", level=1, content="Hello world.")],
+            raw_text="# Intro\n\nHello world.",
+        )
     )
     return parser
 

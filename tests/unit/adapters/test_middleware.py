@@ -71,7 +71,9 @@ class TestLoggingMiddleware:
         return []
 
     @pytest.fixture
-    def handler(self, captured: list[logging.LogRecord]) -> Generator[_ListHandler, None, None]:
+    def handler(
+        self, captured: list[logging.LogRecord]
+    ) -> Generator[_ListHandler, None, None]:
         h = _add_capture_handler(captured)
         yield h
         _remove_capture_handler(h)
@@ -114,7 +116,9 @@ class TestLoggingMiddleware:
         resp = client.post("/echo", json={"msg": "hello"})
         assert resp.status_code == 200
 
-        req_logs = [r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"]
+        req_logs = [
+            r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"
+        ]
         assert len(req_logs) >= 1, "应该至少记录一条 API_REQUEST"
         req_id = getattr(req_logs[0], "req_id", None)
         assert req_id is not None, "req_id 不应为 None"
@@ -134,7 +138,9 @@ class TestLoggingMiddleware:
         )
         assert resp.status_code == 200
 
-        req_logs = [r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"]
+        req_logs = [
+            r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"
+        ]
         assert len(req_logs) >= 1
         assert getattr(req_logs[0], "req_id", None) == "my-custom-id"
 
@@ -152,7 +158,9 @@ class TestLoggingMiddleware:
         assert "API_REQUEST" in event_types, "应记录 API_REQUEST"
         assert "API_RESPONSE" in event_types, "应记录 API_RESPONSE"
 
-        resp_logs = [r for r in captured if getattr(r, "event_type", None) == "API_RESPONSE"]
+        resp_logs = [
+            r for r in captured if getattr(r, "event_type", None) == "API_RESPONSE"
+        ]
         assert len(resp_logs) >= 1
         assert getattr(resp_logs[0], "status", 0) == 200
 
@@ -167,10 +175,14 @@ class TestLoggingMiddleware:
         assert resp.status_code == 200
         assert resp.json() == {"msg": "hello"}
 
-        req_logs = [r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"]
+        req_logs = [
+            r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"
+        ]
         assert len(req_logs) >= 1
-        body = getattr(req_logs[0], "body", None)
-        assert body is not None and "hello" in str(body)
+        body_present = getattr(req_logs[0], "body_present", False)
+        body_length = getattr(req_logs[0], "body_length", 0)
+        assert body_present is True
+        assert body_length > 0
 
     def test_skips_body_for_multipart(
         self, captured: list[logging.LogRecord], handler: _ListHandler
@@ -185,10 +197,12 @@ class TestLoggingMiddleware:
         )
         assert resp.status_code == 200
 
-        req_logs = [r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"]
+        req_logs = [
+            r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"
+        ]
         assert len(req_logs) >= 1
-        body = getattr(req_logs[0], "body", "")
-        assert "multipart" in str(body).lower()
+        body_present = getattr(req_logs[0], "body_present", True)
+        assert body_present is False, "multipart 不应读取 body"
 
     def test_clears_context_after_request(
         self, captured: list[logging.LogRecord], handler: _ListHandler
@@ -232,7 +246,12 @@ class TestLogModelCallOnEmbedder:
             inputs = body["input"]
             return httpx.Response(
                 200,
-                json={"data": [{"index": i, "embedding": [0.1] * dim} for i in range(len(inputs))]},
+                json={
+                    "data": [
+                        {"index": i, "embedding": [0.1] * dim}
+                        for i in range(len(inputs))
+                    ]
+                },
             )
 
         transport = httpx.MockTransport(handler)
@@ -262,14 +281,16 @@ class TestLogModelCallOnEmbedder:
             assert len(result[0]) == 1024
 
             event_types = {getattr(r, "event_type", None) for r in records}
-            assert "MODEL_REQUEST" in event_types, (
-                "未检测到 MODEL_REQUEST — @log_model_call 可能尚未添加到 embed()"
-            )
-            assert "MODEL_RESPONSE" in event_types, (
-                "未检测到 MODEL_RESPONSE — @log_model_call 可能尚未添加到 embed()"
-            )
+            assert (
+                "MODEL_REQUEST" in event_types
+            ), "未检测到 MODEL_REQUEST — @log_model_call 可能尚未添加到 embed()"
+            assert (
+                "MODEL_RESPONSE" in event_types
+            ), "未检测到 MODEL_RESPONSE — @log_model_call 可能尚未添加到 embed()"
 
-            resp_logs = [r for r in records if getattr(r, "event_type", None) == "MODEL_RESPONSE"]
+            resp_logs = [
+                r for r in records if getattr(r, "event_type", None) == "MODEL_RESPONSE"
+            ]
             assert len(resp_logs) >= 1
             assert getattr(resp_logs[0], "model", None) == "text-embedding-v3"
         finally:
@@ -292,8 +313,12 @@ class TestLogModelCallOnEmbedder:
             with pytest.raises(AppError):
                 asyncio.run(emb.embed(["test"]))
 
-            err_logs = [r for r in records if getattr(r, "event_type", None) == "MODEL_RESPONSE"]
-            assert len(err_logs) >= 1, "未检测到失败时的 MODEL_RESPONSE — @log_model_call 未生效"
+            err_logs = [
+                r for r in records if getattr(r, "event_type", None) == "MODEL_RESPONSE"
+            ]
+            assert (
+                len(err_logs) >= 1
+            ), "未检测到失败时的 MODEL_RESPONSE — @log_model_call 未生效"
             error_val = getattr(err_logs[0], "error", None)
             assert error_val is not None
         finally:
@@ -386,6 +411,6 @@ class TestLoggedPoolWiring:
 
             repo_pool = asyncio.run(_run_lifespan())
             assert repo_pool is not None, "lifespan 应设置 app.state.repo_pool"
-            assert isinstance(repo_pool, LoggedPool), (
-                f"repo_pool 应为 LoggedPool 实例，实际类型为 {type(repo_pool).__name__}"
-            )
+            assert isinstance(
+                repo_pool, LoggedPool
+            ), f"repo_pool 应为 LoggedPool 实例，实际类型为 {type(repo_pool).__name__}"

@@ -8,7 +8,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import asyncpg
 import pytest
+import pytest_asyncio
 
 COMPOSE_FILE = Path(__file__).parent.parent / "docker-compose.test.yml"
 TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
@@ -42,7 +44,16 @@ def _start_compose() -> None:
 
     try:
         subprocess.run(
-            ["docker", "compose", "-f", str(COMPOSE_FILE), "up", "-d", "test-db", "test-init"],
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(COMPOSE_FILE),
+                "up",
+                "-d",
+                "test-db",
+                "test-init",
+            ],
             check=True,
             capture_output=True,
             timeout=120,
@@ -73,4 +84,29 @@ def ensure_test_db() -> None:
     """Start Docker Compose if not already running. No pool — tests create their own."""
     _start_compose()
     if not _compose_started:
-        pytest.skip("Docker not available — integration/E2E tests require Docker Compose")
+        pytest.skip(
+            "Docker not available — integration/E2E tests require Docker Compose"
+        )
+
+
+_schema_applied = False
+
+
+@pytest_asyncio.fixture(scope="session")
+async def _apply_schema(ensure_test_db) -> None:
+    """确保 test-db 中 schema 已创建（session 级别，仅执行一次）。"""
+    global _schema_applied
+    if _schema_applied:
+        return
+    conn = await asyncpg.connect(TEST_DSN, timeout=10)
+    try:
+        exists = await conn.fetchval(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'knowledge_bases')"
+        )
+        if not exists:
+            schema_path = Path(__file__).parent.parent / "docs" / "sql" / "schema.sql"
+            schema_sql = schema_path.read_text(encoding="utf-8")
+            await conn.execute(schema_sql)
+    finally:
+        await conn.close()
+    _schema_applied = True

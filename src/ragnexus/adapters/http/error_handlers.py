@@ -1,4 +1,4 @@
-"""Global error handlers for FastAPI — maps AppError → JSONResponse."""
+"""FastAPI 全局错误处理 — 将 AppError 映射为 JSONResponse。"""
 
 import traceback
 
@@ -11,10 +11,9 @@ from ragnexus.core.logger import logger
 
 
 def register_error_handlers(app: FastAPI) -> None:
-    """Register two handlers that turn AppError and RequestValidationError
-    into consistent JSON error responses matching the spec.
+    """将 AppError 和 RequestValidationError 转为统一的 JSON 错误响应。
 
-    Response shape::
+    响应格式::
 
         {"code": int, "data": None, "message": str, "errors": list[dict]}
     """
@@ -43,7 +42,9 @@ def register_error_handlers(app: FastAPI) -> None:
         for e in exc.errors():
             errors.append(
                 {
-                    "field": ".".join(str(loc) for loc in e.get("loc", []) if loc != "body"),
+                    "field": ".".join(
+                        str(loc) for loc in e.get("loc", []) if loc != "body"
+                    ),
                     "reason": e.get("msg", ""),
                 }
             )

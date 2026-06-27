@@ -1,4 +1,4 @@
-"""Domain ports (Protocols) — interface contracts for adapters."""
+"""领域端口（Protocols）— 适配器接口契约。"""
 
 from typing import Protocol
 
@@ -39,7 +39,7 @@ class EmbedderPort(Protocol):
 class ParserPort(Protocol):
     """文档解析。骨架实现: MarkdownAndTextParser。"""
 
-    def parse(self, content: bytes, filename: str) -> ParsedDocument: ...
+    async def parse(self, content: bytes, filename: str) -> ParsedDocument: ...
 
 
 class RetrieveLogPort(Protocol):

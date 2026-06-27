@@ -28,43 +28,45 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         # 1. 生成或复用 req_id
         req_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())[:8]
 
-        # 2. 注入 ContextVar
+        # 2. 读取 body（仅在 JSON 场景回填给下游路由）
+        content_type = request.headers.get("content-type", "")
+        body_length = 0
+        if "application/json" in content_type:
+            try:
+                body_bytes = await request.body()
+                body_length = len(body_bytes)
+
+                # 回填 body 给下游路由
+                async def receive():
+                    return {
+                        "type": "http.request",
+                        "body": body_bytes,
+                        "more_body": False,
+                    }
+
+                request = Request(request.scope, receive)
+            except Exception:
+                body_length = -1  # 读取失败
+        elif "multipart" in content_type:
+            body_length = -1  # multipart 不读 body
+
+        # 3. 注入 ContextVar（在 body 读取之后，确保异常路径也能走到 finally）
         client_ip = request.client.host if request.client else None
         set_log_context(req_id=req_id, client_ip=client_ip or "")
 
-        # 3. 记录 API_REQUEST
-        method = request.method
-        path = request.url.path
-        content_type = request.headers.get("content-type", "")
-
-        body = None
-        if "application/json" in content_type:
-            body_bytes = await request.body()
-            body = body_bytes.decode("utf-8", errors="replace")[:500]
-
-            # 回填 body 给下游路由
-            async def receive():
-                return {
-                    "type": "http.request",
-                    "body": body_bytes,
-                    "more_body": False,
-                }
-
-            request = Request(request.scope, receive)
-        elif "multipart" in content_type:
-            body = "<multipart>"
-
+        # 4. 记录 API_REQUEST（不记 body 内容，防敏感数据泄露）
         logger.info(
             "",
             extra={
                 "event_type": "API_REQUEST",
-                "method": method,
-                "path": path,
-                "body": body or "",
+                "method": request.method,
+                "path": request.url.path,
+                "body_present": body_length > 0,
+                "body_length": body_length,
             },
         )
 
-        # 4. 调用路由（try/finally 确保异常路径也记录 API_RESPONSE 并清理上下文）
+        # 5. 调用路由（try/finally 确保异常路径也记录 API_RESPONSE 并清理上下文）
         t0 = time.perf_counter()
         response = None
         try:
@@ -74,7 +76,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             cost_ms = (time.perf_counter() - t0) * 1000
             status = response.status_code if response is not None else 500
 
-            # 5. 记录 API_RESPONSE
+            # 6. 记录 API_RESPONSE
             logger.info(
                 "",
                 extra={
@@ -84,5 +86,5 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 },
             )
 
-            # 6. 清理 ContextVar
+            # 7. 清理 ContextVar
             clear_log_context()

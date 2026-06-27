@@ -15,10 +15,10 @@ def parser():
 class TestParseMarkdown:
     """Tests for parsing .md files."""
 
-    def test_parse_md_with_headings(self, parser):
+    async def test_parse_md_with_headings(self, parser):
         """Markdown with headings should create Sections with heading/level/content."""
         content = b"# Title\n\nSome content\n\n## Subtitle\n\nMore content here"
-        result = parser.parse(content, "test.md")
+        result = await parser.parse(content, "test.md")
 
         assert isinstance(result, ParsedDocument)
         assert len(result.sections) == 2
@@ -33,10 +33,10 @@ class TestParseMarkdown:
         assert s2.level == 2
         assert s2.content == "More content here"
 
-    def test_parse_md_no_headings(self, parser):
+    async def test_parse_md_no_headings(self, parser):
         """Markdown without headings should create one Section with heading=None."""
         content = b"Just a line\n\nAnother line\n\nAnd one more"
-        result = parser.parse(content, "test.md")
+        result = await parser.parse(content, "test.md")
 
         assert isinstance(result, ParsedDocument)
         assert len(result.sections) == 1
@@ -46,10 +46,10 @@ class TestParseMarkdown:
         assert "Just a line" in section.content
         assert "Another line" in section.content
 
-    def test_parse_md_empty_heading(self, parser):
+    async def test_parse_md_empty_heading(self, parser):
         """Markdown starting directly with content (no heading) should still create one section."""
         content = b"Just text without any heading at all\n\nSecond paragraph"
-        result = parser.parse(content, "test.md")
+        result = await parser.parse(content, "test.md")
 
         assert isinstance(result, ParsedDocument)
         assert len(result.sections) >= 1
@@ -59,20 +59,20 @@ class TestParseMarkdown:
 class TestParseTxt:
     """Tests for parsing .txt files."""
 
-    def test_parse_txt(self, parser):
+    async def test_parse_txt(self, parser):
         """Plain text should return raw_text with empty sections list."""
         content = b"Plain text content\nNo parsing needed"
-        result = parser.parse(content, "test.txt")
+        result = await parser.parse(content, "test.txt")
 
         assert isinstance(result, ParsedDocument)
         assert result.filename == "test.txt"
         assert result.sections == []
         assert result.raw_text == "Plain text content\nNo parsing needed"
 
-    def test_parse_txt_utf8(self, parser):
+    async def test_parse_txt_utf8(self, parser):
         """Plain text with UTF-8 content should decode correctly."""
         content = "中文内容\n第二行".encode()
-        result = parser.parse(content, "notes.txt")
+        result = await parser.parse(content, "notes.txt")
 
         assert result.sections == []
         assert "中文内容" in result.raw_text
