@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """20 configuration fields loaded from .env."""
+    """24 configuration fields loaded from .env."""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     LOG_LEVEL: str = "INFO"
+
+    # Logging
+    LOG_DIR: str = "logs"
+    LOG_QUEUE_SIZE: int = 5000
+    LOG_CONSOLE_MAX_LENGTH: int = 500
+    LOG_MODEL_CONTENT: bool = True
 
     # Postgres
     PG_DSN: str = "postgresql://ragnexus:ragnexus@localhost:5432/ragnexus"

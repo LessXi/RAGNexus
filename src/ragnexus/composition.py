@@ -6,7 +6,6 @@ Usage::
     app = build_app()  # FastAPI instance with all wiring
 """
 
-import logging
 from contextlib import asynccontextmanager
 
 import asyncpg
@@ -30,6 +29,7 @@ from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
 from ragnexus.config import get_settings
 from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.core.logger import setup_logging
 from ragnexus.domain.chunking import heading_aware_split
 
 
@@ -52,10 +52,8 @@ async def lifespan(app: FastAPI):
     cfg = get_settings()
 
     # --- Logging -----------------------------------------------------------
-    logging.basicConfig(
-        level=getattr(logging, cfg.LOG_LEVEL.upper(), logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    log_listener = setup_logging(cfg)
+    app.state.log_listener = log_listener
 
     # --- 1. Vector store (owns its own pool with pgvector init) -----------
     store = PgVectorStore(
@@ -163,6 +161,7 @@ async def lifespan(app: FastAPI):
     # --- 7. Teardown ------------------------------------------------------
     await store.close()
     await repo_pool.close()
+    app.state.log_listener.stop()
 
 
 def build_app() -> FastAPI:
