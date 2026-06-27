@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
 from ragnexus.adapters.http.create_kb_router import create_router as create_kb_router
 from ragnexus.adapters.http.error_handlers import register_error_handlers
+from ragnexus.adapters.http.middleware import LoggingMiddleware
 from ragnexus.adapters.http.retrieve_router import (
     create_router as create_retrieve_router,
 )
@@ -29,7 +30,7 @@ from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
 from ragnexus.config import get_settings
 from ragnexus.core.errors import AppError, ErrorCode
-from ragnexus.core.logger import setup_logging
+from ragnexus.core.logger import LoggedPool, setup_logging
 from ragnexus.domain.chunking import heading_aware_split
 
 
@@ -101,12 +102,13 @@ async def lifespan(app: FastAPI):
         )
 
     # --- 3. Shared repository pool (KB metadata + retrieve log) -----------
-    repo_pool = await asyncpg.create_pool(
+    _raw_repo_pool = await asyncpg.create_pool(
         cfg.PG_DSN,
         min_size=cfg.PG_POOL_MIN,
         max_size=cfg.PG_POOL_MAX,
         command_timeout=cfg.PG_COMMAND_TIMEOUT,
     )
+    repo_pool = LoggedPool(_raw_repo_pool)
 
     # --- 4. Adapters ------------------------------------------------------
     embedder = OpenAICompatEmbedder(
@@ -122,8 +124,8 @@ async def lifespan(app: FastAPI):
         retry_backoff_base=cfg.EMBED_RETRY_BACKOFF_BASE,
     )
     parser = MarkdownAndTextParser()
-    kb_repo = PgKnowledgeBaseRepository(pool=repo_pool)
-    log_repo = PgRetrieveLogRepository(pool=repo_pool)
+    kb_repo = PgKnowledgeBaseRepository(pool=repo_pool)  # type: ignore[arg-type]
+    log_repo = PgRetrieveLogRepository(pool=repo_pool)  # type: ignore[arg-type]
 
     # Chunker: pass raw function so use case controls max_chars/overlap
     chunker = heading_aware_split
@@ -160,7 +162,7 @@ async def lifespan(app: FastAPI):
 
     # --- 7. Teardown ------------------------------------------------------
     await store.close()
-    await repo_pool.close()
+    await _raw_repo_pool.close()
     app.state.log_listener.stop()
 
 
@@ -173,5 +175,6 @@ def build_app() -> FastAPI:
     """
     app = FastAPI(lifespan=lifespan)
     register_error_handlers(app)
+    app.add_middleware(LoggingMiddleware)
     app.middleware_stack = app.build_middleware_stack()
     return app

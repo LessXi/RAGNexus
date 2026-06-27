@@ -12,6 +12,7 @@ import asyncio
 import httpx
 
 from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.core.logger import log_model_call
 
 
 class OpenAICompatEmbedder:
@@ -54,6 +55,7 @@ class OpenAICompatEmbedder:
                 timeout=httpx.Timeout(self.request_timeout, connect=self.connect_timeout),
             )
 
+    @log_model_call("text-embedding-v3")
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed a list of texts.
 
