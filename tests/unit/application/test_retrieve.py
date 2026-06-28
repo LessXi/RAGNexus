@@ -8,6 +8,8 @@ from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.core.errors import AppError
 from ragnexus.domain.models import SearchHit
 from ragnexus.adapters.rerank.noop import NoopRerankProvider
+from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
+from ragnexus.domain.ports import RewriteResult
 
 
 @pytest.fixture
@@ -38,13 +40,33 @@ def mock_reranker():
 
 
 @pytest.fixture
-def use_case(mock_kb_repo, mock_embedder, mock_store, mock_log_port, mock_reranker):
+def mock_rewriter():
+    """RewritePort mock — 默认直通返回原始 query，各测试可按需覆盖。"""
+    m = AsyncMock()
+
+    async def _passthrough(*, query, kb_ids):
+        return RewriteResult(
+            original_query=query,
+            rewritten_query=query,
+            needs_rewrite=False,
+            reason="mock 直通",
+        )
+
+    m.rewrite.side_effect = _passthrough
+    return m
+
+
+@pytest.fixture
+def use_case(
+    mock_kb_repo, mock_embedder, mock_store, mock_log_port, mock_reranker, mock_rewriter
+):
     return RetrieveUseCase(
         kb_repo=mock_kb_repo,
         embedder=mock_embedder,
         store=mock_store,
         log_port=mock_log_port,
         reranker=mock_reranker,
+        rewriter=mock_rewriter,
     )
 
 
@@ -301,6 +323,7 @@ async def test_candidate_k_uses_multiplier(
     mock_store,
     mock_log_port,
     mock_reranker,
+    mock_rewriter,
     sample_hits,
 ):
     """candidate_multiplier=3, min_candidates=0 → candidate_k = top_k * 3。"""
@@ -310,6 +333,7 @@ async def test_candidate_k_uses_multiplier(
         store=mock_store,
         log_port=mock_log_port,
         reranker=mock_reranker,
+        rewriter=mock_rewriter,
         candidate_multiplier=3,
         min_candidates=0,
     )
@@ -334,6 +358,7 @@ async def test_candidate_k_uses_min_candidates(
     mock_store,
     mock_log_port,
     mock_reranker,
+    mock_rewriter,
     sample_hits,
 ):
     """multiplier=1, min_candidates=10 → candidate_k = top_k + 10。"""
@@ -343,6 +368,7 @@ async def test_candidate_k_uses_min_candidates(
         store=mock_store,
         log_port=mock_log_port,
         reranker=mock_reranker,
+        rewriter=mock_rewriter,
         candidate_multiplier=1,
         min_candidates=10,
     )
@@ -367,6 +393,7 @@ async def test_candidate_k_takes_max(
     mock_store,
     mock_log_port,
     mock_reranker,
+    mock_rewriter,
     sample_hits,
 ):
     """multiplier=2 给出 10，min_candidates=2 给出 7，取大者 10。"""
@@ -376,6 +403,7 @@ async def test_candidate_k_takes_max(
         store=mock_store,
         log_port=mock_log_port,
         reranker=mock_reranker,
+        rewriter=mock_rewriter,
         candidate_multiplier=2,
         min_candidates=2,
     )
@@ -400,6 +428,7 @@ async def test_rerank_called_with_correct_kwargs(
     mock_store,
     mock_log_port,
     mock_reranker,
+    mock_rewriter,
     sample_hits,
 ):
     """reranker.rerank 使用正确的 keyword 参数调用。"""
@@ -409,6 +438,7 @@ async def test_rerank_called_with_correct_kwargs(
         store=mock_store,
         log_port=mock_log_port,
         reranker=mock_reranker,
+        rewriter=mock_rewriter,
     )
     top_k = 3
     query = "什么是 RAG？"
@@ -429,13 +459,13 @@ async def test_rerank_called_with_correct_kwargs(
     )
 
 
-@pytest.mark.asyncio
 async def test_rerank_result_is_returned(
     mock_kb_repo,
     mock_embedder,
     mock_store,
     mock_log_port,
     mock_reranker,
+    mock_rewriter,
     sample_hits,
 ):
     """execute() 返回 rerank 后的结果，而非原始向量召回结果。"""
@@ -445,6 +475,7 @@ async def test_rerank_result_is_returned(
         store=mock_store,
         log_port=mock_log_port,
         reranker=mock_reranker,
+        rewriter=mock_rewriter,
     )
     # 构造一个与向量召回不同的 rerank 返回（顺序或内容不同）
     reranked = [sample_hits[1], sample_hits[0]]  # 顺序反转
@@ -475,6 +506,7 @@ async def test_noop_rerank_integration(
         store=mock_store,
         log_port=mock_log_port,
         reranker=NoopRerankProvider(),
+        rewriter=NoopRewriteProvider(),
     )
     top_k = 1
     mock_kb_repo.exists.return_value = True
@@ -486,3 +518,124 @@ async def test_noop_rerank_integration(
     # NoopRerankProvider 返回 chunks[:top_n]，即只保留前 top_k 条
     assert len(result) == 1
     assert result[0] == sample_hits[0]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# rewrite 注入测试 — Phase 6 Task 6.1-6.2
+# ═══════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_rewriter_called_before_embed(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_store,
+    mock_rewriter,
+):
+    """rewriter.rewrite 在 embedder.embed 之前调用。"""
+    mock_kb_repo.exists.return_value = True
+    mock_embedder.embed.return_value = [[0.1, 0.2]]
+    mock_store.search_by_vector.return_value = []
+
+    await use_case.execute(query="test query", kb_ids=["kb1"], top_k=3)
+
+    mock_rewriter.rewrite.assert_awaited_once_with(query="test query", kb_ids=["kb1"])
+
+
+@pytest.mark.asyncio
+async def test_rewritten_query_used_for_embed(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_store,
+    mock_rewriter,
+):
+    """rewrite 后 embed 使用 rewritten_query，而非原始 query。"""
+    mock_kb_repo.exists.return_value = True
+    mock_embedder.embed.return_value = [[0.1, 0.2]]
+    mock_store.search_by_vector.return_value = []
+
+    # 覆写 mock_rewriter，返回不同改写结果
+    mock_rewriter.rewrite.side_effect = None
+    mock_rewriter.rewrite.return_value = RewriteResult(
+        original_query="hello world",
+        rewritten_query="hello world technical definition",
+        needs_rewrite=True,
+        reason="优化查询",
+    )
+
+    await use_case.execute(query="hello world", kb_ids=["kb1"], top_k=3)
+
+    # embed 用改写后的 query
+    mock_embedder.embed.assert_awaited_once_with(["hello world technical definition"])
+
+
+@pytest.mark.asyncio
+async def test_rerank_uses_original_query_rewritten_vector(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_store,
+    mock_reranker,
+    mock_rewriter,
+):
+    """rerank 用原始 query 做相关性判断，query_vector 用改写后的向量。"""
+    mock_kb_repo.exists.return_value = True
+    mock_embedder.embed.return_value = [[0.9, 0.1]]
+    mock_store.search_by_vector.return_value = []
+    mock_reranker.rerank.return_value = []
+
+    # 覆写 mock_rewriter，改写查询
+    mock_rewriter.rewrite.side_effect = None
+    mock_rewriter.rewrite.return_value = RewriteResult(
+        original_query="what is RAG",
+        rewritten_query="retrieval augmented generation definition",
+        needs_rewrite=True,
+        reason="扩展缩写",
+    )
+
+    await use_case.execute(query="what is RAG", kb_ids=["kb1"], top_k=5)
+
+    # rerank 的 query 参数用原始 query（相关性判断）
+    mock_reranker.rerank.assert_awaited_once()
+    rerank_kwargs = mock_reranker.rerank.call_args.kwargs
+    assert rerank_kwargs["query"] == "what is RAG"
+    # query_vector 是改写后嵌入的向量
+    assert rerank_kwargs["query_vector"] == [0.9, 0.1]
+
+
+@pytest.mark.asyncio
+async def test_noop_rewrite_integration(
+    mock_kb_repo,
+    mock_embedder,
+    mock_store,
+    mock_log_port,
+    mock_reranker,
+    sample_hits,
+):
+    """使用真实 NoopRewriteProvider — 禁用改写时直通，行为不变。"""
+    uc = RetrieveUseCase(
+        kb_repo=mock_kb_repo,
+        embedder=mock_embedder,
+        store=mock_store,
+        log_port=mock_log_port,
+        reranker=mock_reranker,
+        rewriter=NoopRewriteProvider(),
+    )
+    query = "test query"
+    kb_ids = ["kb_test"]
+    top_k = 2
+    mock_kb_repo.exists.return_value = True
+    mock_embedder.embed.return_value = [[0.5, 0.5]]
+    mock_store.search_by_vector.return_value = sample_hits
+    mock_reranker.rerank.return_value = sample_hits[:top_k]
+
+    result = await uc.execute(query=query, kb_ids=kb_ids, top_k=top_k)
+
+    # NoopRewriteProvider 直通：embed 用原始 query
+    mock_embedder.embed.assert_awaited_once_with([query])
+    # 其他行为不变
+    mock_reranker.rerank.assert_awaited_once()
+    mock_store.search_by_vector.assert_awaited_once()
+    assert len(result) == top_k

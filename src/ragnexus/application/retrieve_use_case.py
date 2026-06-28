@@ -12,6 +12,7 @@ from ragnexus.domain.ports import (
     KnowledgeBasePort,
     RerankPort,
     RetrieveLogPort,
+    RewritePort,
     VectorStorePort,
 )
 
@@ -26,6 +27,7 @@ class RetrieveUseCase:
         store: VectorStorePort,
         log_port: RetrieveLogPort,
         reranker: RerankPort,
+        rewriter: RewritePort,
         candidate_multiplier: int = 1,
         min_candidates: int = 0,
     ) -> None:
@@ -34,6 +36,7 @@ class RetrieveUseCase:
         self._store = store
         self._log_port = log_port
         self._reranker = reranker
+        self._rewriter = rewriter
         self._candidate_multiplier = candidate_multiplier
         self._min_candidates = min_candidates
 
@@ -54,11 +57,17 @@ class RetrieveUseCase:
             if not await self._kb_repo.exists(kb_id):
                 raise AppError(ErrorCode.NOT_FOUND, f"知识库不存在: {kb_id}")
 
-        # 3. Retrieve — 向量召回 + 重排（使用已 stripped 的 query）
+        # 3. Retrieve — 查询改写 → 向量召回 → 重排
+        original_query = query  # 保存原始 query，用于 rerank（相关性判断）和日志
         t0 = time.perf_counter()
         hits: list[SearchHit] = []
         try:
-            vectors = await self._embedder.embed([query])
+            # 3a. 查询改写（在 embed 之前，优化口语化/模糊 query）
+            rewrite_result = await self._rewriter.rewrite(query=query, kb_ids=kb_ids)
+            search_query = rewrite_result.rewritten_query
+
+            # 3b. embed 用改写后的 query
+            vectors = await self._embedder.embed([search_query])
             query_vector = vectors[0]
 
             # 计算候选数：重排前多召回，确保 RerankPort 有充足候选
@@ -71,8 +80,9 @@ class RetrieveUseCase:
             hits = await self._store.search_by_vector(query_vector, candidate_k, kb_ids)
 
             # 重排：启用时 LLMRerankProvider 重排序，禁用时 NoopRerankProvider 直通
+            # rerank 用原始 query 做相关性判断，query_vector 为改写后的向量
             hits = await self._reranker.rerank(
-                query=query,
+                query=original_query,
                 query_vector=query_vector,
                 kb_ids=kb_ids,
                 chunks=hits,
