@@ -22,7 +22,10 @@ from ragnexus.adapters.http.upload_doc_router import (
     create_router as create_upload_doc_router,
 )
 from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
+from ragnexus.adapters.llm.openai_compatible import OpenAICompatibleLLMProvider
 from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
+from ragnexus.adapters.rerank.llm import LLMRerankProvider
+from ragnexus.adapters.rerank.noop import NoopRerankProvider
 from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
 from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
@@ -32,6 +35,31 @@ from ragnexus.config import get_settings
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import LoggedPool, setup_logging
 from ragnexus.domain.chunking import heading_aware_split
+from ragnexus.domain.ports import RerankPort
+
+
+class CacheInvalidatingUploadUseCase:
+    """包装 UploadDocumentUseCase，成功后清空 rerank 缓存。
+
+    composition.py 的 DI 辅助类 — 对 use case 零侵入。
+    NoopRerankProvider.clear_cache 为空实现，禁用重排时无副作用。
+    """
+
+    def __init__(self, inner: UploadDocumentUseCase, reranker: RerankPort) -> None:
+        self._inner = inner
+        self._reranker = reranker
+
+    async def execute(self, kb_id: str, file_content: bytes, filename: str, content_type: str):
+        """执行上传并清空缓存。"""
+        result = await self._inner.execute(
+            kb_id=kb_id,
+            file_content=file_content,
+            filename=filename,
+            content_type=content_type,
+        )
+        # 清空对应 KB 的重排缓存
+        await self._reranker.clear_cache(kb_id)
+        return result
 
 
 @asynccontextmanager
@@ -135,6 +163,36 @@ async def lifespan(app: FastAPI):
             connect_timeout=cfg.EMBED_CONNECT_TIMEOUT,
             retry_backoff_base=cfg.EMBED_RETRY_BACKOFF_BASE,
         )
+
+        # --- LLM Provider（通用大模型调用，被 rerank 共享）---
+        llm_provider = OpenAICompatibleLLMProvider(
+            base_url=cfg.LLM_BASE_URL,
+            api_key=cfg.LLM_API_KEY,
+            model=cfg.LLM_MODEL,
+            max_concurrency=cfg.LLM_MAX_CONCURRENCY,
+            max_retries=cfg.LLM_MAX_RETRIES,
+            request_timeout=cfg.LLM_REQUEST_TIMEOUT,
+            connect_timeout=cfg.LLM_CONNECT_TIMEOUT,
+            retry_backoff_base=cfg.LLM_RETRY_BACKOFF_BASE,
+        )
+
+        # --- Rerank Provider ---
+        if cfg.RERANK_ENABLED:
+            reranker = LLMRerankProvider(
+                llm=llm_provider,
+                max_candidates=cfg.RERANK_MAX_CANDIDATES,
+                chunk_max_chars=cfg.RERANK_CHUNK_MAX_CHARS,
+                cache_similarity_threshold=cfg.RERANK_CACHE_SIMILARITY_THRESHOLD,
+                cache_max_entries=cfg.RERANK_CACHE_MAX_ENTRIES,
+                cache_ttl_seconds=cfg.RERANK_CACHE_TTL_SECONDS,
+                temperature=cfg.RERANK_TEMPERATURE,
+            )
+            candidate_multiplier = cfg.RERANK_CANDIDATE_MULTIPLIER
+            min_candidates = cfg.RERANK_MIN_CANDIDATES
+        else:
+            reranker = NoopRerankProvider()
+            candidate_multiplier = 1
+            min_candidates = 0
         parser = MarkdownAndTextParser()
         kb_repo = PgKnowledgeBaseRepository(pool=repo_pool)  # type: ignore[arg-type]
         log_repo = PgRetrieveLogRepository(pool=repo_pool)  # type: ignore[arg-type]
@@ -154,22 +212,29 @@ async def lifespan(app: FastAPI):
             chunk_max_chars=cfg.CHUNK_MAX_CHARS,
             chunk_overlap=cfg.CHUNK_OVERLAP,
         )
+
+        # 包装 upload_doc_uc，成功后清空 rerank 缓存
+        upload_doc_uc_wrapped = CacheInvalidatingUploadUseCase(upload_doc_uc, reranker)
         retrieve_uc = RetrieveUseCase(
             kb_repo=kb_repo,
             embedder=embedder,
             store=store,
             log_port=log_repo,
+            reranker=reranker,
+            candidate_multiplier=candidate_multiplier,
+            min_candidates=min_candidates,
         )
-
         # --- 6. Routers -------------------------------------------------------
         app.include_router(create_kb_router(create_kb_uc))
-        app.include_router(create_upload_doc_router(upload_doc_uc))
+        app.include_router(create_upload_doc_router(upload_doc_uc_wrapped))
         app.include_router(create_retrieve_router(retrieve_uc))
 
         # Stash references for teardown
         app.state.store = store
         app.state.repo_pool = repo_pool
 
+        app.state.retrieve_uc = retrieve_uc
+        app.state.upload_doc_uc = upload_doc_uc_wrapped
         yield
 
     finally:
