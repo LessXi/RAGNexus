@@ -49,7 +49,9 @@ class CacheInvalidatingUploadUseCase:
         self._inner = inner
         self._reranker = reranker
 
-    async def execute(self, kb_id: str, file_content: bytes, filename: str, content_type: str):
+    async def execute(
+        self, kb_id: str, file_content: bytes, filename: str, content_type: str
+    ) -> UploadResult:
         """执行上传并清空缓存。"""
         result = await self._inner.execute(
             kb_id=kb_id,
