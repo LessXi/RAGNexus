@@ -54,3 +54,28 @@ class RetrieveLogPort(Protocol):
         hit_count: int,
         latency_ms: int,
     ) -> None: ...
+
+
+class RerankPort(Protocol):
+    """重排端口 — 对向量召回候选 chunk 重排序。
+
+    骨架实现: LLMRerankProvider (启用时), NoopRerankProvider (禁用时)。
+    返回类型为 list[SearchHit] — 排好序，score 保持向量原始分不变。
+    """
+
+    async def rerank(
+        self,
+        *,
+        query: str,
+        query_vector: list[float],
+        kb_ids: list[str],
+        chunks: list[SearchHit],
+        top_n: int,
+    ) -> list[SearchHit]: ...
+
+    async def clear_cache(self, kb_id: str) -> None:
+        """清空指定 KB 的缓存。文档上传后由 composition.py 调用。
+
+        NoopRerankProvider 实现为空。
+        """
+        ...
