@@ -72,10 +72,9 @@ class TestNoopRerankProvider:
         assert isinstance(result, list)
 
     def test_rerank_returns_same_chunks_no_modification(self) -> None:
-        """rerank() 直接返回原始 chunks，不排序、不截断。
+        """rerank() 直接返回原始 chunks，不排序，按 top_n 截断。
 
-        禁用重排时的直通行为：传入什么就返回什么，不做任何修改。
-        """
+        禁用重排时的直通行为：保持顺序不变，裁剪到 top_n。"""
         from ragnexus.adapters.rerank.noop import NoopRerankProvider
 
         provider = NoopRerankProvider()
@@ -118,16 +117,15 @@ class TestNoopRerankProvider:
 
         result = asyncio.run(_run())
 
-        # 返回的列表长度与原始相同（不截断，忽略 top_n）
-        assert len(result) == 3, f"直通应返回全部 chunks，期望 3，实际 {len(result)}"
+        # 返回的列表长度为 top_n（截断到 top_n）
+        assert len(result) == 2, f"应截断到 top_n=2，期望 2，实际 {len(result)}"
 
-        # 返回的是同一批对象（is 检查），表示没有复制
-        assert result is chunks, f"rerank 应返回完全相同的列表对象"
+        # 截断后创建新列表对象
+        assert result is not chunks, "截断应创建新列表"
 
-        # 分值不变 — 不排序，保持原始顺序
+        # 分值不变 — 不排序，保持原始顺序（裁剪到 top_n）
         assert result[0].score == 0.5, "第一个元素分值不应改变"
         assert result[1].score == 0.9, "第二个元素分值不应改变"
-        assert result[2].score == 0.3, "第三个元素分值不应改变"
 
         # 所有字段保持不变
         assert result[0].chunk_id == "c1"
@@ -136,9 +134,6 @@ class TestNoopRerankProvider:
         assert result[1].chunk_id == "c3"
         assert result[1].text == "高度相关"
         assert result[1].metadata == {"page": 3}
-        assert result[2].chunk_id == "c2"
-        assert result[2].text == "低相关"
-        assert result[2].metadata == {"page": 2}
 
     def test_rerank_empty_list_returns_empty(self) -> None:
         """空列表传入时应返回空列表。"""
@@ -158,8 +153,8 @@ class TestNoopRerankProvider:
         result = asyncio.run(_run())
         assert result == []
 
-    def test_rerank_ignores_top_n(self) -> None:
-        """即使 top_n < len(chunks)，也应该返回全部 chunks（直通）。"""
+    def test_rerank_truncates_to_top_n(self) -> None:
+        """top_n < len(chunks) 时应截断到 top_n，防止返回超量 chunks。"""
         from ragnexus.adapters.rerank.noop import NoopRerankProvider
 
         provider = NoopRerankProvider()
@@ -182,11 +177,11 @@ class TestNoopRerankProvider:
                 query_vector=[0.0],
                 kb_ids=["kb1"],
                 chunks=chunks,
-                top_n=2,  # 请求只取前2，但直通应忽略
+                top_n=2,  # 请求只取前2，会截断
             )
 
         result = asyncio.run(_run())
-        assert len(result) == 5, f"直通应返回全部 5 个 chunks，实际 {len(result)}"
+        assert len(result) == 2, f"应截断到 top_n=2，期望 2，实际 {len(result)}"
 
     def test_clear_cache_is_noop(self) -> None:
         """clear_cache() 应为空实现，不抛异常。"""
