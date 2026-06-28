@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """24 configuration fields loaded from .env."""
+    """46 个配置字段，从 .env 加载。"""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -43,6 +43,34 @@ class Settings(BaseSettings):
     CHUNK_MAX_CHARS: int = 1500
     CHUNK_OVERLAP: int = 50
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
+
+    # LLM 通用配置（被 Rerank 和 Rewrite 共享）
+    LLM_BASE_URL: str = "https://opencode.ai/zen/v1"
+    LLM_API_KEY: str = ""
+    LLM_MODEL: str = "deepseek-v4-flash-free"
+    LLM_REQUEST_TIMEOUT: float = 30.0
+    LLM_CONNECT_TIMEOUT: float = 5.0
+    LLM_MAX_CONCURRENCY: int = 5
+    LLM_MAX_RETRIES: int = 3
+    LLM_RETRY_BACKOFF_BASE: float = 2.0
+
+    # Rerank 配置
+    RERANK_ENABLED: bool = False
+    RERANK_CANDIDATE_MULTIPLIER: int = 3
+    RERANK_MIN_CANDIDATES: int = 10
+    RERANK_MAX_CANDIDATES: int = 20
+    RERANK_CHUNK_MAX_CHARS: int = 1000
+    RERANK_TEMPERATURE: float = 0.0
+    RERANK_CACHE_TTL_SECONDS: int = 300
+    RERANK_CACHE_MAX_ENTRIES: int = 100
+    RERANK_CACHE_SIMILARITY_THRESHOLD: float = 0.95
+
+    # Rewrite 配置
+    REWRITE_ENABLED: bool = False
+    REWRITE_TEMPERATURE: float = 0.0
+    REWRITE_CACHE_TTL_SECONDS: int = 300
+    REWRITE_CACHE_MAX_ENTRIES: int = 100
+    REWRITE_CACHE_SIMILARITY_THRESHOLD: float = 0.95
 
 
 @cache
