@@ -26,11 +26,9 @@ def _db_available() -> bool:
         import asyncpg
 
         async def _check():
-            dsn = os.environ.get(
-                "PG_DSN",
-                "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test",
-            )
-            conn = await asyncpg.connect(dsn, timeout=3)
+            # 始终用测试 DSN（Docker Compose test-db on port 5433）
+            test_dsn = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+            conn = await asyncpg.connect(test_dsn, timeout=3)
             await conn.close()
             return True
 

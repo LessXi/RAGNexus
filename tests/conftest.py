@@ -106,7 +106,14 @@ async def _apply_schema(ensure_test_db) -> None:
         if not exists:
             schema_path = Path(__file__).parent.parent / "docs" / "sql" / "schema.sql"
             schema_sql = schema_path.read_text(encoding="utf-8")
-            await conn.execute(schema_sql)
+            try:
+                await conn.execute(schema_sql)
+            except (
+                asyncpg.exceptions.DuplicateTableError,
+                asyncpg.exceptions.UniqueViolationError,
+            ):
+                # 表/类型已被 test-init 容器创建，忽略
+                pass
     finally:
         await conn.close()
     _schema_applied = True
