@@ -10,6 +10,7 @@ from ragnexus.domain.models import SearchHit
 from ragnexus.domain.ports import (
     EmbedderPort,
     KnowledgeBasePort,
+    RerankPort,
     RetrieveLogPort,
     VectorStorePort,
 )
@@ -24,11 +25,17 @@ class RetrieveUseCase:
         embedder: EmbedderPort,
         store: VectorStorePort,
         log_port: RetrieveLogPort,
+        reranker: RerankPort,
+        candidate_multiplier: int = 1,
+        min_candidates: int = 0,
     ) -> None:
         self._kb_repo = kb_repo
         self._embedder = embedder
         self._store = store
         self._log_port = log_port
+        self._reranker = reranker
+        self._candidate_multiplier = candidate_multiplier
+        self._min_candidates = min_candidates
 
     async def execute(
         self, query: str, kb_ids: list[str], top_k: int = 5
@@ -47,12 +54,31 @@ class RetrieveUseCase:
             if not await self._kb_repo.exists(kb_id):
                 raise AppError(ErrorCode.NOT_FOUND, f"知识库不存在: {kb_id}")
 
-        # 3. Retrieve（使用已 stripped 的 query）
+        # 3. Retrieve — 向量召回 + 重排（使用已 stripped 的 query）
         t0 = time.perf_counter()
         hits: list[SearchHit] = []
         try:
             vectors = await self._embedder.embed([query])
-            hits = await self._store.search_by_vector(vectors[0], top_k, kb_ids)
+            query_vector = vectors[0]
+
+            # 计算候选数：重排前多召回，确保 RerankPort 有充足候选
+            candidate_k = max(
+                top_k * self._candidate_multiplier,
+                top_k + self._min_candidates,
+            )
+
+            # 向量召回（使用 candidate_k）
+            hits = await self._store.search_by_vector(query_vector, candidate_k, kb_ids)
+
+            # 重排：启用时 LLMRerankProvider 重排序，禁用时 NoopRerankProvider 直通
+            hits = await self._reranker.rerank(
+                query=query,
+                query_vector=query_vector,
+                kb_ids=kb_ids,
+                chunks=hits,
+                top_n=top_k,
+            )
+
             return hits
         finally:
             latency_ms = int((time.perf_counter() - t0) * 1000)
