@@ -26,41 +26,51 @@ from ragnexus.adapters.llm.openai_compatible import OpenAICompatibleLLMProvider
 from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
 from ragnexus.adapters.rerank.llm import LLMRerankProvider
 from ragnexus.adapters.rerank.noop import NoopRerankProvider
+from ragnexus.adapters.rewrite.llm import LLMRewriteProvider
+from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
 from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
 from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
+from ragnexus.domain.models import UploadResult
 from ragnexus.config import get_settings
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import LoggedPool, setup_logging
 from ragnexus.domain.chunking import heading_aware_split
-from ragnexus.domain.ports import RerankPort
+from ragnexus.domain.ports import RerankPort, RewritePort
 
 
 class CacheInvalidatingUploadUseCase:
-    """包装 UploadDocumentUseCase，成功后清空 rerank 缓存。
+    """包装 UploadDocumentUseCase，成功后清空 rerank 和 rewrite 缓存。
 
     composition.py 的 DI 辅助类 — 对 use case 零侵入。
-    NoopRerankProvider.clear_cache 为空实现，禁用重排时无副作用。
+    NoopRerankProvider/NoopRewriteProvider.clear_cache 为空实现，禁用时无副作用。
     """
 
-    def __init__(self, inner: UploadDocumentUseCase, reranker: RerankPort) -> None:
+    def __init__(
+        self,
+        inner: UploadDocumentUseCase,
+        reranker: RerankPort,
+        rewriter: RewritePort,
+    ) -> None:
         self._inner = inner
         self._reranker = reranker
+        self._rewriter = rewriter
 
     async def execute(
         self, kb_id: str, file_content: bytes, filename: str, content_type: str
     ) -> UploadResult:
-        """执行上传并清空缓存。"""
+        """执行上传并清空双缓存。"""
         result = await self._inner.execute(
             kb_id=kb_id,
             file_content=file_content,
             filename=filename,
             content_type=content_type,
         )
-        # 清空对应 KB 的重排缓存
+        # 清空对应 KB 的重排缓存和查询改写缓存
         await self._reranker.clear_cache(kb_id)
+        await self._rewriter.clear_cache(kb_id)
         return result
 
 
@@ -196,6 +206,19 @@ async def lifespan(app: FastAPI):
             candidate_multiplier = 1
             min_candidates = 0
         parser = MarkdownAndTextParser()
+
+        # --- Rewrite Provider ---
+        if cfg.REWRITE_ENABLED:
+            rewriter = LLMRewriteProvider(
+                llm=llm_provider,
+                embedder=embedder,
+                cache_similarity_threshold=cfg.REWRITE_CACHE_SIMILARITY_THRESHOLD,
+                cache_max_entries=cfg.REWRITE_CACHE_MAX_ENTRIES,
+                cache_ttl_seconds=cfg.REWRITE_CACHE_TTL_SECONDS,
+                temperature=cfg.REWRITE_TEMPERATURE,
+            )
+        else:
+            rewriter = NoopRewriteProvider()
         kb_repo = PgKnowledgeBaseRepository(pool=repo_pool)  # type: ignore[arg-type]
         log_repo = PgRetrieveLogRepository(pool=repo_pool)  # type: ignore[arg-type]
 
@@ -215,14 +238,17 @@ async def lifespan(app: FastAPI):
             chunk_overlap=cfg.CHUNK_OVERLAP,
         )
 
-        # 包装 upload_doc_uc，成功后清空 rerank 缓存
-        upload_doc_uc_wrapped = CacheInvalidatingUploadUseCase(upload_doc_uc, reranker)
+        # 包装 upload_doc_uc，成功后清空 rerank 和 rewrite 缓存
+        upload_doc_uc_wrapped = CacheInvalidatingUploadUseCase(
+            upload_doc_uc, reranker, rewriter
+        )
         retrieve_uc = RetrieveUseCase(
             kb_repo=kb_repo,
             embedder=embedder,
             store=store,
             log_port=log_repo,
             reranker=reranker,
+            rewriter=rewriter,
             candidate_multiplier=candidate_multiplier,
             min_candidates=min_candidates,
         )
