@@ -1,5 +1,6 @@
 """领域端口（Protocols）— 适配器接口契约。"""
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from ragnexus.domain.models import Chunk, KnowledgeBase, ParsedDocument, SearchHit
@@ -78,4 +79,32 @@ class RerankPort(Protocol):
 
         NoopRerankProvider 实现为空。
         """
+        ...
+
+
+@dataclass
+class RewriteResult:
+    """查询改写结果。"""
+
+    original_query: str
+    rewritten_query: str  # 不需要改写时 = original_query
+    needs_rewrite: bool
+    reason: str  # 仅日志使用
+
+
+class RewritePort(Protocol):
+    """查询改写端口 — 优化口语化/模糊 query 以提升向量检索效果。
+
+    骨架实现: LLMRewriteProvider (启用时), NoopRewriteProvider (禁用时)。
+    """
+
+    async def rewrite(
+        self,
+        *,
+        query: str,
+        kb_ids: list[str],
+    ) -> RewriteResult: ...
+
+    async def clear_cache(self, kb_id: str) -> None:
+        """清空指定 KB 的改写缓存。文档上传后由 composition.py 调用。"""
         ...
