@@ -445,3 +445,82 @@ class TestErrors:
             )
 
         assert exc_info.value.code == ErrorCode.MODEL_ERROR.code
+
+
+# ---------------------------------------------------------------------------
+# _call_api + log_model_call 桥接模式测试
+# ---------------------------------------------------------------------------
+
+
+class TestBridgePattern:
+    """测试 _call_api + log_model_call 桥接模式。"""
+
+    def test_call_api_method_exists(self, provider):
+        """_call_api 方法应存在于 provider 实例上。"""
+        from ragnexus.adapters.llm.openai_compatible import OpenAICompatibleLLMProvider
+
+        prov, _mock = provider
+        assert hasattr(prov, "_call_api")
+        assert callable(prov._call_api)
+        # 应是协程函数
+        import asyncio
+
+        assert asyncio.iscoroutinefunction(prov._call_api)
+
+    def test_call_api_is_decorated_with_log_model_call(self, provider):
+        """_call_api 应被 @log_model_call 装饰（有 __wrapped__ 属性）。"""
+        prov, _mock = provider
+        # @functools.wraps 在 log_model_call 内部使用，产生 __wrapped__
+        assert hasattr(
+            prov._call_api, "__wrapped__"
+        ), "_call_api 应被 log_model_call 装饰，从而具有 __wrapped__ 属性"
+
+    def test_call_api_signature_matches_spec(self, provider):
+        """_call_api 签名应匹配桥接模式 spec。"""
+        import inspect
+
+        prov, _mock = provider
+        # 获取被装饰前的原始函数签名
+        sig = inspect.signature(prov._call_api)
+        params = list(sig.parameters.keys())
+        # self, payload_str, *, system_prompt, temperature, timeout_seconds
+        assert "payload_str" in params
+        assert "system_prompt" in params
+        assert "temperature" in params
+        assert "timeout_seconds" in params
+        # payload_str 是第一个位置参数（在 self 之后）
+        assert params[0] == "payload_str"
+
+    @pytest.mark.asyncio
+    async def test_chat_json_bridges_through_call_api(
+        self, provider, mock_client, monkeypatch
+    ):
+        """chat_json 应将 user_payload 序列化后桥接到 _call_api。"""
+        prov, mock = provider
+
+        # 用 AsyncMock 替换 _call_api 以验证调用
+        mock_call_api = AsyncMock(return_value={"result": "from_mock"})
+        monkeypatch.setattr(prov, "_call_api", mock_call_api)
+
+        result = await prov.chat_json(
+            system_prompt="SYS",
+            user_payload={"key": "value"},
+            temperature=0.5,
+            timeout_seconds=30,
+        )
+
+        # 验证 _call_api 被调用一次
+        mock_call_api.assert_called_once()
+        call_args, call_kwargs = mock_call_api.call_args
+
+        # payload_str 是 JSON 序列化的 user_payload（第一个位置参数）
+        assert len(call_args) == 1
+        assert json.loads(call_args[0]) == {"key": "value"}
+
+        # 关键字参数透传
+        assert call_kwargs["system_prompt"] == "SYS"
+        assert call_kwargs["temperature"] == 0.5
+        assert call_kwargs["timeout_seconds"] == 30
+
+        # 返回值透传
+        assert result == {"result": "from_mock"}
