@@ -98,7 +98,7 @@ class TestE2ERetrieveBasic:
                 },
             )
             if resp.status_code == 500:
-                pytest.skip("上传失败（可能是 embedder API 不可用）")
+                pytest.fail("上传失败——embedder API 不可用。请检查 EMBED_API_KEY 是否正确配置")
 
             assert resp.status_code == 201
             upload_data = resp.json()
@@ -329,7 +329,7 @@ class TestE2ERewriteAndRerank:
             },
         )
         if resp.status_code != 201:
-            pytest.skip(f"上传失败（embedder 不可用）: {resp.text}")
+            pytest.fail(f"上传失败——embedder API 不可用。请检查 EMBED_API_KEY。响应: {resp.text}")
         assert resp.status_code == 201
 
         # --- Act: mock LLM + embedder，触发 retrieve ---
@@ -405,11 +405,11 @@ class TestE2ERewriteAndRerank:
             files={"file": ("m.md", body.encode(), "text/markdown")},
         )
         if resp.status_code != 201:
-            pytest.skip(f"上传失败: {resp.text}")
+            pytest.fail(f"上传失败: {resp.text}")
         assert resp.status_code == 201
         n_chunks = resp.json()["data"]["chunk_count"]
         if n_chunks < 2:
-            pytest.skip(f"chunk_count={n_chunks} 不足以验证重排")
+            pytest.fail(f"chunk_count={n_chunks} 不足以验证重排——请上传包含更多标题的文档")
 
         # --- Act: mock LLM，触发 retrieve ---
         captured_candidates: list[list[dict]] = []
