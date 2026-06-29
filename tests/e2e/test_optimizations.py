@@ -436,7 +436,7 @@ class TestE2ERewriteAndRerank:
             captured_candidates.append(list(cands))
             n = len(cands)
             rankings = [
-                {
+                    "rerank_score": i / max(1, n - 1),  # [0, 1] 区间，首位最低末位最高 → 反转
                     "chunk_id": c["chunk_id"],
                     "rerank_score": float(i + 1),  # 较前的候选分数更低 → 排序后顺序反转
                     "reason": "mock rerank",
