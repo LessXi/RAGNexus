@@ -7,6 +7,7 @@ Usage::
 """
 
 from contextlib import asynccontextmanager
+import asyncio
 from typing import Any, cast
 
 import asyncpg
@@ -37,7 +38,7 @@ from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
 from ragnexus.config import get_settings
 from ragnexus.core.errors import AppError, ErrorCode
-from ragnexus.core.logger import LoggedPool, setup_logging
+from ragnexus.core.logger import LoggedPool, logger, setup_logging
 from ragnexus.domain.chunking import heading_aware_split
 from ragnexus.domain.models import UploadResult
 from ragnexus.domain.ports import RerankPort, RewritePort
