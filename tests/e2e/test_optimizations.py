@@ -5,7 +5,7 @@
 """
 
 import asyncio
-import os
+import httpx
 
 import pytest
 from fastapi.testclient import TestClient
@@ -253,8 +253,8 @@ class TestE2EOptimizationIsolation:
 class TestE2ERewriteAndRerank:
     """5.3 / 5.4 — rewrite/rerank 启用的 E2E 全流程。"""
 
-    @pytest.fixture(scope="class")
-    def llm_client(self):
+    @pytest.fixture
+    def llm_client(self, httpx_mock):
         """构建启用 rewrite/rerank 的独立 FastAPI TestClient。
 
         覆盖环境变量以确保 LLMRewriteProvider + LLMRerankProvider 被布线，
@@ -290,9 +290,55 @@ class TestE2ERewriteAndRerank:
         from ragnexus.composition import build_app
 
         app = build_app()
+        # 注册 httpx mock（embedder + LLM），避免真实 API 调用
+        import re as _re, json as _json
+
+        s = get_settings()
+        httpx_mock.add_callback(
+            lambda req: httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"embedding": [0.1] * s.EMBED_DIM, "index": i}
+                        for i in range(len(_json.loads(req.content).get("input", [])))
+                    ]
+                },
+            ),
+            url=_re.compile(r".*/embeddings$"),
+            method="POST",
+            is_reusable=True,
+        )
+        httpx_mock.add_callback(
+            lambda req: httpx.Response(
+                200,
+                json={
+                    "id": "m",
+                    "object": "chat.completion",
+                    "model": s.LLM_MODEL,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": _json.dumps(
+                                    {
+                                        "rankings": [],
+                                        "rewritten_query": "",
+                                        "result": "ok",
+                                    }
+                                ),
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                },
+            ),
+            url=_re.compile(r".*/chat/completions$"),
+            method="POST",
+            is_reusable=True,
+        )
         with TestClient(app) as c:
             yield c
-
         # 恢复 env
         for k, v in old_env.items():
             if v is None:

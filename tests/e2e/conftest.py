@@ -48,6 +48,7 @@ def mock_external_http(httpx_mock: HTTPXMock):
     settings = get_settings()
 
     import re
+
     embed_pattern = re.compile(r".*/embeddings$")
     embed_dim = settings.EMBED_DIM
 
@@ -103,7 +104,9 @@ def mock_external_http(httpx_mock: HTTPXMock):
             },
         )
 
-    httpx_mock.add_callback(_llm_callback, url=llm_pattern, method="POST", is_reusable=True)
+    httpx_mock.add_callback(
+        _llm_callback, url=llm_pattern, method="POST", is_reusable=True
+    )
 
     yield httpx_mock
 
