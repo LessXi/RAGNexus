@@ -87,6 +87,9 @@ def mock_external_http(httpx_mock: HTTPXMock):
             },
         )
 
+    # Catch-all：已注册的 mock 未被调用时不报错（结构测试不需要 embedder/LLM）
+    httpx_mock.add_response(is_optional=True)
+
     httpx_mock.add_callback(
         _embed_callback, url=embed_url, method="POST", is_reusable=True
     )
