@@ -1,7 +1,9 @@
 """E2E test configuration — provides a real FastAPI TestClient wired to test-db."""
 
+import asyncio
 import os
 
+import asyncpg
 import pytest
 from fastapi.testclient import TestClient
 
@@ -15,6 +17,19 @@ pytestmark = [
     pytest.mark.e2e,
     pytest.mark.skipif(not _docker_available(), reason="Docker not available"),
 ]
+
+
+@pytest.fixture(autouse=True)
+def _require_test_db():
+    try:
+
+        async def _check():
+            conn = await asyncpg.connect(TEST_DSN, timeout=2)
+            await conn.close()
+
+        asyncio.run(asyncio.wait_for(_check(), timeout=5))
+    except Exception:
+        pytest.skip("测试数据库不可用（Docker Compose 未启动）")
 
 
 @pytest.fixture(scope="module")

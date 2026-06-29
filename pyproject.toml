@@ -60,3 +60,12 @@ known-first-party = ["ragnexus"]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
+
+[dependency-groups]
+dev = [
+    "pytest-httpx>=0.23",
+]
+
+[tool.coverage.run]
+source = ["src/ragnexus"]
+omit = ["*/tests/*", "*/alembic/*"]
