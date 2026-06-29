@@ -157,7 +157,7 @@ class TestE2EFullFlow:
         kb_id = resp.json()["data"]["kb_id"]
 
         content = (
-            b"# RAGNexus Overview\n\n"
+            f"# RAGNexus Overview {os.urandom(4).hex()}\n\n".encode() + b""
             b"RAGNexus is a RAG middleware platform that provides knowledge base management, "
             b"document ingestion, and vector retrieval capabilities. "
             b"It uses pgvector for vector storage and supports OpenAI-compatible embedding APIs.\n\n"
@@ -282,14 +282,7 @@ class TestE2EConcurrentRetrieve:
         kb_id = resp.json()["data"]["kb_id"]
 
         # 2. Upload doc (embedder mocked via httpx_mock)
-        content = (
-            b"# RAGNexus Overview\n\n"
-            b"RAGNexus is a RAG middleware platform that provides knowledge base management.\n\n"
-            b"## Architecture\n\n"
-            b"The system follows a hexagonal architecture with three layers.\n\n"
-            b"## Features\n\n"
-            b"RAGNexus supports text embedding, vector search, and reranking.\n"
-        )
+        content = f"# RAGNexus Overview {os.urandom(4).hex()}\n\nRAGNexus is a RAG middleware platform.\n\n## Architecture\n\nThe system follows a hexagonal architecture.\n\n## Features\n\nRAGNexus supports text embedding, vector search, and reranking.\n".encode()
         resp = client.post(
             "/v1/documents:upload",
             data={"kb_id": kb_id},
