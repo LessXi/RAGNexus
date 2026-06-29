@@ -62,6 +62,8 @@ class UploadDocumentUseCase:
     ) -> UploadResult:
         """运行完整上传流水线。
 
+        返回 UploadResult（含 chunks 供测试断言；router 应使用 chunk_count 字段）。
+
         Raises:
             AppError(ErrorCode.FILE_TOO_LARGE): 文件超过大小限制。
             AppError(ErrorCode.UNSUPPORTED_FORMAT): 不支持的文件扩展名。
@@ -181,4 +183,6 @@ class UploadDocumentUseCase:
             },
         )
 
-        return UploadResult(doc_id=doc_id, kb_id=kb_id, chunks=chunks)
+        return UploadResult(
+            doc_id=doc_id, kb_id=kb_id, chunks=chunks, chunk_count=len(chunks)
+        )

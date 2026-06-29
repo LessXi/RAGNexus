@@ -30,7 +30,7 @@ def create_router(uc) -> APIRouter:
             "data": {
                 "doc_id": result.doc_id,
                 "kb_id": result.kb_id,
-                "chunk_count": len(result.chunks),
+                "chunk_count": result.chunk_count,
             },
             "message": "ok",
         }

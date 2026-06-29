@@ -50,4 +50,5 @@ class SearchHit:
 class UploadResult:
     doc_id: str
     kb_id: str
-    chunks: list[Chunk]  # used internally by use case; router only takes chunk_count
+    chunks: list[Chunk]  # used internally by use case; router should use chunk_count
+    chunk_count: int = 0
