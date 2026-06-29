@@ -5,6 +5,7 @@
 """
 
 import pytest
+import asyncio
 import pytest_asyncio
 from fastapi.testclient import TestClient
 
@@ -234,3 +235,130 @@ class TestShutdown:
         # 所有任务应已取消
         for t in tasks:
             assert t.cancelled(), f"清理任务未取消: {t}"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 场景 5: 生命周期错误恢复
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestLifespanErrorRecovery:
+    """验证 lifespan 启动失败时资源清理正确。"""
+
+    def test_connect_apperror_closes_raw_pool(
+        self,
+        app,
+        monkeypatch,
+    ):
+        """PgVectorStore.connect() 抛 AppError → _raw_store_pool 应被关闭。
+
+        _raw_store_pool 由 ``asyncpg.create_pool`` 创建于 connect()
+        之前——finally 块应在异常传播后将其关闭。
+        """
+        import asyncpg
+
+        from ragnexus.core.errors import AppError, ErrorCode
+
+        # 记录所有通过 asyncpg.create_pool 创建的连接池
+        created_pools: list[asyncpg.Pool] = []
+        original_create_pool = asyncpg.create_pool
+
+        async def tracking_create_pool(*args, **kwargs):
+            pool = await original_create_pool(*args, **kwargs)
+            created_pools.append(pool)
+            return pool
+
+        monkeypatch.setattr(asyncpg, "create_pool", tracking_create_pool)
+
+        # 让 PgVectorStore.connect() 抛出 AppError
+        async def mock_connect(self_inst, external_pool=None):
+            raise AppError(ErrorCode.DB_CONNECTION_ERROR, "模拟连接失败")
+
+        monkeypatch.setattr(
+            "ragnexus.composition.PgVectorStore.connect",
+            mock_connect,
+        )
+
+        # lifespan 启动失败，但 finally 应清理已创建的资源
+        with pytest.raises(Exception):
+            with TestClient(app):
+                pass
+
+        # lifespan 中 connect() 前创建了 _raw_store_pool
+        assert len(created_pools) >= 1, "lifespan 未创建连接池"
+        # 验证 finally 块关闭了所有已创建的连接池
+        for i, pool in enumerate(created_pools):
+            assert pool.is_closing(), f"第 {i} 个连接池未关闭——finally 块未正确清理"
+
+    def test_shutdown_resources_order(self):
+        """验证 _shutdown_resources 清理顺序：llm → embedder → repo → store → log。
+
+        _shutdown_resources 是受保护函数，从 lifespan finally 调用。
+        使用 mock 注入验证嵌套 try/finally 的调用顺序正确。
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from ragnexus.composition import _shutdown_resources
+
+        order: list[str] = []
+
+        llm = MagicMock(spec=["close"])
+        llm.close = AsyncMock(side_effect=lambda: order.append("llm"))
+        emb = MagicMock(spec=["close"])
+        emb.close = AsyncMock(side_effect=lambda: order.append("embedder"))
+        repo = MagicMock(spec=["close"])
+        repo.close = AsyncMock(side_effect=lambda: order.append("repo"))
+        store = MagicMock(spec=["close"])
+        store.close = AsyncMock(side_effect=lambda: order.append("store"))
+        log = MagicMock(spec=["stop"])
+        log.stop = MagicMock(side_effect=lambda: order.append("log"))
+
+        asyncio.run(
+            _shutdown_resources(
+                llm_provider=llm,
+                embedder=emb,
+                _raw_repo_pool=repo,
+                _raw_store_pool=store,
+                log_listener=log,
+            )
+        )
+
+        assert order == [
+            "llm",
+            "embedder",
+            "repo",
+            "store",
+            "log",
+        ], f"清理顺序错误，期望 [llm, embedder, repo, store, log]，实际 {order}"
+
+    def test_shutdown_resources_partial_none(self):
+        """_shutdown_resources 支持部分资源为 None（启动阶段异常路径）。
+
+        当 connect 抛异常时，embedder/llm_provider/repo_pool 均未创建，
+        但 store_pool 和 log_listener 需要清理。
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from ragnexus.composition import _shutdown_resources
+
+        order: list[str] = []
+
+        store = MagicMock(spec=["close"])
+        store.close = AsyncMock(side_effect=lambda: order.append("store"))
+        log = MagicMock(spec=["stop"])
+        log.stop = MagicMock(side_effect=lambda: order.append("log"))
+
+        asyncio.run(
+            _shutdown_resources(
+                llm_provider=None,
+                embedder=None,
+                _raw_repo_pool=None,
+                _raw_store_pool=store,
+                log_listener=log,
+            )
+        )
+
+        assert order == [
+            "store",
+            "log",
+        ], f"部分清理顺序错误，期望 [store, log]，实际 {order}"

@@ -11,6 +11,17 @@ import pytest
 
 from ragnexus.config import get_settings
 from ragnexus.core.errors import ErrorCode
+import asyncio
+import asyncpg
+import concurrent.futures
+import concurrent.futures
+from unittest.mock import patch
+
+import httpx
+from fastapi.testclient import TestClient
+
+
+from ragnexus.composition import build_app
 
 pytestmark = [
     pytest.mark.e2e,
@@ -181,9 +192,9 @@ class TestE2EFullFlow:
         assert upload_data["code"] == 0
         assert upload_data["data"]["doc_id"]
         assert upload_data["data"]["kb_id"] == kb_id
-        assert upload_data["data"]["chunk_count"] >= 2, (
-            f"Expected >= 2 chunks (multi-heading doc), got {upload_data['data']['chunk_count']}"
-        )
+        assert (
+            upload_data["data"]["chunk_count"] >= 2
+        ), f"Expected >= 2 chunks (multi-heading doc), got {upload_data['data']['chunk_count']}"
 
         # 3. Retrieve
         resp = client.post(
@@ -193,7 +204,249 @@ class TestE2EFullFlow:
         assert resp.status_code == 200
         retrieve_data = resp.json()
         assert retrieve_data["code"] == 0
-        assert retrieve_data["data"]["total"] >= 1, (
-            f"Expected at least 1 hit, got {retrieve_data['data']['total']}"
-        )
+        assert (
+            retrieve_data["data"]["total"] >= 1
+        ), f"Expected at least 1 hit, got {retrieve_data['data']['total']}"
         assert isinstance(retrieve_data["data"]["hits"], list)
+
+
+# ── helpers (httpx mock) ──────────────────────────────────────────────
+
+
+def _mock_embedder_ok(httpx_mock, dim: int | None = None):
+    """Register httpx mock returning valid embedding responses.
+
+    向量维度默认取 settings.EMBED_DIM，确保与 DB schema 一致。
+    """
+    if dim is None:
+        dim = get_settings().EMBED_DIM
+    if not isinstance(dim, int) or dim < 1:
+        dim = 1024  # 乐观兜底
+
+    async def _callback(request):
+        body = await request.aread()
+        import json
+
+        data = json.loads(body)
+        inputs = data.get("input", [])
+        return httpx.Response(
+            status_code=200,
+            json={
+                "object": "list",
+                "data": [
+                    {"embedding": [0.1] * dim, "index": i} for i in range(len(inputs))
+                ],
+                "model": "test-model",
+            },
+        )
+
+    httpx_mock.add_callback(_callback, method="POST", url=re.compile(r".*/embeddings$"))
+
+    async def _callback(request):
+        body = await request.aread()
+        import json
+
+        data = json.loads(body)
+        inputs = data.get("input", [])
+        return httpx.Response(
+            status_code=200,
+            json={
+                "object": "list",
+                "data": [
+                    {"embedding": [0.1] * dim, "index": i} for i in range(len(inputs))
+                ],
+                "model": "test-model",
+            },
+        )
+
+    httpx_mock.add_callback(_callback, method="POST", url=re.compile(r".*/embeddings$"))
+
+
+# ── 5.2 /health ───────────────────────────────────────────────────────
+
+
+class TestE2EHealth:
+    """5.2 GET /health — health check endpoint."""
+
+    def test_health_ok(self, client):
+        """Normal → 200, checks.database=ok."""
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["checks"]["database"] == "ok"
+        assert "version" in data
+        assert "timestamp" in data
+
+    def test_health_db_timeout(self, client):
+        """Mock DB timeout → 503, checks.database=error."""
+        store = client.app.state.store
+        with patch.object(store.pool, "fetchval", side_effect=Exception("DB timeout")):
+            resp = client.get("/health")
+        assert resp.status_code == 503
+        data = resp.json()
+        assert data["status"] == "degraded"
+        assert data["checks"]["database"] == "error"
+
+
+# ── 5.5 5 并发检索 ────────────────────────────────────────────────────
+
+
+class TestE2EConcurrentRetrieve:
+    """5.5 5 concurrent retrieve requests → all 200."""
+
+    def test_concurrent_retrieve(self, client, httpx_mock):
+        _mock_embedder_ok(httpx_mock)
+
+        # 1. Create KB
+        resp = client.post(
+            "/v1/knowledge-bases:create",
+            json={"name": "E2E Concurrent Retrieve"},
+        )
+        assert resp.status_code == 200
+        kb_id = resp.json()["data"]["kb_id"]
+
+        # 2. Upload doc (embedder mocked via httpx_mock)
+        content = (
+            b"# RAGNexus Overview\n\n"
+            b"RAGNexus is a RAG middleware platform that provides knowledge base management.\n\n"
+            b"## Architecture\n\n"
+            b"The system follows a hexagonal architecture with three layers.\n\n"
+            b"## Features\n\n"
+            b"RAGNexus supports text embedding, vector search, and reranking.\n"
+        )
+        resp = client.post(
+            "/v1/documents:upload",
+            data={"kb_id": kb_id},
+            files={"file": ("concurrent.md", content, "text/markdown")},
+        )
+        assert resp.status_code == 201
+
+        # 3. 5 concurrent retrieve requests via async ASGI transport
+        def _do_retrieve():
+            return client.post(
+                "/v1/rag:retrieve",
+                json={"query": "RAGNexus", "kb_ids": [kb_id], "top_k": 3},
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            futures = [pool.submit(_do_retrieve) for _ in range(5)]
+            responses = [f.result() for f in futures]
+        assert len(responses) == 5
+        for r in responses:
+            assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
+            data = r.json()
+            assert data["code"] == 0
+            assert "hits" in data["data"]
+
+
+# ── 5.6 上游降级 ──────────────────────────────────────────────────────
+
+
+class TestE2EDegradation:
+    """5.6 Upstream degradation handling."""
+
+    def test_embedder_timeout(self, client, httpx_mock):
+        """Mock embedder returns error → retrieve returns UPSTREAM_ERROR."""
+        # Create KB
+        resp = client.post(
+            "/v1/knowledge-bases:create",
+            json={"name": "E2E Embedder Timeout"},
+        )
+        assert resp.status_code == 200
+        kb_id = resp.json()["data"]["kb_id"]
+
+        # Mock embedder to return 503 (simulate upstream failure)
+        async def _error_callback(request):
+            return httpx.Response(
+                status_code=503, json={"error": "service unavailable"}
+            )
+
+        httpx_mock.add_callback(
+            _error_callback, method="POST", url=re.compile(r".*/embeddings$")
+        )
+
+        # Retrieve should fail gracefully with UPSTREAM_ERROR
+        resp = client.post(
+            "/v1/rag:retrieve",
+            json={"query": "test", "kb_ids": [kb_id], "top_k": 3},
+        )
+        assert resp.status_code == 502
+        data = resp.json()
+        assert data["code"] == ErrorCode.UPSTREAM_ERROR.code
+        assert data["data"] is None
+
+    def test_llm_rate_limit(self, httpx_mock):
+        """Mock LLM 429 → verify degraded response (with rerank enabled)."""
+        saved = {}
+        for k in ("RERANK_ENABLED", "LLM_BASE_URL", "LLM_API_KEY"):
+            saved[k] = os.environ.get(k)
+        try:
+            os.environ["RERANK_ENABLED"] = "true"
+            os.environ["LLM_BASE_URL"] = "http://mock-llm/v1"
+            os.environ["LLM_API_KEY"] = "test-key"
+            os.environ.setdefault("EMBED_BASE_URL", "http://mock-embedder/v1")
+            os.environ.setdefault("EMBED_API_KEY", "test-key")
+            get_settings.cache_clear()
+
+            app = build_app()
+            with TestClient(app) as c:
+                _mock_embedder_ok(httpx_mock)
+
+                # Create KB
+                resp = c.post(
+                    "/v1/knowledge-bases:create",
+                    json={"name": "E2E LLM 429 Degradation"},
+                )
+                assert resp.status_code == 200
+                kb_id = resp.json()["data"]["kb_id"]
+
+                # Upload doc
+                content = b"# Test\n\nSome content for LLM 429 degradation test."
+                resp = c.post(
+                    "/v1/documents:upload",
+                    data={"kb_id": kb_id},
+                    files={"file": ("llm429.md", content, "text/markdown")},
+                )
+                assert resp.status_code == 201
+
+                # Mock LLM to return 429
+                httpx_mock.add_response(
+                    method="POST",
+                    url=re.compile(r".*/chat/completions$"),
+                    status_code=429,
+                    json={"error": "rate limit exceeded"},
+                )
+
+                # Retrieve — reranker will call LLM → get 429 → falls back to vector ranking
+                resp = c.post(
+                    "/v1/rag:retrieve",
+                    json={
+                        "query": "test query",
+                        "kb_ids": [kb_id],
+                        "top_k": 3,
+                    },
+                )
+                assert (
+                    resp.status_code == 200
+                ), f"graceful degrade expected 200, got {resp.status_code}: {resp.text}"
+                data = resp.json()
+                assert (
+                    data["code"] == 0
+                ), f"graceful degrade expected code=0, got {data['code']}"
+                assert isinstance(data["data"]["hits"], list)
+                llm_calls = [
+                    r
+                    for r in httpx_mock.get_requests()
+                    if "/chat/completions" in str(r.url)
+                ]
+                assert (
+                    len(llm_calls) >= 1
+                ), "rerank should have called LLM at least once"
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            get_settings.cache_clear()

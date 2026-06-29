@@ -8,6 +8,8 @@ TDD: RED → GREEN → REFACTOR。
 import asyncio
 import logging
 from collections.abc import Generator
+from contextlib import asynccontextmanager, contextmanager
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -19,6 +21,7 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from ragnexus.core.logger import LoggedPool
+from ragnexus.domain.models import UploadResult
 
 # ============================================================================
 # 辅助工具
@@ -51,6 +54,137 @@ def _add_capture_handler(records: list[logging.LogRecord]) -> _ListHandler:
 
 def _remove_capture_handler(handler: _ListHandler) -> None:
     _get_rag_logger().removeHandler(handler)
+
+
+def _make_lifespan_cfg(overrides: dict[str, Any] | None = None) -> MagicMock:
+    """构造 lifespan 期望的 settings MagicMock，默认 RERANK_ENABLED=False。"""
+    cfg = MagicMock()
+    cfg.EMBED_DIM = 1024
+    cfg.PG_DSN = "postgresql://fake"
+    cfg.PG_POOL_MIN = 1
+    cfg.PG_POOL_MAX = 5
+    cfg.PG_COMMAND_TIMEOUT = 30.0
+    cfg.EMBED_BASE_URL = "https://fake.example.com"
+    cfg.EMBED_API_KEY = "test"
+    cfg.EMBED_MODEL = "text-embedding-v3"
+    cfg.EMBED_BATCH_SIZE = 50
+    cfg.EMBED_MAX_CONCURRENCY = 5
+    cfg.EMBED_MAX_RETRIES = 3
+    cfg.EMBED_REQUEST_TIMEOUT = 30.0
+    cfg.EMBED_CONNECT_TIMEOUT = 5.0
+    cfg.EMBED_RETRY_BACKOFF_BASE = 2.0
+    cfg.MAX_FILE_SIZE = 10 * 1024 * 1024
+    cfg.CHUNK_MAX_CHARS = 1500
+    cfg.CHUNK_OVERLAP = 50
+    cfg.LLM_BASE_URL = "https://fake-llm.example.com"
+    cfg.LLM_API_KEY = "test-llm"
+    cfg.LLM_MODEL = "test-model"
+    cfg.LLM_MAX_CONCURRENCY = 3
+    cfg.LLM_MAX_RETRIES = 2
+    cfg.LLM_REQUEST_TIMEOUT = 30.0
+    cfg.LLM_CONNECT_TIMEOUT = 5.0
+    cfg.LLM_RETRY_BACKOFF_BASE = 2.0
+    cfg.RERANK_ENABLED = False
+    cfg.RERANK_CANDIDATE_MULTIPLIER = 3
+    cfg.RERANK_MIN_CANDIDATES = 10
+    cfg.RERANK_MAX_CANDIDATES = 20
+    cfg.RERANK_CHUNK_MAX_CHARS = 1000
+    cfg.RERANK_CACHE_SIMILARITY_THRESHOLD = 0.95
+    cfg.RERANK_CACHE_MAX_ENTRIES = 100
+    cfg.RERANK_CACHE_TTL_SECONDS = 300
+    cfg.RERANK_TEMPERATURE = 0.0
+    cfg.REWRITE_ENABLED = False
+    cfg.REWRITE_CACHE_SIMILARITY_THRESHOLD = 0.95
+    cfg.REWRITE_CACHE_MAX_ENTRIES = 100
+    cfg.REWRITE_CACHE_TTL_SECONDS = 300
+    cfg.REWRITE_TEMPERATURE = 0.0
+    for k, v in (overrides or {}).items():
+        setattr(cfg, k, v)
+    return cfg
+
+
+@contextmanager
+def _patched_lifespan(cfg_overrides: dict[str, Any] | None = None):
+    """Patch composition.py 中所有 lifespan 副作用，返回 cfg。
+
+    设计要点：
+    - asyncpg.create_pool 调用两次（store 池 + repo 池），同一个 AsyncMock 实例返回给两边。
+    - _raw_repo_pool.fetchval 必须为 AsyncMock（lifespan 检测 alembic_version）。
+    - mock_store.pool.fetchval 在 lifespan 启动后被 await，必须返回 int。
+    - _startup_cleanup 和 _periodic_log_cleanup 是 fire-and-forget 任务，
+      通过把 asyncio.create_task 替换为 no-op 抑制，避免 race teardown。
+    - PgKnowledgeBaseRepository / PgRetrieveLogRepository 替换为 AsyncMock 实例，
+      否则 lifespan 会用真实类去 pool 上做查询。
+    """
+    cfg = _make_lifespan_cfg(cfg_overrides)
+
+    # asyncpg pool mock — 两次 create_pool 调用返回同一个对象
+    raw_pool = AsyncMock(name="asyncpg_pool")
+    raw_pool.close = AsyncMock()
+    raw_pool.fetchval = AsyncMock(return_value=0)
+    mock_create_pool = AsyncMock(return_value=raw_pool)
+
+    # PgVectorStore mock — 真实类构造后，调用其 .connect/.pool.fetchval
+    store_inner = AsyncMock(name="PgVectorStore_instance")
+    store_inner.pool = AsyncMock(name="store_pool_proxy")
+    store_inner.pool.fetchval = AsyncMock(return_value=cfg.EMBED_DIM)
+    store_inner.connect = AsyncMock()
+    store_inner.close = AsyncMock()
+
+    # LLMProvider / Embedder — 构造后调用 .close()
+    mock_llm = AsyncMock(name="llm_provider")
+    mock_llm.close = AsyncMock()
+    mock_embedder = AsyncMock(name="embedder")
+    mock_embedder.close = AsyncMock()
+
+    # Repo mocks — 所有方法都是 AsyncMock（构造时不调用，使用时才 await）
+    mock_kb_repo = AsyncMock(name="kb_repo")
+    mock_log_repo = AsyncMock(name="log_repo")
+    mock_log_repo.prune = AsyncMock(return_value=0)
+
+    log_listener = MagicMock(name="log_listener")
+    log_listener.stop = MagicMock()
+
+    def _fake_create_task(coro):  # noqa: ANN001
+        """替换 asyncio.create_task 为 no-op，避免清理任务 race teardown。"""
+        try:
+            coro.close()
+        except Exception:
+            pass
+        return MagicMock(name="fake_task")
+
+    with (
+        patch("ragnexus.composition.asyncpg.create_pool", mock_create_pool),
+        patch("ragnexus.composition.PgVectorStore", return_value=store_inner),
+        patch("ragnexus.composition.get_settings", return_value=cfg),
+        patch("ragnexus.composition.setup_logging", return_value=log_listener),
+        patch("ragnexus.composition.OpenAICompatEmbedder", return_value=mock_embedder),
+        patch("ragnexus.composition.OpenAICompatibleLLMProvider", return_value=mock_llm),
+        patch("ragnexus.composition.PgKnowledgeBaseRepository", return_value=mock_kb_repo),
+        patch("ragnexus.composition.PgRetrieveLogRepository", return_value=mock_log_repo),
+        patch("ragnexus.composition.asyncio.create_task", side_effect=_fake_create_task),
+    ):
+        yield cfg
+
+
+def _run_lifespan_state(state_attr: str, cfg_overrides: dict[str, Any] | None = None) -> Any:
+    """运行 lifespan 并返回 app.state.<state_attr>，或 None（如果未设置）。"""
+    from fastapi import FastAPI
+
+    from ragnexus.composition import lifespan as real_lifespan
+
+    with _patched_lifespan(cfg_overrides):
+        captured: dict[str, Any] = {}
+
+        @asynccontextmanager
+        async def _wrap(app: FastAPI):
+            async with real_lifespan(app):
+                captured[state_attr] = getattr(app.state, state_attr, None)
+                yield
+
+        app = FastAPI(lifespan=_wrap)
+        asyncio.run(app.router.lifespan_context(app).__aenter__())
+        return captured.get(state_attr)
 
 
 # ============================================================================
@@ -337,97 +471,13 @@ class TestLoggedPoolWiring:
     实现后：repo_pool 是 LoggedPool 实例 → GREEN。
     """
 
-    @pytest.mark.skip(reason="lifespan mock 需重写以支持迁移检测/prune/llm_provider.close")
     def test_repo_pool_is_wrapped_with_loggedpool(self):
-        """lifespan 启动后，app.state.repo_pool 应为 LoggedPool 实例。
-
-        模拟所有外部依赖，仅验证 DI 容器层的包装逻辑。
-        """
-        from contextlib import asynccontextmanager
-
-        from fastapi import FastAPI
-
-        from ragnexus.composition import lifespan as real_lifespan
-
-        # Monkey-patch 所有会产生副作用的模块
-        with (
-            patch(
-                "ragnexus.composition.asyncpg.create_pool",
-                new_callable=AsyncMock,
-            ) as mock_create_pool,
-            patch(
-                "ragnexus.composition.PgVectorStore",
-                autospec=True,
-            ) as mock_store_cls,
-            patch("ragnexus.composition.get_settings") as mock_get_settings,
-            patch("ragnexus.composition.setup_logging") as mock_setup_logging,
-            patch('ragnexus.composition.OpenAICompatibleLLMProvider', new_callable=AsyncMock),
-        ):
-            # 配置 mock 返回值
-            mock_pool = AsyncMock()
-            mock_create_pool.return_value = mock_pool
-            mock_pool.close = AsyncMock()
-
-            mock_store = mock_store_cls.return_value
-            mock_store.connect = AsyncMock()
-            mock_store.close = AsyncMock()
-            mock_store.pool = AsyncMock()
-            mock_store.pool.fetchval = AsyncMock(return_value=1024)
-
-            mock_cfg = MagicMock()
-            mock_cfg.EMBED_DIM = 1024
-            mock_cfg.PG_DSN = "postgresql://fake"
-            mock_cfg.PG_POOL_MIN = 1
-            mock_cfg.PG_POOL_MAX = 5
-            mock_cfg.PG_COMMAND_TIMEOUT = 30.0
-            mock_cfg.EMBED_BASE_URL = "https://fake.example.com"
-            mock_cfg.EMBED_API_KEY = "test"
-            mock_cfg.EMBED_MODEL = "text-embedding-v3"
-            mock_cfg.EMBED_BATCH_SIZE = 50
-            mock_cfg.EMBED_MAX_CONCURRENCY = 5
-            mock_cfg.EMBED_MAX_RETRIES = 3
-            mock_cfg.EMBED_REQUEST_TIMEOUT = 30.0
-            mock_cfg.EMBED_CONNECT_TIMEOUT = 5.0
-            mock_cfg.EMBED_RETRY_BACKOFF_BASE = 2.0
-            mock_cfg.MAX_FILE_SIZE = 10 * 1024 * 1024
-            mock_cfg.CHUNK_MAX_CHARS = 1500
-            mock_cfg.CHUNK_OVERLAP = 50
-            # LLM 配置（lifespan 现在会创建 LLMProvider）
-            mock_cfg.LLM_BASE_URL = "https://fake-llm.example.com"
-            mock_cfg.LLM_API_KEY = "test-llm"
-            mock_cfg.LLM_MODEL = "test-model"
-            mock_cfg.LLM_MAX_CONCURRENCY = 3
-            mock_cfg.LLM_MAX_RETRIES = 2
-            mock_cfg.LLM_REQUEST_TIMEOUT = 30.0
-            mock_cfg.LLM_CONNECT_TIMEOUT = 5.0
-            mock_cfg.LLM_RETRY_BACKOFF_BASE = 2.0
-            # 禁用重排（避免 LLMRerankProvider 构造时的副作用）
-            mock_cfg.RERANK_ENABLED = False
-            mock_get_settings.return_value = mock_cfg
-
-            mock_setup_logging.return_value = MagicMock()
-
-            # 运行 lifespan 并检查 repo_pool 是否被包装
-            async def _run_lifespan():
-                results = []
-
-                @asynccontextmanager
-                async def test_lifespan(app):
-                    async with real_lifespan(app) as _:
-                        results.append(app.state.repo_pool)
-                    yield
-
-                app = FastAPI(lifespan=test_lifespan)
-                async with app.router.lifespan_context(app):
-                    pass
-                return results[0] if results else None
-
-            repo_pool = asyncio.run(_run_lifespan())
-            assert repo_pool is not None, "lifespan 应设置 app.state.repo_pool"
-            assert isinstance(
-                repo_pool, LoggedPool
-            ), f"repo_pool 应为 LoggedPool 实例，实际类型为 {type(repo_pool).__name__}"
-
+        """lifespan 启动后，app.state.repo_pool 应为 LoggedPool 实例。"""
+        repo_pool = _run_lifespan_state("repo_pool")
+        assert repo_pool is not None, "lifespan 应设置 app.state.repo_pool"
+        assert isinstance(
+            repo_pool, LoggedPool
+        ), f"repo_pool 应为 LoggedPool 实例，实际类型为 {type(repo_pool).__name__}"
 
 # ============================================================================
 # TestRerankLLMWiring — Phase 5.5: LLM + Rerank DI 装配
@@ -441,293 +491,83 @@ class TestRerankLLMWiring:
     GREEN → lifespan 创建 LLMProvider + RerankProvider 并注入 use case。
     """
 
-    @pytest.mark.skip(reason="lifespan mock 需重写以支持迁移检测/prune/llm_provider.close")
     def test_rerank_disabled_uses_noop_reranker(self):
         """RERANK_ENABLED=False 时，retrieve_uc 的 reranker 为 NoopRerankProvider 实例。"""
-        from contextlib import asynccontextmanager
-
-        from fastapi import FastAPI
-
         from ragnexus.adapters.rerank.noop import NoopRerankProvider
-        from ragnexus.composition import lifespan as real_lifespan
 
-        with (
-            patch(
-                "ragnexus.composition.asyncpg.create_pool",
-                new_callable=AsyncMock,
-            ) as mock_create_pool,
-            patch(
-                "ragnexus.composition.PgVectorStore",
-                autospec=True,
-            ) as mock_store_cls,
-            patch("ragnexus.composition.get_settings") as mock_get_settings,
-            patch("ragnexus.composition.setup_logging") as mock_setup_logging,
-            patch('ragnexus.composition.OpenAICompatibleLLMProvider', new_callable=AsyncMock),
-        ):
-            mock_pool = AsyncMock()
-            mock_create_pool.return_value = mock_pool
-            mock_pool.close = AsyncMock()
+        retrieve_uc = _run_lifespan_state("retrieve_uc", {"RERANK_ENABLED": False})
+        assert retrieve_uc is not None, "lifespan 应设置 app.state.retrieve_uc"
+        assert isinstance(
+            retrieve_uc._reranker, NoopRerankProvider
+        ), f"禁用重排时应为 NoopRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
+        assert retrieve_uc._candidate_multiplier == 1, "禁用重排时 candidate_multiplier 应为 1"
+        assert retrieve_uc._min_candidates == 0, "禁用重排时 min_candidates 应为 0"
 
-            mock_store = mock_store_cls.return_value
-            mock_store.connect = AsyncMock()
-            mock_store.close = AsyncMock()
-            mock_store.pool = AsyncMock()
-            mock_store.pool.fetchval = AsyncMock(return_value=1024)
 
-            mock_cfg = MagicMock()
-            mock_cfg.EMBED_DIM = 1024
-            # 确保 RERANK_ENABLED=False（默认）
-            mock_cfg.RERANK_ENABLED = False
-            # Embedder 配置
-            mock_cfg.EMBED_BASE_URL = "https://fake.example.com"
-            mock_cfg.EMBED_API_KEY = "test"
-            mock_cfg.EMBED_MODEL = "text-embedding-v3"
-            mock_cfg.EMBED_BATCH_SIZE = 50
-            mock_cfg.EMBED_MAX_CONCURRENCY = 5
-            mock_cfg.EMBED_MAX_RETRIES = 3
-            mock_cfg.EMBED_REQUEST_TIMEOUT = 30.0
-            mock_cfg.EMBED_CONNECT_TIMEOUT = 5.0
-            mock_cfg.EMBED_RETRY_BACKOFF_BASE = 2.0
-            # LLM 配置
-            mock_cfg.LLM_BASE_URL = "https://fake-llm.example.com"
-            mock_cfg.LLM_API_KEY = "test-llm"
-            mock_cfg.LLM_MODEL = "test-model"
-            mock_cfg.LLM_MAX_CONCURRENCY = 3
-            mock_cfg.LLM_MAX_RETRIES = 2
-            mock_cfg.LLM_REQUEST_TIMEOUT = 30.0
-            mock_cfg.LLM_CONNECT_TIMEOUT = 5.0
-            mock_cfg.LLM_RETRY_BACKOFF_BASE = 2.0
-            # Upload / chunking
-            mock_cfg.MAX_FILE_SIZE = 10 * 1024 * 1024
-            mock_cfg.CHUNK_MAX_CHARS = 1500
-            mock_cfg.CHUNK_OVERLAP = 50
-            # 其他
-            mock_cfg.PG_DSN = "postgresql://fake"
-            mock_cfg.PG_POOL_MIN = 1
-            mock_cfg.PG_POOL_MAX = 5
-            mock_cfg.PG_COMMAND_TIMEOUT = 30.0
-            mock_get_settings.return_value = mock_cfg
-            mock_setup_logging.return_value = MagicMock()
+# ============================================================================
+# TestCacheInvalidatingUploadUseCase — 上传后清空 rerank + rewrite 缓存
+# ============================================================================
 
-            async def _run_lifespan():
-                results = {}
 
-                @asynccontextmanager
-                async def test_lifespan(app):
-                    async with real_lifespan(app) as _:
-                        results["retrieve_uc"] = getattr(app.state, "retrieve_uc", None)
-                        results["upload_doc_uc"] = getattr(
-                            app.state, "upload_doc_uc", None
-                        )
-                    yield
+class TestCacheInvalidatingUploadUseCase:
+    """验证 CacheInvalidatingUploadUseCase.execute 上传成功后清空双缓存。
 
-                app = FastAPI(lifespan=test_lifespan)
-                async with app.router.lifespan_context(app):
-                    pass
-                return results
+    纯单元测试 — 不走 lifespan。直接构造包装类，验证副作用调用。
+    """
 
-            results = asyncio.run(_run_lifespan())
-            retrieve_uc = results["retrieve_uc"]
-            assert retrieve_uc is not None, "lifespan 应设置 app.state.retrieve_uc"
-            assert isinstance(
-                retrieve_uc._reranker, NoopRerankProvider
-            ), f"禁用重排时应为 NoopRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
-            assert (
-                retrieve_uc._candidate_multiplier == 1
-            ), "禁用重排时 candidate_multiplier 应为 1"
-            assert retrieve_uc._min_candidates == 0, "禁用重排时 min_candidates 应为 0"
-
-    @pytest.mark.skip(reason="lifespan mock 需重写以支持迁移检测/prune/llm_provider.close")
-    def test_rerank_enabled_uses_llm_reranker(self):
-        """RERANK_ENABLED=True 时，retrieve_uc 的 reranker 为 LLMRerankProvider 实例。"""
-        from contextlib import asynccontextmanager
-
-        from fastapi import FastAPI
-
-        from ragnexus.adapters.rerank.llm import LLMRerankProvider
-        from ragnexus.composition import lifespan as real_lifespan
-
-        with (
-            patch(
-                "ragnexus.composition.asyncpg.create_pool",
-                new_callable=AsyncMock,
-            ) as mock_create_pool,
-            patch(
-                "ragnexus.composition.PgVectorStore",
-                autospec=True,
-            ) as mock_store_cls,
-            patch("ragnexus.composition.get_settings") as mock_get_settings,
-            patch("ragnexus.composition.setup_logging") as mock_setup_logging,
-            patch('ragnexus.composition.OpenAICompatibleLLMProvider', new_callable=AsyncMock),
-        ):
-            mock_pool = AsyncMock()
-            mock_create_pool.return_value = mock_pool
-            mock_pool.close = AsyncMock()
-
-            mock_store = mock_store_cls.return_value
-            mock_store.connect = AsyncMock()
-            mock_store.close = AsyncMock()
-            mock_store.pool = AsyncMock()
-            mock_store.pool.fetchval = AsyncMock(return_value=1024)
-
-            mock_cfg = MagicMock()
-            mock_cfg.EMBED_DIM = 1024
-            mock_cfg.RERANK_ENABLED = True
-            mock_cfg.RERANK_CANDIDATE_MULTIPLIER = 3
-            mock_cfg.RERANK_MIN_CANDIDATES = 10
-            mock_cfg.RERANK_MAX_CANDIDATES = 20
-            mock_cfg.RERANK_CHUNK_MAX_CHARS = 1000
-            mock_cfg.RERANK_CACHE_SIMILARITY_THRESHOLD = 0.95
-            mock_cfg.RERANK_CACHE_MAX_ENTRIES = 100
-            mock_cfg.RERANK_CACHE_TTL_SECONDS = 300
-            mock_cfg.RERANK_TEMPERATURE = 0.0
-            # Embedder
-            mock_cfg.EMBED_BASE_URL = "https://fake.example.com"
-            mock_cfg.EMBED_API_KEY = "test"
-            mock_cfg.EMBED_MODEL = "text-embedding-v3"
-            mock_cfg.EMBED_BATCH_SIZE = 50
-            mock_cfg.EMBED_MAX_CONCURRENCY = 5
-            mock_cfg.EMBED_MAX_RETRIES = 3
-            mock_cfg.EMBED_REQUEST_TIMEOUT = 30.0
-            mock_cfg.EMBED_CONNECT_TIMEOUT = 5.0
-            mock_cfg.EMBED_RETRY_BACKOFF_BASE = 2.0
-            # LLM
-            mock_cfg.LLM_BASE_URL = "https://fake-llm.example.com"
-            mock_cfg.LLM_API_KEY = "test-llm"
-            mock_cfg.LLM_MODEL = "test-model"
-            mock_cfg.LLM_MAX_CONCURRENCY = 3
-            mock_cfg.LLM_MAX_RETRIES = 2
-            mock_cfg.LLM_REQUEST_TIMEOUT = 30.0
-            mock_cfg.LLM_CONNECT_TIMEOUT = 5.0
-            mock_cfg.LLM_RETRY_BACKOFF_BASE = 2.0
-            # Upload / chunking
-            mock_cfg.MAX_FILE_SIZE = 10 * 1024 * 1024
-            mock_cfg.CHUNK_MAX_CHARS = 1500
-            mock_cfg.CHUNK_OVERLAP = 50
-            # 其他
-            mock_cfg.PG_DSN = "postgresql://fake"
-            mock_cfg.PG_POOL_MIN = 1
-            mock_cfg.PG_POOL_MAX = 5
-            mock_cfg.PG_COMMAND_TIMEOUT = 30.0
-            mock_get_settings.return_value = mock_cfg
-            mock_setup_logging.return_value = MagicMock()
-
-            async def _run_lifespan():
-                results = {}
-
-                @asynccontextmanager
-                async def test_lifespan(app):
-                    async with real_lifespan(app) as _:
-                        results["retrieve_uc"] = getattr(app.state, "retrieve_uc", None)
-                        results["upload_doc_uc"] = getattr(
-                            app.state, "upload_doc_uc", None
-                        )
-                    yield
-
-                app = FastAPI(lifespan=test_lifespan)
-                async with app.router.lifespan_context(app):
-                    pass
-                return results
-
-            results = asyncio.run(_run_lifespan())
-            retrieve_uc = results["retrieve_uc"]
-            assert retrieve_uc is not None, "lifespan 应设置 app.state.retrieve_uc"
-            assert isinstance(
-                retrieve_uc._reranker, LLMRerankProvider
-            ), f"启用重排时应为 LLMRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
-            assert (
-                retrieve_uc._candidate_multiplier == 3
-            ), "启用重排时 candidate_multiplier 应为配置值"
-            assert (
-                retrieve_uc._min_candidates == 10
-            ), "启用重排时 min_candidates 应为配置值"
-
-    @pytest.mark.skip(reason="lifespan mock 需重写以支持迁移检测/prune/llm_provider.close")
-    def test_upload_doc_is_wrapped_with_cache_invalidator(self):
-        """upload_doc_uc 被 CacheInvalidatingUploadUseCase 包装。"""
-        from contextlib import asynccontextmanager
-
-        from fastapi import FastAPI
-
-        from ragnexus.composition import (
-            CacheInvalidatingUploadUseCase,
+    def _make_inner(self) -> AsyncMock:
+        inner = AsyncMock()
+        inner.execute.return_value = UploadResult(
+            doc_id="d-1", kb_id="kb-1", chunks=[], chunk_count=0
         )
-        from ragnexus.composition import (
-            lifespan as real_lifespan,
+        return inner
+
+    def test_clears_rerank_and_rewrite_cache_after_upload(self):
+        """execute() 成功后必须调用 reranker.clear_cache(kb_id) 和 rewriter.clear_cache(kb_id)。"""
+        from ragnexus.composition import CacheInvalidatingUploadUseCase
+
+        inner = self._make_inner()
+        reranker = AsyncMock()
+        rewriter = AsyncMock()
+
+        uc = CacheInvalidatingUploadUseCase(inner, reranker, rewriter)
+        asyncio.run(
+            uc.execute(
+                kb_id="kb-1",
+                file_content=b"hello",
+                filename="f.txt",
+                content_type="text/plain",
+            )
         )
 
-        with (
-            patch(
-                "ragnexus.composition.asyncpg.create_pool",
-                new_callable=AsyncMock,
-            ) as mock_create_pool,
-            patch(
-                "ragnexus.composition.PgVectorStore",
-                autospec=True,
-            ) as mock_store_cls,
-            patch("ragnexus.composition.get_settings") as mock_get_settings,
-            patch("ragnexus.composition.setup_logging") as mock_setup_logging,
-            patch('ragnexus.composition.OpenAICompatibleLLMProvider', new_callable=AsyncMock),
-        ):
-            mock_pool = AsyncMock()
-            mock_create_pool.return_value = mock_pool
-            mock_pool.close = AsyncMock()
+        inner.execute.assert_awaited_once_with(
+            kb_id="kb-1",
+            file_content=b"hello",
+            filename="f.txt",
+            content_type="text/plain",
+        )
+        reranker.clear_cache.assert_awaited_once_with("kb-1")
+        rewriter.clear_cache.assert_awaited_once_with("kb-1")
 
-            mock_store = mock_store_cls.return_value
-            mock_store.connect = AsyncMock()
-            mock_store.close = AsyncMock()
-            mock_store.pool = AsyncMock()
-            mock_store.pool.fetchval = AsyncMock(return_value=1024)
+    def test_does_not_clear_cache_when_inner_upload_fails(self):
+        """inner.execute 抛异常时，不应清空缓存。"""
+        from ragnexus.composition import CacheInvalidatingUploadUseCase
 
-            mock_cfg = MagicMock()
-            mock_cfg.EMBED_DIM = 1024
-            mock_cfg.RERANK_ENABLED = False
-            mock_cfg.EMBED_BASE_URL = "https://fake.example.com"
-            mock_cfg.EMBED_API_KEY = "test"
-            mock_cfg.EMBED_MODEL = "text-embedding-v3"
-            mock_cfg.EMBED_BATCH_SIZE = 50
-            mock_cfg.EMBED_MAX_CONCURRENCY = 5
-            mock_cfg.EMBED_MAX_RETRIES = 3
-            mock_cfg.EMBED_REQUEST_TIMEOUT = 30.0
-            mock_cfg.EMBED_CONNECT_TIMEOUT = 5.0
-            mock_cfg.EMBED_RETRY_BACKOFF_BASE = 2.0
-            mock_cfg.LLM_BASE_URL = "https://fake-llm.example.com"
-            mock_cfg.LLM_API_KEY = "test-llm"
-            mock_cfg.LLM_MODEL = "test-model"
-            mock_cfg.LLM_MAX_CONCURRENCY = 3
-            mock_cfg.LLM_MAX_RETRIES = 2
-            mock_cfg.LLM_REQUEST_TIMEOUT = 30.0
-            mock_cfg.LLM_CONNECT_TIMEOUT = 5.0
-            mock_cfg.LLM_RETRY_BACKOFF_BASE = 2.0
-            mock_cfg.MAX_FILE_SIZE = 10 * 1024 * 1024
-            mock_cfg.CHUNK_MAX_CHARS = 1500
-            mock_cfg.CHUNK_OVERLAP = 50
-            mock_cfg.PG_DSN = "postgresql://fake"
-            mock_cfg.PG_POOL_MIN = 1
-            mock_cfg.PG_POOL_MAX = 5
-            mock_cfg.PG_COMMAND_TIMEOUT = 30.0
-            mock_get_settings.return_value = mock_cfg
-            mock_setup_logging.return_value = MagicMock()
+        inner = AsyncMock()
+        inner.execute.side_effect = RuntimeError("upload failed")
+        reranker = AsyncMock()
+        rewriter = AsyncMock()
 
-            async def _run_lifespan():
-                results = {}
+        uc = CacheInvalidatingUploadUseCase(inner, reranker, rewriter)
+        with pytest.raises(RuntimeError, match="upload failed"):
+            asyncio.run(
+                uc.execute(
+                    kb_id="kb-1",
+                    file_content=b"x",
+                    filename="f.txt",
+                    content_type="text/plain",
+                )
+            )
 
-                @asynccontextmanager
-                async def test_lifespan(app):
-                    async with real_lifespan(app) as _:
-                        results["upload_doc_uc"] = getattr(
-                            app.state, "upload_doc_uc", None
-                        )
-                    yield
-
-                app = FastAPI(lifespan=test_lifespan)
-                async with app.router.lifespan_context(app):
-                    pass
-                return results
-
-            results = asyncio.run(_run_lifespan())
-            upload_doc_uc = results["upload_doc_uc"]
-            assert upload_doc_uc is not None, "lifespan 应设置 app.state.upload_doc_uc"
-            assert isinstance(
-                upload_doc_uc, CacheInvalidatingUploadUseCase
-            ), f"上传用例应被包装，实际类型: {type(upload_doc_uc).__name__}"
+        reranker.clear_cache.assert_not_called()
+        rewriter.clear_cache.assert_not_called()

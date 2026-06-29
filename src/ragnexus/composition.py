@@ -327,25 +327,44 @@ async def lifespan(app: FastAPI):
             for t in cleanup_tasks:
                 t.cancel()
 
-        # 关闭 httpx 客户端（逆序：后创建的先关闭）
+        # 逆序关闭生命周期资源（llm → embedder → repo_pool → store_pool → log_listener）
+        await _shutdown_resources(
+            llm_provider=llm_provider,
+            embedder=embedder,
+            _raw_repo_pool=_raw_repo_pool,
+            _raw_store_pool=_raw_store_pool,
+            log_listener=log_listener,
+        )
+
+
+async def _shutdown_resources(
+    llm_provider: Any | None,
+    embedder: Any | None,
+    _raw_repo_pool: Any | None,
+    _raw_store_pool: Any | None,
+    log_listener: Any,
+) -> None:
+    """逆序关闭生命周期资源（llm → embedder → repo_pool → store_pool → log_listener）。
+
+    每个步骤由嵌套 try/finally 保护，确保前一步抛异常不会阻止后续清理。
+    """
+    try:
+        if llm_provider is not None:
+            await llm_provider.close()
+    finally:
         try:
-            if llm_provider is not None:
-                await llm_provider.close()
+            if embedder is not None:
+                await embedder.close()
         finally:
             try:
-                if embedder is not None:
-                    await embedder.close()
+                if _raw_repo_pool is not None:
+                    await _raw_repo_pool.close()
             finally:
-                # 关闭连接池
                 try:
-                    if _raw_repo_pool is not None:
-                        await _raw_repo_pool.close()
+                    if _raw_store_pool is not None:
+                        await _raw_store_pool.close()
                 finally:
-                    try:
-                        if _raw_store_pool is not None:
-                            await _raw_store_pool.close()
-                    finally:
-                        log_listener.stop()
+                    log_listener.stop()
 
 
 def build_app() -> FastAPI:
