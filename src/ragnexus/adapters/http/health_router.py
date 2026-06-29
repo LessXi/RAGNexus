@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from ragnexus.core.logger import logger
 from ragnexus import __version__
 
 _start_time: float = time.time()
@@ -38,7 +39,8 @@ def create_router(get_store) -> APIRouter:
                 timeout=3.0,
             )
             checks["database"] = "ok"
-        except Exception:
+        except Exception as exc:
+            logger.warning("健康检查 DB 探测失败: %s", exc)
             checks["database"] = "error"
 
         status = "ok" if all(v == "ok" for v in checks.values()) else "degraded"

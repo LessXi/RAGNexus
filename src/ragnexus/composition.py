@@ -168,11 +168,8 @@ async def lifespan(app: FastAPI):
 
         # --- 4a. 数据库迁移检测 -------------------------------------------------
         try:
-            _version = await repo_pool.fetchval(
-                "SELECT version_num FROM alembic_version ORDER BY version_num DESC LIMIT 1"
-            )
             _pending = await repo_pool.fetchval("SELECT count(*) FROM alembic_version")
-            if _pending is None:
+            if _pending == 0:
                 logger.warning("数据库迁移未执行——部署前请运行 'alembic upgrade head'")
         except Exception:
             logger.warning(
@@ -241,15 +238,19 @@ async def lifespan(app: FastAPI):
 
         # --- 4b. 启动时清理过期检索日志 -----------------------------------------
         _cleanup_tasks: set[asyncio.Task] = set()
-        try:
-            from datetime import datetime, timedelta, timezone
 
-            _deleted = await log_repo.prune(
-                datetime.now(timezone.utc) - timedelta(days=30)
-            )
-            logger.info("清理过期检索日志: %d 条已删除", _deleted)
-        except Exception:
-            logger.debug("启动时检索日志清理失败（首次运行或表为空）", exc_info=True)
+        async def _startup_cleanup():
+            """启动 5 秒后执行一次清理，不阻塞主流程。"""
+            try:
+                await asyncio.sleep(5)
+                from datetime import datetime, timedelta, timezone
+
+                _deleted = await log_repo.prune(
+                    datetime.now(timezone.utc) - timedelta(days=30)
+                )
+                logger.info("清理过期检索日志: %d 条已删除", _deleted)
+            except Exception:
+                logger.debug("启动时检索日志清理失败", exc_info=True)
 
         # 注册 24h 周期清理任务
         async def _periodic_log_cleanup():
@@ -262,8 +263,14 @@ async def lifespan(app: FastAPI):
                         datetime.now(timezone.utc) - timedelta(days=30)
                     )
                 except Exception:
-                    logger.debug("周期日志清理失败", exc_info=True)
+                    logger.error("周期日志清理失败", exc_info=True)
 
+        # 启动 fire-and-forget 启动清理
+        _task = asyncio.create_task(_startup_cleanup())
+        _task.add_done_callback(_cleanup_tasks.discard)
+        _cleanup_tasks.add(_task)
+
+        # 启动周期任务
         _task = asyncio.create_task(_periodic_log_cleanup())
         _task.add_done_callback(_cleanup_tasks.discard)
         _cleanup_tasks.add(_task)
