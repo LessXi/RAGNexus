@@ -67,6 +67,7 @@ dev = [
     "pytest-httpx>=0.23",
     "pytest-cov>=6.0",
     "coverage>=7.6",
+    "psycopg2-binary>=2.9.12",
 ]
 
 [tool.coverage.run]

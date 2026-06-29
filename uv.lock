@@ -1117,6 +1117,7 @@ dev = [
 [package.dev-dependencies]
 dev = [
     { name = "coverage" },
+    { name = "psycopg2-binary" },
     { name = "pytest-cov" },
     { name = "pytest-httpx" },
 ]
@@ -1146,6 +1147,7 @@ provides-extras = ["dev"]
 [package.metadata.requires-dev]
 dev = [
     { name = "coverage", specifier = ">=7.6" },
+    { name = "psycopg2-binary", specifier = ">=2.9.12" },
     { name = "pytest-cov", specifier = ">=6.0" },
     { name = "pytest-httpx", specifier = ">=0.23" },
 ]
