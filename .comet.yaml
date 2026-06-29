@@ -1,0 +1,2 @@
+build_command: python -m pytest tests/unit tests/integration --ignore=tests/unit/adapters/test_middleware.py -q --tb=short
+verify_command: python -m pytest tests/unit tests/integration --ignore=tests/unit/adapters/test_middleware.py -q --tb=short
