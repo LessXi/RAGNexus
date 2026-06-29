@@ -159,15 +159,25 @@ def _patched_lifespan(cfg_overrides: dict[str, Any] | None = None):
         patch("ragnexus.composition.get_settings", return_value=cfg),
         patch("ragnexus.composition.setup_logging", return_value=log_listener),
         patch("ragnexus.composition.OpenAICompatEmbedder", return_value=mock_embedder),
-        patch("ragnexus.composition.OpenAICompatibleLLMProvider", return_value=mock_llm),
-        patch("ragnexus.composition.PgKnowledgeBaseRepository", return_value=mock_kb_repo),
-        patch("ragnexus.composition.PgRetrieveLogRepository", return_value=mock_log_repo),
-        patch("ragnexus.composition.asyncio.create_task", side_effect=_fake_create_task),
+        patch(
+            "ragnexus.composition.OpenAICompatibleLLMProvider", return_value=mock_llm
+        ),
+        patch(
+            "ragnexus.composition.PgKnowledgeBaseRepository", return_value=mock_kb_repo
+        ),
+        patch(
+            "ragnexus.composition.PgRetrieveLogRepository", return_value=mock_log_repo
+        ),
+        patch(
+            "ragnexus.composition.asyncio.create_task", side_effect=_fake_create_task
+        ),
     ):
         yield cfg
 
 
-def _run_lifespan_state(state_attr: str, cfg_overrides: dict[str, Any] | None = None) -> Any:
+def _run_lifespan_state(
+    state_attr: str, cfg_overrides: dict[str, Any] | None = None
+) -> Any:
     """运行 lifespan 并返回 app.state.<state_attr>，或 None（如果未设置）。"""
     from fastapi import FastAPI
 
@@ -479,6 +489,7 @@ class TestLoggedPoolWiring:
             repo_pool, LoggedPool
         ), f"repo_pool 应为 LoggedPool 实例，实际类型为 {type(repo_pool).__name__}"
 
+
 # ============================================================================
 # TestRerankLLMWiring — Phase 5.5: LLM + Rerank DI 装配
 # ============================================================================
@@ -500,8 +511,34 @@ class TestRerankLLMWiring:
         assert isinstance(
             retrieve_uc._reranker, NoopRerankProvider
         ), f"禁用重排时应为 NoopRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
-        assert retrieve_uc._candidate_multiplier == 1, "禁用重排时 candidate_multiplier 应为 1"
+        assert (
+            retrieve_uc._candidate_multiplier == 1
+        ), "禁用重排时 candidate_multiplier 应为 1"
         assert retrieve_uc._min_candidates == 0, "禁用重排时 min_candidates 应为 0"
+
+    def test_rerank_enabled_uses_llm_reranker(self):
+        """RERANK_ENABLED=True 时，retrieve_uc 的 reranker 为 LLMRerankProvider 实例。"""
+        from ragnexus.adapters.rerank.llm import LLMRerankProvider
+
+        retrieve_uc = _run_lifespan_state("retrieve_uc", {"RERANK_ENABLED": True})
+        assert retrieve_uc is not None, "lifespan 应设置 app.state.retrieve_uc"
+        assert isinstance(
+            retrieve_uc._reranker, LLMRerankProvider
+        ), f"启用重排时应为 LLMRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
+        assert (
+            retrieve_uc._candidate_multiplier == 3
+        ), "启用重排时 candidate_multiplier 应为配置值"
+        assert retrieve_uc._min_candidates == 10, "启用重排时 min_candidates 应为配置值"
+
+    def test_upload_doc_is_wrapped_with_cache_invalidator(self):
+        """upload_doc_uc 被 CacheInvalidatingUploadUseCase 包装。"""
+        from ragnexus.composition import CacheInvalidatingUploadUseCase
+
+        upload_doc_uc = _run_lifespan_state("upload_doc_uc", {"RERANK_ENABLED": False})
+        assert upload_doc_uc is not None, "lifespan 应设置 app.state.upload_doc_uc"
+        assert isinstance(
+            upload_doc_uc, CacheInvalidatingUploadUseCase
+        ), f"上传用例应被包装，实际类型: {type(upload_doc_uc).__name__}"
 
 
 # ============================================================================

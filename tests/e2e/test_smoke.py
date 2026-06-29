@@ -14,7 +14,8 @@ from ragnexus.core.errors import ErrorCode
 import asyncio
 import asyncpg
 import concurrent.futures
-import concurrent.futures
+import re
+
 from unittest.mock import patch
 
 import httpx
@@ -378,6 +379,27 @@ class TestE2EDegradation:
 
     def test_llm_rate_limit(self, httpx_mock):
         """Mock LLM 429 → verify degraded response (with rerank enabled)."""
+        # Skip if test DB unavailable (mirror conftest's autouse guard)
+        try:
+
+            async def _check_db():
+                conn = await asyncpg.connect(
+                    "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test",
+                    timeout=2,
+                )
+                await conn.close()
+
+            asyncio.run(asyncio.wait_for(_check_db(), timeout=5))
+        except Exception:
+            pytest.skip("测试数据库不可用（Docker Compose 未启动）")
+
+        # Point fresh app at test DB
+        os.environ["PG_DSN"] = (
+            "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+        )
+        os.environ["PG_POOL_MIN"] = "1"
+        os.environ["PG_POOL_MAX"] = "3"
+        os.environ["PG_COMMAND_TIMEOUT"] = "15"
         saved = {}
         for k in ("RERANK_ENABLED", "LLM_BASE_URL", "LLM_API_KEY"):
             saved[k] = os.environ.get(k)
@@ -396,7 +418,7 @@ class TestE2EDegradation:
                 # Create KB
                 resp = c.post(
                     "/v1/knowledge-bases:create",
-                    json={"name": "E2E LLM 429 Degradation"},
+                    json={"name": f"E2E LLM 429 Degradation {os.urandom(4).hex()}"},
                 )
                 assert resp.status_code == 200
                 kb_id = resp.json()["data"]["kb_id"]
