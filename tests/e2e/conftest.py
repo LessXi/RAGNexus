@@ -69,7 +69,8 @@ def mock_external_http(httpx_mock: HTTPXMock):
         texts = body.get("input", [])
         if isinstance(texts, str):
             texts = [texts]
-        embeddings = [[0.0] * embed_dim for _ in texts]
+        # 非零向量，避免 pgvector cosine distance = NaN
+        embeddings = [[0.1] * embed_dim for _ in texts]
         return httpx.Response(
             200,
             json={
@@ -83,7 +84,9 @@ def mock_external_http(httpx_mock: HTTPXMock):
             },
         )
 
-    httpx_mock.add_callback(_embed_callback, url=embed_url, method="POST")
+    httpx_mock.add_callback(
+        _embed_callback, url=embed_url, method="POST", is_reusable=True
+    )
 
     # ── LLM mock ──────────────────────────────────────────────────
     llm_url = f"{settings.LLM_BASE_URL.rstrip('/')}/chat/completions"
@@ -119,7 +122,7 @@ def mock_external_http(httpx_mock: HTTPXMock):
             },
         )
 
-    httpx_mock.add_callback(_llm_callback, url=llm_url, method="POST")
+    httpx_mock.add_callback(_llm_callback, url=llm_url, method="POST", is_reusable=True)
 
     yield httpx_mock
 

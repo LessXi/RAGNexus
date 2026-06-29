@@ -241,26 +241,9 @@ def _mock_embedder_ok(httpx_mock, dim: int | None = None):
             },
         )
 
-    httpx_mock.add_callback(_callback, method="POST", url=re.compile(r".*/embeddings$"))
-
-    async def _callback(request):
-        body = await request.aread()
-        import json
-
-        data = json.loads(body)
-        inputs = data.get("input", [])
-        return httpx.Response(
-            status_code=200,
-            json={
-                "object": "list",
-                "data": [
-                    {"embedding": [0.1] * dim, "index": i} for i in range(len(inputs))
-                ],
-                "model": "test-model",
-            },
-        )
-
-    httpx_mock.add_callback(_callback, method="POST", url=re.compile(r".*/embeddings$"))
+    httpx_mock.add_callback(
+        _callback, method="POST", url=re.compile(r".*/embeddings$"), is_reusable=True
+    )
 
 
 # ── 5.2 /health ───────────────────────────────────────────────────────
@@ -364,7 +347,10 @@ class TestE2EDegradation:
             )
 
         httpx_mock.add_callback(
-            _error_callback, method="POST", url=re.compile(r".*/embeddings$")
+            _error_callback,
+            method="POST",
+            url=re.compile(r".*/embeddings$"),
+            is_reusable=True,
         )
 
         # Retrieve should fail gracefully with UPSTREAM_ERROR
@@ -414,6 +400,13 @@ class TestE2EDegradation:
             app = build_app()
             with TestClient(app) as c:
                 _mock_embedder_ok(httpx_mock)
+
+                # Mock LLM return 429 → rerank degrades to vector sort
+                httpx_mock.add_response(
+                    status_code=429,
+                    url=re.compile(r".*/chat/completions$"),
+                    is_reusable=True,
+                )
 
                 # Create KB
                 resp = c.post(
