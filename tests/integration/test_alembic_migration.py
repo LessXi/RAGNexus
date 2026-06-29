@@ -55,11 +55,22 @@ def alembic_env(monkeypatch, ensure_test_db):
 
 
 async def _drop_all_tables() -> None:
-    """删除测试库所有表（CASCADE），为 alembic 提供干净起点。"""
+    """删除测试库所有表（CASCADE），为 alembic 提供干净起点。
+
+    注意：_apply_schema fixture 可能已通过 schema.sql 创建了表，
+    必须先清理才能测试 alembic 迁移的完整 up/down 路径。
+    """
     conn = await asyncpg.connect(TEST_DSN)
     try:
         for table in ALL_TABLES:
             await conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+        # 二次确认：查 information_schema 确保干净
+        rows = await conn.fetch(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+        )
+        remaining = [r["table_name"] for r in rows if r["table_name"] in ALL_TABLES]
+        if remaining:
+            raise RuntimeError(f"清理失败：以下表未删除: {remaining}")
     finally:
         await conn.close()
 
@@ -109,9 +120,9 @@ async def test_alembic_upgrade_downgrade(alembic_env):
 
     # ── 1. upgrade head ──
     result = _run_alembic("upgrade", "head")
-    assert result.returncode == 0, (
-        f"upgrade head 失败:\nSTDERR:\n{result.stderr}\nSTDOUT:\n{result.stdout}"
-    )
+    assert (
+        result.returncode == 0
+    ), f"upgrade head 失败:\nSTDERR:\n{result.stderr}\nSTDOUT:\n{result.stdout}"
 
     # ── 2. 验证所有表存在 ──
     existing = await _get_existing_tables()
@@ -123,9 +134,9 @@ async def test_alembic_upgrade_downgrade(alembic_env):
 
     # ── 3. downgrade -1 ──
     result = _run_alembic("downgrade", "-1")
-    assert result.returncode == 0, (
-        f"downgrade -1 失败:\nSTDERR:\n{result.stderr}\nSTDOUT:\n{result.stdout}"
-    )
+    assert (
+        result.returncode == 0
+    ), f"downgrade -1 失败:\nSTDERR:\n{result.stderr}\nSTDOUT:\n{result.stdout}"
 
     # ── 4. 验证业务表已删除 ──
     existing = await _get_existing_tables()
