@@ -246,14 +246,20 @@ class TestJsonDefense:
         assert result["reason"] == "清晰"
 
     @pytest.mark.asyncio
-    async def test_layer4_schema_validation_missing_field(self):
-        """Layer 4：缺 needs_rewrite 字段 → 降级。"""
+    async def test_layer4_5_missing_needs_rewrite_with_rewritten_query(self):
+        """Layer 4.5：缺 needs_rewrite 但有 rewritten_query → 推断 needs_rewrite，不降级。
+
+        LLM（deepseek-v4-flash-free）常省略 needs_rewrite 字段，
+        parser 应从 rewritten_query 字段推断，而非直接降级。
+        """
         from ragnexus.adapters.rewrite.llm import _parse_rewrite_json
 
         raw = '{"rewritten_query": "xxx", "reason": "yyy"}'
         result = _parse_rewrite_json(raw)
-        # 降级应返回降级 dict
-        assert result.get("_degraded") is True
+        # 不降级 — 从 rewritten_query 推断 needs_rewrite
+        assert result.get("_degraded") is None
+        assert result["needs_rewrite"] is False
+        assert result["rewritten_query"] == "xxx"
 
     @pytest.mark.asyncio
     async def test_layer4_needs_rewrite_true_requires_rewritten_query(self):

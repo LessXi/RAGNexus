@@ -134,7 +134,9 @@ class ContextAdapter(logging.LoggerAdapter):
                 if filename == cls._OUR_FILE or _is_stdlib_logging(filename):
                     f = f.f_back
                     continue
-                extra["_caller_module"] = os.path.splitext(os.path.basename(filename))[0]
+                extra["_caller_module"] = os.path.splitext(os.path.basename(filename))[
+                    0
+                ]
                 extra["_caller_func"] = f.f_code.co_name
                 extra["_caller_lineno"] = f.f_lineno
                 return
@@ -189,6 +191,9 @@ class CallerFilter(logging.Filter):
         record.caller_module = getattr(record, "_caller_module", None) or record.module
         record.caller_func = getattr(record, "_caller_func", None) or record.funcName
         record.caller_lineno = getattr(record, "_caller_lineno", None) or record.lineno
+        # 给 formatter 引用的占位符提供默认值，避免第三方/裸日志 KeyError
+        record.event_type = getattr(record, "event_type", None) or "-"
+        record.extra_fields = getattr(record, "extra_fields", None) or "-"
         return True
 
 
@@ -370,7 +375,9 @@ def log_model_call(model: str, prompt_arg: int = 0):
             if prompt_val is not None:
                 if log_content:
                     extra_request["prompt"] = (
-                        prompt_val[:200] + "..." if len(prompt_val) > 200 else prompt_val
+                        prompt_val[:200] + "..."
+                        if len(prompt_val) > 200
+                        else prompt_val
                     )
                 else:
                     extra_request["prompt_length"] = len(prompt_val)
@@ -390,7 +397,9 @@ def log_model_call(model: str, prompt_arg: int = 0):
                     if log_content:
                         result_str = str(result)
                         extra_response["response"] = (
-                            result_str[:200] + "..." if len(result_str) > 200 else result_str
+                            result_str[:200] + "..."
+                            if len(result_str) > 200
+                            else result_str
                         )
                     else:
                         extra_response["response_length"] = len(str(result))
@@ -447,7 +456,9 @@ class LoggedPool:
         """透传 acquire()，返回底层 pool 的 async context manager。"""
         return self._pool.acquire()
 
-    async def _log(self, op: str, query: str, method: Any, *args: Any, **kwargs: Any) -> Any:
+    async def _log(
+        self, op: str, query: str, method: Any, *args: Any, **kwargs: Any
+    ) -> Any:
         start = time.monotonic()
         try:
             result = await method(query, *args, **kwargs)

@@ -106,6 +106,26 @@ def _build_content_preview(text: str, heading: str | None, max_chars: int) -> st
     return prefix + truncated
 
 
+def _extract_rankings_from_dict(d: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """从解析后的 dict 中提取 rankings 列表。返回 None 表示无法提取。
+
+    支持两种格式:
+    - 标准: {"rankings": [{"chunk_id": ..., "rerank_score": ...}, ...]}
+    - 扁平: {"chunk_id_1": 0.95, "chunk_id_2": 0.3, ...}
+    """
+    if not isinstance(d, dict) or not d:
+        return None
+    # 嵌套格式: {"rankings": [...]} / {"rerank_scores": [...]} / {"scores": [...]} / {"results": [...]}
+    for key in ("rankings", "rerank_scores", "scores", "results"):
+        rankings = d.get(key)
+        if isinstance(rankings, list) and rankings:
+            return rankings
+    # 兼容扁平 dict {chunk_id: rerank_score}
+    if all(isinstance(v, (int, float)) for v in d.values()):
+        return [{"chunk_id": str(k), "rerank_score": float(v)} for k, v in d.items()]
+    return None
+
+
 def _parse_rankings_json(raw: Any) -> list[dict[str, Any]]:
     """JSON 4 层防御解析。
 
@@ -120,12 +140,10 @@ def _parse_rankings_json(raw: Any) -> list[dict[str, Any]]:
     """
     # Layer 1: 已经是 dict/list
     if isinstance(raw, dict):
-        rankings = raw.get("rankings", [])
-        if isinstance(rankings, list) and rankings:
-            return rankings
-        # 可能是直接返回的 raw 字符串（dict 的 value）
+        result = _extract_rankings_from_dict(raw)
+        if result is not None:
+            return result
         return []
-
     if isinstance(raw, list):
         return raw
 
@@ -141,9 +159,9 @@ def _parse_rankings_json(raw: Any) -> list[dict[str, Any]]:
     try:
         parsed = json.loads(content)
         if isinstance(parsed, dict):
-            rankings = parsed.get("rankings", [])
-            if isinstance(rankings, list):
-                return rankings
+            result = _extract_rankings_from_dict(parsed)
+            if result is not None:
+                return result
         elif isinstance(parsed, list):
             return parsed
     except json.JSONDecodeError:
@@ -155,9 +173,9 @@ def _parse_rankings_json(raw: Any) -> list[dict[str, Any]]:
         try:
             parsed = json.loads(m.group(1).strip())
             if isinstance(parsed, dict):
-                rankings = parsed.get("rankings", [])
-                if isinstance(rankings, list):
-                    return rankings
+                result = _extract_rankings_from_dict(parsed)
+                if result is not None:
+                    return result
             elif isinstance(parsed, list):
                 return parsed
         except json.JSONDecodeError:
@@ -169,9 +187,9 @@ def _parse_rankings_json(raw: Any) -> list[dict[str, Any]]:
         try:
             parsed = json.loads(m.group(0))
             if isinstance(parsed, dict):
-                rankings = parsed.get("rankings", [])
-                if isinstance(rankings, list):
-                    return rankings
+                result = _extract_rankings_from_dict(parsed)
+                if result is not None:
+                    return result
             elif isinstance(parsed, list):
                 return parsed
         except json.JSONDecodeError:
@@ -406,7 +424,9 @@ class LLMRerankProvider:
                     else None
                 )
                 text = orig_chunk.text if orig_chunk else ""
-                preview = _build_content_preview(text, heading, self.cache_preview_max_chars)
+                preview = _build_content_preview(
+                    text, heading, self.cache_preview_max_chars
+                )
                 ref_scores.append(
                     {
                         "chunk_id": cid,

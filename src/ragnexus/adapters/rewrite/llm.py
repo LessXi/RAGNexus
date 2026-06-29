@@ -81,7 +81,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-def _parse_rewrite_json(raw: object) -> dict:
+def _parse_rewrite_json(raw: object, original_query: str = "") -> dict:
     """JSON 5 层防御解析 — 从原始 LLM 响应中提取改写结果。
 
     层级:
@@ -134,9 +134,23 @@ def _parse_rewrite_json(raw: object) -> dict:
     if not isinstance(obj, dict):
         return _degraded(f"解析结果不是 dict: {type(obj).__name__}")
 
-    # Layer 4: Schema 校验
+    # Layer 4.5: Schema 容错 — LLM 可能缺失 needs_rewrite 字段
     if "needs_rewrite" not in obj:
-        return _degraded("缺少 needs_rewrite 字段")
+        rewritten = obj.get("rewritten_query") or obj.get("query")
+        if rewritten and isinstance(rewritten, str) and rewritten.strip():
+            rewritten_clean = rewritten.strip()
+            obj["needs_rewrite"] = bool(
+                original_query and rewritten_clean != original_query.strip()
+            )
+            obj["rewritten_query"] = rewritten_clean
+            obj.setdefault(
+                "reason",
+                "LLM 未输出 needs_rewrite，根据 query/rewritten_query 字段推断",
+            )
+        else:
+            return _degraded("缺少 needs_rewrite 字段且无可用替代字段")
+
+    # Layer 5: Schema 校验
 
     needs = obj["needs_rewrite"]
     if not isinstance(needs, bool):
@@ -367,7 +381,7 @@ class LLMRewriteProvider:
             user_payload={"query": query},
             temperature=self.temperature,
         )
-        return _parse_rewrite_json(llm_response)
+        return _parse_rewrite_json(llm_response, original_query=query)
 
     def _layer5_checks(
         self,
