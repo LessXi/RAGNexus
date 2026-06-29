@@ -39,6 +39,7 @@ class RetrieveUseCase:
         self._rewriter = rewriter
         self._candidate_multiplier = candidate_multiplier
         self._min_candidates = min_candidates
+        self._background_tasks: set[asyncio.Task] = set()
 
     async def execute(
         self, query: str, kb_ids: list[str], top_k: int = 5
@@ -93,9 +94,11 @@ class RetrieveUseCase:
         finally:
             latency_ms = int((time.perf_counter() - t0) * 1000)
             hit_count = len(hits)
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self._safe_log(query, kb_ids, top_k, hit_count, latency_ms)
             )
+            task.add_done_callback(self._background_tasks.discard)
+            self._background_tasks.add(task)
 
     async def _safe_log(
         self,
