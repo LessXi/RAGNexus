@@ -401,13 +401,6 @@ class TestE2EDegradation:
             with TestClient(app) as c:
                 _mock_embedder_ok(httpx_mock)
 
-                # Mock LLM return 429 → rerank degrades to vector sort
-                httpx_mock.add_response(
-                    status_code=429,
-                    url=re.compile(r".*/chat/completions$"),
-                    is_reusable=True,
-                )
-
                 # Create KB
                 resp = c.post(
                     "/v1/knowledge-bases:create",
@@ -416,8 +409,8 @@ class TestE2EDegradation:
                 assert resp.status_code == 200
                 kb_id = resp.json()["data"]["kb_id"]
 
-                # Upload doc
-                content = b"# Test\n\nSome content for LLM 429 degradation test."
+                # Upload doc (unique content to avoid 409 collision)
+                content = f"# Test {os.urandom(4).hex()}\n\nLLM 429 degradation test.".encode()
                 resp = c.post(
                     "/v1/documents:upload",
                     data={"kb_id": kb_id},
@@ -425,12 +418,11 @@ class TestE2EDegradation:
                 )
                 assert resp.status_code == 201
 
-                # Mock LLM to return 429
+                # Mock LLM 429 AFTER upload succeeds (避免 unused mock teardown 错误)
                 httpx_mock.add_response(
-                    method="POST",
-                    url=re.compile(r".*/chat/completions$"),
                     status_code=429,
-                    json={"error": "rate limit exceeded"},
+                    url=re.compile(r".*/chat/completions$"),
+                    is_reusable=True,
                 )
 
                 # Retrieve — reranker will call LLM → get 429 → falls back to vector ranking
