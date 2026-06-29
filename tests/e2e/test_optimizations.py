@@ -6,6 +6,7 @@
 
 import asyncio
 import httpx
+import os
 
 import pytest
 from fastapi.testclient import TestClient
