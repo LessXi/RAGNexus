@@ -45,7 +45,7 @@ def non_mocked_hosts() -> list[str]:
     return ["localhost"]
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def mock_external_http(httpx_mock: HTTPXMock):
     """Mock 外部 Embedder 和 LLM API 的所有 HTTP 请求，
     让 E2E 测试无需真实 API Key 即可通过完整流程。
@@ -87,7 +87,9 @@ def mock_external_http(httpx_mock: HTTPXMock):
             },
         )
 
-    httpx_mock.add_callback(_embed_callback, url=embed_url, method="POST", is_reusable=True)
+    httpx_mock.add_callback(
+        _embed_callback, url=embed_url, method="POST", is_reusable=True
+    )
 
     # ── LLM mock ──────────────────────────────────────────────────
     llm_url = f"{settings.LLM_BASE_URL.rstrip('/')}/chat/completions"
