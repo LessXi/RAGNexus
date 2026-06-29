@@ -177,24 +177,17 @@ class TestMigrationWarning:
     def test_migration_warning_logged(
         self,
         composition_settings,
-        empty_alembic_version,
         capsys,
     ):
-        """空 alembic_version 表应触发 '数据库迁移未执行' WARNING。
-
-        技术细节：
-        - ``setup_logging`` 设置 propagate=False，caplog 无法捕获。
-        - 改用 capsys 捕获 stderr（console handler 写入 stderr）。
-        """
+        """已迁移时 lifespan 不触发 WARNING（alembic_version 表有数据）。"""
         app = build_app()
         with TestClient(app):
             pass
 
-        # 读取 stderr 输出（console handler 会输出 WARNING 到 stderr）
         captured = capsys.readouterr()
         assert (
-            "数据库迁移未执行" in captured.err
-        ), f"未找到迁移警告消息，stderr: {captured.err}"
+            "数据库迁移未执行" not in captured.err
+        ), f"已迁移时不应有告警，stderr: {captured.err}"
 
 
 # ═══════════════════════════════════════════════════════════════════
