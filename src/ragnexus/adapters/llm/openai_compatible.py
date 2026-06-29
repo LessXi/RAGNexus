@@ -49,9 +49,7 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         """惰性初始化共享的 httpx.AsyncClient。"""
         if self._client is None:
             self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(
-                    self.request_timeout, connect=self.connect_timeout
-                ),
+                timeout=httpx.Timeout(self.request_timeout, connect=self.connect_timeout),
             )
 
     @log_model_call("llm", prompt_arg=1)
@@ -101,9 +99,7 @@ class OpenAICompatibleLLMProvider(LLMProvider):
                 except (httpx.HTTPError, json.JSONDecodeError, KeyError) as e:
                     last_err = e
                     if attempt == self.max_retries - 1:
-                        raise AppError(
-                            ErrorCode.MODEL_ERROR, f"LLM 调用失败: {e}"
-                        ) from e
+                        raise AppError(ErrorCode.MODEL_ERROR, f"LLM 调用失败: {e}") from e
                     await asyncio.sleep(self.retry_backoff_base**attempt)
             raise AppError(ErrorCode.MODEL_ERROR, f"LLM 调用失败: {last_err}")
 
@@ -123,3 +119,9 @@ class OpenAICompatibleLLMProvider(LLMProvider):
             temperature=temperature,
             timeout_seconds=timeout_seconds,
         )
+
+    async def close(self) -> None:
+        """关闭 httpx 客户端，释放网络连接。"""
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None

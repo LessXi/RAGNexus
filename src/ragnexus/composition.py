@@ -26,18 +26,18 @@ from ragnexus.adapters.llm.openai_compatible import OpenAICompatibleLLMProvider
 from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
 from ragnexus.adapters.rerank.llm import LLMRerankProvider
 from ragnexus.adapters.rerank.noop import NoopRerankProvider
+from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
 from ragnexus.adapters.rewrite.llm import LLMRewriteProvider
 from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
-from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
 from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
-from ragnexus.domain.models import UploadResult
 from ragnexus.config import get_settings
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import LoggedPool, setup_logging
 from ragnexus.domain.chunking import heading_aware_split
+from ragnexus.domain.models import UploadResult
 from ragnexus.domain.ports import RerankPort, RewritePort
 
 
@@ -95,11 +95,12 @@ async def lifespan(app: FastAPI):
     # --- Logging -----------------------------------------------------------
     log_listener = setup_logging(cfg)
     app.state.log_listener = log_listener
-
     # --- 资源追踪（启动阶段抛异常时确保已创建资源被清理）---
     _raw_store_pool = None
     _raw_repo_pool = None
     store = None
+    embedder = None
+    llm_provider = None
 
     try:
         # --- 1. Vector store (external pool wrapped with LoggedPool) ----------
@@ -239,9 +240,7 @@ async def lifespan(app: FastAPI):
         )
 
         # 包装 upload_doc_uc，成功后清空 rerank 和 rewrite 缓存
-        upload_doc_uc_wrapped = CacheInvalidatingUploadUseCase(
-            upload_doc_uc, reranker, rewriter
-        )
+        upload_doc_uc_wrapped = CacheInvalidatingUploadUseCase(upload_doc_uc, reranker, rewriter)
         retrieve_uc = RetrieveUseCase(
             kb_repo=kb_repo,
             embedder=embedder,
@@ -266,17 +265,25 @@ async def lifespan(app: FastAPI):
         yield
 
     finally:
-        # 确保所有资源被清理，即使启动阶段抛出异常
-        # 清理顺序：后创建的先关闭
+        # 关闭 httpx 客户端（逆序：后创建的先关闭）
         try:
-            if _raw_repo_pool is not None:
-                await _raw_repo_pool.close()
+            if llm_provider is not None:
+                await llm_provider.close()
         finally:
             try:
-                if _raw_store_pool is not None:
-                    await _raw_store_pool.close()
+                if embedder is not None:
+                    await embedder.close()
             finally:
-                log_listener.stop()
+                # 关闭连接池
+                try:
+                    if _raw_repo_pool is not None:
+                        await _raw_repo_pool.close()
+                finally:
+                    try:
+                        if _raw_store_pool is not None:
+                            await _raw_store_pool.close()
+                    finally:
+                        log_listener.stop()
 
 
 def build_app() -> FastAPI:
