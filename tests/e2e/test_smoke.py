@@ -5,24 +5,20 @@ Required:
 - Optional: EMBED_API_KEY for upload & retrieve success tests
 """
 
-import os
-
-import pytest
-
-from ragnexus.config import get_settings
-from ragnexus.core.errors import ErrorCode
 import asyncio
-import asyncpg
 import concurrent.futures
+import os
 import re
-
 from unittest.mock import patch
 
+import asyncpg
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
-
 from ragnexus.composition import build_app
+from ragnexus.config import get_settings
+from ragnexus.core.errors import ErrorCode
 
 pytestmark = [
     pytest.mark.e2e,
@@ -156,7 +152,9 @@ class TestE2EFullFlow:
 
     def test_upload_and_retrieve_success(self, client, embedder_available):
         if not embedder_available:
-            pytest.skip("EMBED_API_KEY not set — requires a real embedder")
+            pytest.fail(
+                "EMBED_API_KEY 未配置——需要真实 embedder。请在 .env 设置或 export EMBED_API_KEY=<your-key>"
+            )
 
         # 1. Create KB
         resp = client.post(
@@ -194,9 +192,9 @@ class TestE2EFullFlow:
         assert upload_data["code"] == 0
         assert upload_data["data"]["doc_id"]
         assert upload_data["data"]["kb_id"] == kb_id
-        assert (
-            upload_data["data"]["chunk_count"] >= 2
-        ), f"Expected >= 2 chunks (multi-heading doc), got {upload_data['data']['chunk_count']}"
+        assert upload_data["data"]["chunk_count"] >= 2, (
+            f"Expected >= 2 chunks (multi-heading doc), got {upload_data['data']['chunk_count']}"
+        )
 
         # 3. Retrieve
         resp = client.post(
@@ -206,9 +204,9 @@ class TestE2EFullFlow:
         assert resp.status_code == 200
         retrieve_data = resp.json()
         assert retrieve_data["code"] == 0
-        assert (
-            retrieve_data["data"]["total"] >= 1
-        ), f"Expected at least 1 hit, got {retrieve_data['data']['total']}"
+        assert retrieve_data["data"]["total"] >= 1, (
+            f"Expected at least 1 hit, got {retrieve_data['data']['total']}"
+        )
         assert isinstance(retrieve_data["data"]["hits"], list)
 
 
@@ -235,9 +233,7 @@ def _mock_embedder_ok(httpx_mock, dim: int | None = None):
             status_code=200,
             json={
                 "object": "list",
-                "data": [
-                    {"embedding": [0.1] * dim, "index": i} for i in range(len(inputs))
-                ],
+                "data": [{"embedding": [0.1] * dim, "index": i} for i in range(len(inputs))],
                 "model": "test-model",
             },
         )
@@ -343,9 +339,7 @@ class TestE2EDegradation:
 
         # Mock embedder to return 503 (simulate upstream failure)
         async def _error_callback(request):
-            return httpx.Response(
-                status_code=503, json={"error": "service unavailable"}
-            )
+            return httpx.Response(status_code=503, json={"error": "service unavailable"})
 
         httpx_mock.add_callback(
             _error_callback,
@@ -378,12 +372,12 @@ class TestE2EDegradation:
 
             asyncio.run(asyncio.wait_for(_check_db(), timeout=5))
         except Exception:
-            pytest.skip("测试数据库不可用（Docker Compose 未启动）")
+            pytest.fail(
+                "测试数据库不可用。请先启动 Docker Compose：docker compose -f docker-compose.test.yml up -d"
+            )
 
         # Point fresh app at test DB
-        os.environ["PG_DSN"] = (
-            "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
-        )
+        os.environ["PG_DSN"] = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
         os.environ["PG_POOL_MIN"] = "1"
         os.environ["PG_POOL_MAX"] = "3"
         os.environ["PG_COMMAND_TIMEOUT"] = "15"
@@ -435,22 +429,16 @@ class TestE2EDegradation:
                         "top_k": 3,
                     },
                 )
-                assert (
-                    resp.status_code == 200
-                ), f"graceful degrade expected 200, got {resp.status_code}: {resp.text}"
+                assert resp.status_code == 200, (
+                    f"graceful degrade expected 200, got {resp.status_code}: {resp.text}"
+                )
                 data = resp.json()
-                assert (
-                    data["code"] == 0
-                ), f"graceful degrade expected code=0, got {data['code']}"
+                assert data["code"] == 0, f"graceful degrade expected code=0, got {data['code']}"
                 assert isinstance(data["data"]["hits"], list)
                 llm_calls = [
-                    r
-                    for r in httpx_mock.get_requests()
-                    if "/chat/completions" in str(r.url)
+                    r for r in httpx_mock.get_requests() if "/chat/completions" in str(r.url)
                 ]
-                assert (
-                    len(llm_calls) >= 1
-                ), "rerank should have called LLM at least once"
+                assert len(llm_calls) >= 1, "rerank should have called LLM at least once"
         finally:
             for k, v in saved.items():
                 if v is None:

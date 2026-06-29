@@ -12,18 +12,17 @@ from pytest_httpx import HTTPXMock
 
 from ragnexus.composition import build_app
 from ragnexus.config import get_settings
-from tests.conftest import _docker_available
 
 TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.skipif(not _docker_available(), reason="Docker not available"),
 ]
 
 
 @pytest.fixture(autouse=True)
 def _require_test_db():
+    """验证测试数据库可用。不可用时给出明确修复指引。"""
     try:
 
         async def _check():
@@ -32,7 +31,11 @@ def _require_test_db():
 
         asyncio.run(asyncio.wait_for(_check(), timeout=5))
     except Exception:
-        pytest.skip("测试数据库不可用（Docker Compose 未启动）")
+        pytest.fail(
+            "测试数据库不可用。请先启动 Docker Compose：\n"
+            "  docker compose -f docker-compose.test.yml up -d\n"
+            f"  连接目标：{TEST_DSN}"
+        )
 
 
 @pytest.fixture
@@ -84,9 +87,7 @@ def mock_external_http(httpx_mock: HTTPXMock):
             },
         )
 
-    httpx_mock.add_callback(
-        _embed_callback, url=embed_url, method="POST", is_reusable=True
-    )
+    httpx_mock.add_callback(_embed_callback, url=embed_url, method="POST", is_reusable=True)
 
     # ── LLM mock ──────────────────────────────────────────────────
     llm_url = f"{settings.LLM_BASE_URL.rstrip('/')}/chat/completions"

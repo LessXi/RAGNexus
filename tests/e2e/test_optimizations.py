@@ -8,10 +8,10 @@ import asyncio
 import os
 
 import pytest
+from fastapi.testclient import TestClient
 
 from ragnexus.config import get_settings
 from ragnexus.domain.models import SearchHit
-from fastapi.testclient import TestClient
 
 pytestmark = [pytest.mark.e2e]
 
@@ -44,31 +44,31 @@ def _embedder_available() -> bool:
 
 
 # ──────────────────────────────────────────────────────────────────
-# 基础跳过检查
+# 前置条件验证 fixture — 缺失时给出修复指引而非跳过
 # ──────────────────────────────────────────────────────────────────
 
 
-skip_no_db = pytest.mark.skipif(
-    not _db_available(),
-    reason="测试数据库不可用（需要 Docker Compose 启动 test-db）",
-)
-
-skip_no_embedder = pytest.mark.skipif(
-    not _embedder_available(),
-    reason="未配置 EMBED_API_KEY，跳过需 embedder 的测试",
-)
+@pytest.fixture(autouse=True)
+def _require_deps():
+    """验证外部依赖可用。缺失时报错指引而非静默跳过。"""
+    if not _db_available():
+        pytest.fail(
+            "测试数据库不可用。请先启动 Docker Compose：\n"
+            "  docker compose -f docker-compose.test.yml up -d"
+        )
+    if not _embedder_available():
+        pytest.fail(
+            "EMBED_API_KEY 未配置。请在 .env 中设置或导出环境变量：\n"
+            "  export EMBED_API_KEY=<your-key>"
+        )
 
 
 # ──────────────────────────────────────────────────────────────────
-# E2E: Retrieve 基本流程（数据库可用 + embedder 可用）
+# E2E: Retrieve 基本流程
 # ──────────────────────────────────────────────────────────────────
 
 
-@skip_no_db
-@skip_no_embedder
 class TestE2ERetrieveBasic:
-    """冒烟：创建 KB → 上传文档 → 检索（不带 rewrite/rerank 参数）。"""
-
     def test_retrieve_returns_expected_format(self, client):
         """检索返回标准格式 {code, data: {total, hits}, message}。"""
         # 先创建 KB
@@ -144,7 +144,6 @@ class TestE2ERetrieveBasic:
 # ──────────────────────────────────────────────────────────────────
 
 
-@skip_no_db
 class TestE2EErrorCases:
     """错误场景 — 不需要 embedder。"""
 
@@ -250,8 +249,6 @@ class TestE2EOptimizationIsolation:
 # 与 TestE2ERetrieveBasic 的 client (noop providers) 隔离。
 
 
-@skip_no_db
-@skip_no_embedder
 class TestE2ERewriteAndRerank:
     """5.3 / 5.4 — rewrite/rerank 启用的 E2E 全流程。"""
 
@@ -281,9 +278,7 @@ class TestE2ERewriteAndRerank:
         # 保留外部已设置的 EMBED_API_KEY，确保上传流程正常
         os.environ.setdefault("EMBED_API_KEY", "sk-test")
         # 指向测试数据库（与 conftest 一致）
-        os.environ["PG_DSN"] = (
-            "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
-        )
+        os.environ["PG_DSN"] = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
         os.environ["PG_POOL_MIN"] = "1"
         os.environ["PG_POOL_MAX"] = "3"
         os.environ["PG_COMMAND_TIMEOUT"] = "15"
@@ -381,9 +376,9 @@ class TestE2ERewriteAndRerank:
         data = resp.json()
         assert data["code"] == 0
 
-        assert any(
-            "advanced artificial intelligence search" in t for t in captured_texts
-        ), f"embedder 未收到改写后 query\n  captured_texts={captured_texts}"
+        assert any("advanced artificial intelligence search" in t for t in captured_texts), (
+            f"embedder 未收到改写后 query\n  captured_texts={captured_texts}"
+        )
 
     # -----------------------------------------------------------------
     # 5.4: Rerank 启用 — 验证 LLM 返回的 rankings 改变了排序
@@ -403,9 +398,7 @@ class TestE2ERewriteAndRerank:
         kb_id = resp.json()["data"]["kb_id"]
 
         content_suffix = uuid.uuid4().hex[:8]
-        body = "\n\n".join(
-            f"# Section {i}\n\nSection {i} run-{content_suffix}." for i in range(5)
-        )
+        body = "\n\n".join(f"# Section {i}\n\nSection {i} run-{content_suffix}." for i in range(5))
         resp = llm_client.post(
             "/v1/documents:upload",
             data={"kb_id": kb_id},
