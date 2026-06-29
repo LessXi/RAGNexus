@@ -44,20 +44,21 @@ class TestE2ECreateKB:
     """POST /v1/knowledge-bases:create — E2E smoke tests."""
 
     def test_create_kb_success(self, client):
+        name = f"E2E Smoke KB {os.urandom(4).hex()}"
         resp = client.post(
             "/v1/knowledge-bases:create",
-            json={"name": "E2E Smoke KB"},
+            json={"name": name},
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 0
-        assert data["data"]["name"] == "E2E Smoke KB"
+        assert data["data"]["name"] == name
         assert data["data"]["kb_id"].startswith("kb_")
         assert "created_at" in data["data"]
 
     def test_create_duplicate_kb_409(self, client):
         """Same name → 409 Conflict (code 10301)."""
-        name = "E2E Duplicate Test"
+        name = f"E2E Duplicate Test {os.urandom(4).hex()}"
         client.post("/v1/knowledge-bases:create", json={"name": name})
         resp = client.post("/v1/knowledge-bases:create", json={"name": name})
         assert resp.status_code == 409
@@ -160,7 +161,7 @@ class TestE2EFullFlow:
         # 1. Create KB
         resp = client.post(
             "/v1/knowledge-bases:create",
-            json={"name": "E2E Full Flow"},
+            json={"name": f"E2E Full Flow {os.urandom(4).hex()}"},
         )
         assert resp.status_code == 200
         kb_id = resp.json()["data"]["kb_id"]
@@ -285,7 +286,7 @@ class TestE2EConcurrentRetrieve:
         # 1. Create KB
         resp = client.post(
             "/v1/knowledge-bases:create",
-            json={"name": "E2E Concurrent Retrieve"},
+            json={"name": f"E2E Concurrent Retrieve {os.urandom(4).hex()}"},
         )
         assert resp.status_code == 200
         kb_id = resp.json()["data"]["kb_id"]
@@ -335,7 +336,7 @@ class TestE2EDegradation:
         # Create KB
         resp = client.post(
             "/v1/knowledge-bases:create",
-            json={"name": "E2E Embedder Timeout"},
+            json={"name": f"E2E Embedder Timeout {os.urandom(4).hex()}"},
         )
         assert resp.status_code == 200
         kb_id = resp.json()["data"]["kb_id"]
