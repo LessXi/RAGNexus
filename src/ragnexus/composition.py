@@ -7,6 +7,7 @@ Usage::
 """
 
 from contextlib import asynccontextmanager
+from typing import Any, cast
 
 import asyncpg
 from fastapi import FastAPI
@@ -220,8 +221,8 @@ async def lifespan(app: FastAPI):
             )
         else:
             rewriter = NoopRewriteProvider()
-        kb_repo = PgKnowledgeBaseRepository(pool=repo_pool)  # type: ignore[arg-type]
-        log_repo = PgRetrieveLogRepository(pool=repo_pool)  # type: ignore[arg-type]
+        kb_repo = PgKnowledgeBaseRepository(pool=cast(Any, repo_pool))
+        log_repo = PgRetrieveLogRepository(pool=cast(Any, repo_pool))
 
         # Chunker: pass raw function so use case controls max_chars/overlap
         chunker = heading_aware_split
@@ -240,7 +241,9 @@ async def lifespan(app: FastAPI):
         )
 
         # 包装 upload_doc_uc，成功后清空 rerank 和 rewrite 缓存
-        upload_doc_uc_wrapped = CacheInvalidatingUploadUseCase(upload_doc_uc, reranker, rewriter)
+        upload_doc_uc_wrapped = CacheInvalidatingUploadUseCase(
+            upload_doc_uc, reranker, rewriter
+        )
         retrieve_uc = RetrieveUseCase(
             kb_repo=kb_repo,
             embedder=embedder,
