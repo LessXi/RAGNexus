@@ -524,3 +524,28 @@ class TestBridgePattern:
 
         # 返回值透传
         assert result == {"result": "from_mock"}
+
+
+class TestClose:
+    """测试 close() 行为 — 关闭后释放客户端且可重入。"""
+
+    @pytest.mark.asyncio
+    async def test_close_sets_client_to_none(self, provider):
+        """close() 后 _client 应为 None。"""
+        prov, _ = provider
+        await prov._ensure_client()
+        assert prov._client is not None
+
+        await prov.close()
+        assert prov._client is None
+
+    @pytest.mark.asyncio
+    async def test_close_is_reentrant(self, provider):
+        """连续两次 close() 不应抛异常。"""
+        prov, _ = provider
+        await prov._ensure_client()
+        assert prov._client is not None
+
+        await prov.close()
+        await prov.close()  # 第二次不应抛异常
+        assert prov._client is None
