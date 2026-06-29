@@ -24,15 +24,25 @@ echo "================================================"
 
 # ── 1. 环境变量检查 ─────────────────────────────────────────────
 echo ""
-echo "[1/6] 检查环境变量…"
+echo "[1/6] 加载配置…"
 
-: "${EMBED_API_KEY:?EMBED_API_KEY 未设置 — 导出此变量以启用 Embedder}"
-: "${LLM_API_KEY:?LLM_API_KEY 未设置 — 导出此变量以启用 LLM}"
+# 从 Python 配置加载（兼容 WSL 无法读取 Windows 环境变量）
+EMBED_API_KEY=$(python -c "from ragnexus.config import get_settings; print(get_settings().EMBED_API_KEY)" 2>/dev/null || echo "")
+LLM_API_KEY=$(python -c "from ragnexus.config import get_settings; print(get_settings().LLM_API_KEY)" 2>/dev/null || echo "")
 
-echo "  ✓ EMBED_API_KEY 已设置"
-echo "  ✓ LLM_API_KEY  已设置"
-
-# ── 2. Docker Compose ───────────────────────────────────────────
+if [ -z "$EMBED_API_KEY" ]; then
+    echo "  ⚠ EMBED_API_KEY 未配置 — 跳过真实 API E2E 测试"
+    SKIP_REAL_API=1
+else
+    echo "  ✓ EMBED_API_KEY 已加载"
+    SKIP_REAL_API=0
+fi
+if [ -z "$LLM_API_KEY" ]; then
+    echo "  ⚠ LLM_API_KEY 未配置 — 跳过真实 API E2E 测试"
+    SKIP_REAL_API=1
+else
+    echo "  ✓ LLM_API_KEY  已加载"
+fi
 echo ""
 echo "[2/6] 启动测试数据库 (docker-compose.test.yml)…"
 

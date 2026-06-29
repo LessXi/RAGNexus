@@ -62,9 +62,10 @@ def main():
         )
     else:
         print("  → 数据库已在运行")
-    os.environ.setdefault(
-        "PG_DSN", "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
-    )
+    os.environ["PG_DSN"] = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+    from ragnexus.config import get_settings as _gs
+
+    _gs.cache_clear()
     run([PY, "-m", "alembic", "upgrade", "head"])
     print("  ✓ 就绪")
 
