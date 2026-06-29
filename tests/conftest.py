@@ -34,14 +34,30 @@ def _docker_available() -> bool:
 
 
 def _start_compose() -> None:
-    """Lazy-start Docker Compose for test-db if not already running."""
+    """确保 test-db Docker Compose 在运行。已运行时直接标记成功。"""
     global _compose_started
     if _compose_started:
         return
     if not _docker_available():
-        print("[conftest] Docker not available — skipping compose", file=sys.stderr)
+        print("[conftest] Docker not available", file=sys.stderr)
         return
 
+    # 先检测 DB 是否已可达（由其他进程启动的 compose）
+    try:
+        import asyncio as _asyncio
+        import asyncpg as _asyncpg
+
+        async def _probe():
+            conn = await _asyncpg.connect(TEST_DSN, timeout=2)
+            await conn.close()
+
+        _asyncio.run(_asyncio.wait_for(_probe(), timeout=3))
+        _compose_started = True
+        return
+    except Exception:
+        pass
+
+    # DB 不可达，尝试启动 compose
     try:
         subprocess.run(
             [
@@ -95,7 +111,9 @@ def ensure_test_db() -> None:
     """Start Docker Compose if not already running. No pool — tests create their own."""
     _start_compose()
     if not _compose_started:
-        pytest.skip("Docker not available — integration/E2E tests require Docker Compose")
+        pytest.fail(
+            "Docker 不可用。请先启动 Docker Compose：docker compose -f docker-compose.test.yml up -d"
+        )
 
 
 _schema_applied = False
