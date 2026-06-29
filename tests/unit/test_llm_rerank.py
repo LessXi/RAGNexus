@@ -228,7 +228,8 @@ class TestLLMRerankProviderRerank:
             responses=[
                 {
                     "rankings": [
-                        {"chunk_id": f"c_{i}", "rerank_score": 0.9 - i * 0.1} for i in range(10)
+                        {"chunk_id": f"c_{i}", "rerank_score": 0.9 - i * 0.1}
+                        for i in range(10)
                     ]
                 }
             ]
@@ -355,10 +356,14 @@ class TestLLMRerankProviderCache:
         )
 
         payload = fake.calls[1]["user_payload"]
-        assert "reference_scores" in payload, "部分命中场景 payload 应包含 reference_scores"
+        assert (
+            "reference_scores" in payload
+        ), "部分命中场景 payload 应包含 reference_scores"
         # candidates 应只包含未命中的 c_4
         candidate_ids = {c["chunk_id"] for c in payload["candidates"]}
-        assert candidate_ids == {"c_4"}, f"candidates 应只含未命中 chunk，实际: {candidate_ids}"
+        assert candidate_ids == {
+            "c_4"
+        }, f"candidates 应只含未命中 chunk，实际: {candidate_ids}"
         # reference_scores 应包含 c_1, c_2
         ref_ids = {r["chunk_id"] for r in payload["reference_scores"]}
         assert ref_ids == {
@@ -442,9 +447,8 @@ class TestLLMRerankProviderCache:
         # 将缓存条目的 timestamp 改为很久以前（模拟 TTL 过期）
         import time
 
-        for entry in provider._cache.get("kb_001", []):
+        for entry in provider._cache.get(frozenset({"kb_001"}), []):
             entry.timestamp = time.time() - 600  # 10 分钟前
-
         # 第二次调用：缓存应已过期，走 LLM
         fake.responses.append(
             {
@@ -473,7 +477,11 @@ class TestLLMRerankProviderCandidateTruncation:
 
         fake = FakeLLMProvider(
             responses=[
-                {"rankings": [{"chunk_id": f"c_{i}", "rerank_score": 0.5} for i in range(3)]}
+                {
+                    "rankings": [
+                        {"chunk_id": f"c_{i}", "rerank_score": 0.5} for i in range(3)
+                    ]
+                }
             ]
         )
 
@@ -500,7 +508,9 @@ class TestLLMRerankProviderCandidateTruncation:
         """chunk 文本应截断到 chunk_max_chars。"""
         from ragnexus.adapters.rerank.llm import LLMRerankProvider
 
-        fake = FakeLLMProvider(responses=[{"rankings": [{"chunk_id": "c_1", "rerank_score": 0.8}]}])
+        fake = FakeLLMProvider(
+            responses=[{"rankings": [{"chunk_id": "c_1", "rerank_score": 0.8}]}]
+        )
 
         provider = LLMRerankProvider(llm=fake, chunk_max_chars=50)  # type: ignore[arg-type]
 
@@ -529,7 +539,9 @@ class TestLLMRerankProviderJsonDefense:
         """Layer 1: 普通 JSON 应正确解析。"""
         from ragnexus.adapters.rerank.llm import LLMRerankProvider
 
-        fake = FakeLLMProvider(responses=[{"rankings": [{"chunk_id": "c_1", "rerank_score": 0.9}]}])
+        fake = FakeLLMProvider(
+            responses=[{"rankings": [{"chunk_id": "c_1", "rerank_score": 0.9}]}]
+        )
 
         provider = LLMRerankProvider(llm=fake)  # type: ignore[arg-type]
         chunks = [make_hit("c_1", score=0.9, text="test")]
@@ -554,7 +566,9 @@ class TestLLMRerankProviderJsonDefense:
         # 这里验证的是解析逻辑，所以直接用内部解析方法
         from ragnexus.adapters.rerank.llm import _parse_rankings_json
 
-        markdown_json = '```json\n{"rankings": [{"chunk_id": "c_1", "rerank_score": 0.9}]}\n```'
+        markdown_json = (
+            '```json\n{"rankings": [{"chunk_id": "c_1", "rerank_score": 0.9}]}\n```'
+        )
         result = _parse_rankings_json(markdown_json)
         assert len(result) == 1
         assert result[0]["chunk_id"] == "c_1"
@@ -786,7 +800,9 @@ class TestLLMRerankProviderPayloadConstruction:
         """metadata 无 heading 时 title 应为空字符串。"""
         from ragnexus.adapters.rerank.llm import LLMRerankProvider
 
-        fake = FakeLLMProvider(responses=[{"rankings": [{"chunk_id": "c_1", "rerank_score": 0.9}]}])
+        fake = FakeLLMProvider(
+            responses=[{"rankings": [{"chunk_id": "c_1", "rerank_score": 0.9}]}]
+        )
 
         provider = LLMRerankProvider(llm=fake)  # type: ignore[arg-type]
 

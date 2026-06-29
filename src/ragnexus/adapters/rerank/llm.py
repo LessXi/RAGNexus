@@ -250,7 +250,7 @@ class LLMRerankProvider:
         self.cache_ttl_seconds = cache_ttl_seconds
         self.cache_preview_max_chars = cache_preview_max_chars
         self.temperature = temperature
-        self._cache: dict[str, list[CacheEntry]] = {}
+        self._cache: dict[frozenset[str], list[CacheEntry]] = {}
         self._lock = asyncio.Lock()
 
     # ========================================================================
@@ -326,18 +326,17 @@ class LLMRerankProvider:
         unmatched_chunks = list(chunks)
         cache_hit_entry: CacheEntry | None = None
         cache_max_sim = 0.0
-
         async with self._lock:
-            for kb_id in kb_ids:
-                entries = self._cache.get(kb_id, [])
-                for entry in entries:
-                    # TTL 过期检查
-                    if now - entry.timestamp > self.cache_ttl_seconds:
-                        continue
-                    sim = _cosine_similarity(query_vector, entry.query_embedding)
-                    if sim >= self.cache_similarity_threshold and sim > cache_max_sim:
-                        cache_max_sim = sim
-                        cache_hit_entry = entry
+            _cache_key = frozenset(kb_ids)
+            entries = self._cache.get(_cache_key, [])
+            for entry in entries:
+                # TTL 过期检查
+                if now - entry.timestamp > self.cache_ttl_seconds:
+                    continue
+                sim = _cosine_similarity(query_vector, entry.query_embedding)
+                if sim >= self.cache_similarity_threshold and sim > cache_max_sim:
+                    cache_max_sim = sim
+                    cache_hit_entry = entry
 
         if cache_hit_entry is not None:
             cached_rankings = cache_hit_entry.rankings
@@ -483,14 +482,11 @@ class LLMRerankProvider:
         )
 
         async with self._lock:
-            for kb_id in kb_ids:
-                if kb_id not in self._cache:
-                    self._cache[kb_id] = []
-                entries = self._cache[kb_id]
-                entries.append(cache_entry)
-                # 超限踢最旧
-                while len(entries) > self.cache_max_entries:
-                    entries.pop(0)
+            entries = self._cache.setdefault(frozenset(kb_ids), [])
+            entries.append(cache_entry)
+            # 超限踢最旧
+            while len(entries) > self.cache_max_entries:
+                entries.pop(0)
 
         # --- 日志 ---
         elapsed_ms = round((time.time() - start_time) * 1000, 2)
@@ -564,10 +560,8 @@ class LLMRerankProvider:
     # ========================================================================
 
     async def clear_cache(self, kb_id: str) -> None:
-        """清空指定 KB 的缓存。
-
-        参数:
-            kb_id: 知识库 ID，文档上传后由 composition.py 调用
-        """
+        """清空包含指定 KB 的所有缓存条目。"""
         async with self._lock:
-            self._cache.pop(kb_id, None)
+            keys_to_delete = [key for key in self._cache if kb_id in key]
+            for key in keys_to_delete:
+                del self._cache[key]
