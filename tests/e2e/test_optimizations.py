@@ -92,7 +92,7 @@ class TestE2ERetrieveBasic:
                     "file": (
                         "test.md",
                         b"# Test\n\nThis is a test document about AI.\n\n"
-                        b"Artificial intelligence is transforming industries.",
+                        f"AI {os.urandom(4).hex()}".encode(),
                         "text/markdown",
                     ),
                 },
