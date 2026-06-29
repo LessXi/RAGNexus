@@ -65,6 +65,8 @@ skip-magic-trailing-comma = false
 [dependency-groups]
 dev = [
     "pytest-httpx>=0.23",
+    "pytest-cov>=6.0",
+    "coverage>=7.6",
 ]
 
 [tool.coverage.run]
