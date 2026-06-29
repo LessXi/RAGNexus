@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAGNexus Admin — 页面原型</title>
+<style>
+:root {
+  --bg: #0f172a;
+  --sidebar-bg: #1e293b;
+  --card-bg: #1e293b;
+  --border: #334155;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --success: #22c55e;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --radius: 8px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); display:flex; height:100vh; }
+.sidebar { width:220px; background:var(--sidebar-bg); border-right:1px solid var(--border); padding:16px; display:flex; flex-direction:column; gap:8px; flex-shrink:0; }
+.sidebar .logo { font-size:16px; font-weight:700; color:var(--accent); margin-bottom:16px; }
+.sidebar .nav-item { padding:10px 12px; border-radius:var(--radius); cursor:pointer; font-size:14px; color:var(--text-muted); transition:all .15s; }
+.sidebar .nav-item:hover { background:#33415550; color:var(--text); }
+.sidebar .nav-item.active { background:var(--accent); color:#fff; }
+.main { flex:1; padding:24px 32px; overflow-y:auto; }
+.page-title { font-size:20px; font-weight:600; margin-bottom:4px; }
+.page-desc { color:var(--text-muted); font-size:13px; margin-bottom:24px; }
+
+.card { background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
+.card-title { font-size:15px; font-weight:600; margin-bottom:12px; }
+.form-group { margin-bottom:14px; }
+.form-group label { display:block; font-size:13px; color:var(--text-muted); margin-bottom:4px; }
+.form-group input, .form-group select { width:100%; padding:8px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px; outline:none; }
+.form-group input:focus, .form-group select:focus { border-color:var(--accent); }
+
+.btn { padding:8px 16px; border-radius:6px; font-size:13px; font-weight:500; cursor:pointer; border:none; transition:all .15s; }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:var(--accent-hover); }
+.btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+.btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+.btn-sm { padding:4px 10px; font-size:12px; }
+
+.badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:500; }
+.badge-success { background:#22c55e20; color:var(--success); }
+.badge-danger { background:#ef444420; color:var(--danger); }
+
+table { width:100%; border-collapse:collapse; font-size:13px; }
+thead th { text-align:left; padding:10px 12px; color:var(--text-muted); font-weight:500; border-bottom:1px solid var(--border); }
+tbody td { padding:10px 12px; border-bottom:1px solid var(--border); }
+tr:hover td { background:#ffffff05; }
+
+.hint { font-size:12px; color:var(--text-muted); margin-top:4px; }
+.divider { border:none; border-top:1px solid var(--border); margin:16px 0; }
+
+.result-box { margin-top:16px; padding:14px; background:var(--bg); border-radius:var(--radius); border:1px solid var(--border); }
+.result-box h4 { font-size:13px; margin-bottom:8px; }
+.kb-id-display { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#6366f120; border-radius:6px; font-family:monospace; font-size:14px; color:var(--accent); }
+
+.file-list { max-height:200px; overflow-y:auto; }
+.file-item { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid var(--border); font-size:13px; }
+.file-item:last-child { border-bottom:none; }
+.file-item .file-name { color:var(--text); }
+.file-item .file-size { color:var(--text-muted); font-size:12px; }
+
+.progress-bar { height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin:8px 0; }
+.progress-bar .fill { height:100%; background:var(--accent); border-radius:3px; transition:width .3s; }
+
+.file-picker { display:flex; gap:8px; }
+.file-picker input[type=file] { display:none; }
+
+.interaction-note { margin-top:8px; padding:8px 12px; background:#f59e0b15; border:1px solid #f59e0b30; border-radius:6px; font-size:12px; color:var(--warning); }
+.interaction-note::before { content:'👆 '; }
+</style>
+</head>
+<body>
+
+<!-- ========== SIDEBAR ========== -->
+<aside class="sidebar">
+  <div class="logo">⚡ RAGNexus Admin</div>
+  <div class="nav-item active" id="nav-kb">📚 知识库管理</div>
+  <div class="nav-item" id="nav-upload">📤 文档上传</div>
+</aside>
+
+<!-- ========== MAIN CONTENT ========== -->
+<main class="main" id="main-content">
+  <!-- JS 动态渲染 -->
+</main>
+
+<script>
+// ===== 状态模拟 =====
+const KB_LIST = [
+  { kb_id: 'kb_a1b2c3d4', name: '技术文档库', created_at: '2026-06-28T10:30:00' },
+  { kb_id: 'kb_e5f6g7h8', name: '产品需求库', created_at: '2026-06-27T14:00:00' },
+];
+
+const UPLOAD_DEMO_RESULTS = [
+  { file: 'architecture.md', size: '12.4 KB', status: 'success', detail: 'doc_3f2a1b0c, 8 chunks' },
+  { file: 'api-design.docx', size: '45.2 KB', status: 'failed', detail: '不支持的文件类型 (.docx)' },
+  { file: 'deployment.md', size: '8.1 KB', status: 'success', detail: 'doc_7d4e5f6a, 5 chunks' },
+  { file: 'notes.txt', size: '1.2 KB', status: 'success', detail: 'doc_9b8c7d6e, 1 chunk' },
+  { file: '超大文档.md', size: '12.8 MB', status: 'failed', detail: '文件过大 (上限 10MB)' },
+];
+
+// ===== 页面渲染 =====
+function renderCreateKB() {
+  document.getElementById('nav-kb').classList.add('active');
+  document.getElementById('nav-upload').classList.remove('active');
+
+  const kbRows = KB_LIST.map(kb => `
+    <tr>
+      <td><code style="font-size:11px;color:var(--accent)">${kb.kb_id}</code></td>
+      <td>${kb.name}</td>
+      <td style="color:var(--text-muted)">${new Date(kb.created_at).toLocaleString('zh-CN')}</td>
+      <td><button class="btn btn-outline btn-sm">去上传 →</button></td>
+    </tr>
+  `).join('');
+
+  document.getElementById('main-content').innerHTML = `
+    <h1 class="page-title">📚 知识库管理</h1>
+    <p class="page-desc">创建和管理 RAG 知识库。创建后可前往「文档上传」页面向知识库添加文档。</p>
+
+    <!-- 创建表单 -->
+    <div class="card">
+      <div class="card-title">创建新知识库</div>
+      <div class="form-group">
+        <label>知识库名称</label>
+        <input type="text" id="kb-name-input" placeholder="例如：技术文档库" maxlength="64" autofocus>
+        <p class="hint">1-64 个字符，名称不可与已有知识库重复</p>
+      </div>
+      <button class="btn btn-primary" id="btn-create">创建知识库</button>
+
+      <!-- 创建成功时显示 -->
+      <div id="create-result" style="display:none;">
+        <div class="divider"></div>
+        <div class="result-box">
+          <h4 style="color:var(--success);">✅ 创建成功</h4>
+          <div class="kb-id-display" style="margin-top:8px;">kb_a1b2c3d4 <span style="font-size:11px;color:var(--text-muted);cursor:pointer;">📋 复制</span></div>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:6px;">名称：技术文档库 · 创建时间：2026-06-29 15:30</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 已有知识库列表 -->
+    <div class="card">
+      <div class="card-title">已有知识库 <span style="font-size:12px;color:var(--text-muted);">（本地缓存）</span></div>
+      ${KB_LIST.length > 0 ? `
+        <table>
+          <thead><tr><th style="width:160px">KB ID</th><th>名称</th><th style="width:180px">创建时间</th><th style="width:100px">操作</th></tr></thead>
+          <tbody>${kbRows}</tbody>
+        </table>
+      ` : `<p style="color:var(--text-muted);font-size:13px;padding:20px 0;text-align:center;">暂无知识库，创建一个吧</p>`}
+    </div>
+
+    <div class="interaction-note">
+      点击「创建知识库」会调用 <code>POST /v1/knowledge-bases:create</code>，成功后展示 kb_id 并自动缓存到本地存储。<br>
+      点击「去上传 →」会跳转到文档上传页并自动选中该知识库。
+    </div>
+  `;
+}
+
+function renderUploadDoc() {
+  document.getElementById('nav-upload').classList.add('active');
+  document.getElementById('nav-kb').classList.remove('active');
+
+  const kbOptions = KB_LIST.map(kb => `<option value="${kb.kb_id}">${kb.name} (${kb.kb_id})</option>`).join('');
+
+  const resultRows = UPLOAD_DEMO_RESULTS.map(r => `
+    <tr>
+      <td>${r.file}</td>
+      <td style="color:var(--text-muted)">${r.size}</td>
+      <td><span class="badge ${r.status === 'success' ? 'badge-success' : 'badge-danger'}">${r.status === 'success' ? '✅ 成功' : '❌ 失败'}</span></td>
+      <td style="font-size:12px;color:var(--text-muted)">${r.detail}</td>
+    </tr>
+  `).join('');
+
+  const successCount = UPLOAD_DEMO_RESULTS.filter(r => r.status === 'success').length;
+  const failCount = UPLOAD_DEMO_RESULTS.filter(r => r.status === 'failed').length;
+
+  document.getElementById('main-content').innerHTML = `
+    <h1 class="page-title">📤 文档上传</h1>
+    <p class="page-desc">向已有知识库上传 Markdown (.md) 或纯文本 (.txt) 文档。支持单文件选择和文件夹批量上传。</p>
+
+    <!-- 步骤1: 选择知识库 -->
+    <div class="card">
+      <div class="card-title">① 选择目标知识库</div>
+      <div class="form-group">
+        <label>知识库</label>
+        <select id="kb-select">
+          <option value="">-- 请选择知识库 --</option>
+          ${kbOptions}
+        </select>
+        <p class="hint">从已有知识库中选择，或下方手动输入 kb_id</p>
+      </div>
+      <div class="form-group" style="margin-top:-4px;">
+        <label>或手动输入 KB ID</label>
+        <input type="text" placeholder="例如：kb_a1b2c3d4" style="font-family:monospace;">
+      </div>
+    </div>
+
+    <!-- 步骤2: 选择文件 -->
+    <div class="card">
+      <div class="card-title">② 选择文件</div>
+      <div class="file-picker">
+        <button class="btn btn-primary" id="btn-pick-files">📎 选择文件</button>
+        <button class="btn btn-outline" id="btn-pick-folder">📁 选择文件夹</button>
+      </div>
+      <p class="hint" style="margin-top:8px;">支持 .md / .txt 格式，单文件不超过 10MB。文件夹上传将逐个顺序上传其中所有支持的文件。</p>
+
+      <!-- 已选文件预览列表 -->
+      <div style="display:none;" id="file-preview">
+        <div class="divider"></div>
+        <p style="font-size:13px;font-weight:500;margin-bottom:6px;">已选文件（5 个）</p>
+        <div class="file-list" style="max-height:180px;border:1px solid var(--border);border-radius:var(--radius);">
+          <div class="file-item"><span class="file-name">📄 architecture.md</span><span class="file-size">12.4 KB</span></div>
+          <div class="file-item"><span class="file-name">📄 api-design.md</span><span class="file-size">45.2 KB</span></div>
+          <div class="file-item"><span class="file-name">📄 deployment.md</span><span class="file-size">8.1 KB</span></div>
+          <div class="file-item"><span class="file-name">📄 notes.txt</span><span class="file-size">1.2 KB</span></div>
+          <div class="file-item"><span class="file-name">📄 超大文档.md</span><span class="file-size">12.8 MB</span></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:12px;" id="btn-upload">🚀 开始上传</button>
+      </div>
+    </div>
+
+    <!-- 步骤3: 上传进度 -->
+    <div class="card" id="upload-progress">
+      <div class="card-title">③ 上传进度</div>
+      <p style="font-size:13px;margin-bottom:8px;">🔄 正在上传第 3/5 个文件：deployment.md</p>
+      <div class="progress-bar"><div class="fill" style="width:60%"></div></div>
+      <p class="hint">60% — 3 成功 / 0 失败 / 2 等待中</p>
+    </div>
+
+    <!-- 步骤4: 上传结果 -->
+    <div class="card" style="border-color:var(--success);" id="upload-results">
+      <div class="card-title" style="color:var(--success);">✅ 上传完成</div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">合计 5 个文件，3 个成功，2 个失败</p>
+      <table>
+        <thead><tr><th>文件名</th><th>大小</th><th style="width:80px">状态</th><th>详情</th></tr></thead>
+        <tbody>${resultRows}</tbody>
+      </table>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button class="btn btn-primary">继续上传</button>
+        <button class="btn btn-outline">清空重来</button>
+      </div>
+    </div>
+
+    <div class="interaction-note">
+      上传流程：选择 KB → 选择文件/文件夹 → 预览确认 → 点击「开始上传」→ 逐个调用 <code>POST /v1/documents:upload</code>（multipart form）→ 实时更新进度 → 全部完成后展示结果表格。
+    </div>
+  `;
+}
+
+// ===== 导航 =====
+document.getElementById('nav-kb').addEventListener('click', renderCreateKB);
+document.getElementById('nav-upload').addEventListener('click', renderUploadDoc);
+
+// 初始渲染
+renderCreateKB();
+</script>
+</body>
+</html>
