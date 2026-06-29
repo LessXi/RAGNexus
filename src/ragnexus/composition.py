@@ -237,6 +237,36 @@ async def lifespan(app: FastAPI):
         kb_repo = PgKnowledgeBaseRepository(pool=cast(Any, repo_pool))
         log_repo = PgRetrieveLogRepository(pool=cast(Any, repo_pool))
 
+        # --- 4b. 启动时清理过期检索日志 -----------------------------------------
+        _cleanup_tasks: set[asyncio.Task] = set()
+        try:
+            from datetime import datetime, timedelta, timezone
+
+            _deleted = await log_repo.prune(
+                datetime.now(timezone.utc) - timedelta(days=30)
+            )
+            logger.info("清理过期检索日志: %d 条已删除", _deleted)
+        except Exception:
+            logger.debug("启动时检索日志清理失败（首次运行或表为空）", exc_info=True)
+
+        # 注册 24h 周期清理任务
+        async def _periodic_log_cleanup():
+            from datetime import datetime, timedelta, timezone
+
+            while True:
+                await asyncio.sleep(86400)
+                try:
+                    await log_repo.prune(
+                        datetime.now(timezone.utc) - timedelta(days=30)
+                    )
+                except Exception:
+                    logger.debug("周期日志清理失败", exc_info=True)
+
+        _task = asyncio.create_task(_periodic_log_cleanup())
+        _task.add_done_callback(_cleanup_tasks.discard)
+        _cleanup_tasks.add(_task)
+        app.state._cleanup_tasks = _cleanup_tasks
+
         # Chunker: pass raw function so use case controls max_chars/overlap
         chunker = heading_aware_split
 
@@ -281,6 +311,12 @@ async def lifespan(app: FastAPI):
         yield
 
     finally:
+        # 取消后台清理任务
+        cleanup_tasks = getattr(app.state, "_cleanup_tasks", None)
+        if cleanup_tasks:
+            for t in cleanup_tasks:
+                t.cancel()
+
         # 关闭 httpx 客户端（逆序：后创建的先关闭）
         try:
             if llm_provider is not None:

@@ -3,6 +3,7 @@
 基于 asyncpg 实现 RetrieveLogPort（fire-and-forget 语义）。
 """
 
+from datetime import datetime
 import asyncpg
 
 
@@ -32,3 +33,10 @@ class PgRetrieveLogRepository:
                 hit_count,
                 latency_ms,
             )
+
+    async def prune(self, before: datetime) -> int:
+        """清理指定时间之前的旧日志，返回删除行数。"""
+        result = await self.pool.execute(
+            "DELETE FROM retrieve_logs WHERE created_at < $1", before
+        )
+        return int(result.split()[-1]) if result else 0
