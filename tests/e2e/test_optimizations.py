@@ -91,14 +91,15 @@ class TestE2ERetrieveBasic:
                 files={
                     "file": (
                         "test.md",
-                        b"# Test\n\nThis is a test document about AI.\n\n"
-                        f"AI {os.urandom(4).hex()}".encode(),
+                        f"# Test {os.urandom(4).hex()}\n\nAI test document.".encode(),
                         "text/markdown",
                     ),
                 },
             )
             if resp.status_code == 500:
-                pytest.fail("上传失败——embedder API 不可用。请检查 EMBED_API_KEY 是否正确配置")
+                pytest.fail(
+                    "上传失败——embedder API 不可用。请检查 EMBED_API_KEY 是否正确配置"
+                )
 
             assert resp.status_code == 201
             upload_data = resp.json()
@@ -278,7 +279,9 @@ class TestE2ERewriteAndRerank:
         # 保留外部已设置的 EMBED_API_KEY，确保上传流程正常
         os.environ.setdefault("EMBED_API_KEY", "sk-test")
         # 指向测试数据库（与 conftest 一致）
-        os.environ["PG_DSN"] = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+        os.environ["PG_DSN"] = (
+            "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+        )
         os.environ["PG_POOL_MIN"] = "1"
         os.environ["PG_POOL_MAX"] = "3"
         os.environ["PG_COMMAND_TIMEOUT"] = "15"
@@ -329,7 +332,9 @@ class TestE2ERewriteAndRerank:
             },
         )
         if resp.status_code != 201:
-            pytest.fail(f"上传失败——embedder API 不可用。请检查 EMBED_API_KEY。响应: {resp.text}")
+            pytest.fail(
+                f"上传失败——embedder API 不可用。请检查 EMBED_API_KEY。响应: {resp.text}"
+            )
         assert resp.status_code == 201
 
         # --- Act: mock LLM + embedder，触发 retrieve ---
@@ -376,9 +381,9 @@ class TestE2ERewriteAndRerank:
         data = resp.json()
         assert data["code"] == 0
 
-        assert any("advanced artificial intelligence search" in t for t in captured_texts), (
-            f"embedder 未收到改写后 query\n  captured_texts={captured_texts}"
-        )
+        assert any(
+            "advanced artificial intelligence search" in t for t in captured_texts
+        ), f"embedder 未收到改写后 query\n  captured_texts={captured_texts}"
 
     # -----------------------------------------------------------------
     # 5.4: Rerank 启用 — 验证 LLM 返回的 rankings 改变了排序
@@ -398,7 +403,9 @@ class TestE2ERewriteAndRerank:
         kb_id = resp.json()["data"]["kb_id"]
 
         content_suffix = uuid.uuid4().hex[:8]
-        body = "\n\n".join(f"# Section {i}\n\nSection {i} run-{content_suffix}." for i in range(5))
+        body = "\n\n".join(
+            f"# Section {i}\n\nSection {i} run-{content_suffix}." for i in range(5)
+        )
         resp = llm_client.post(
             "/v1/documents:upload",
             data={"kb_id": kb_id},
@@ -409,7 +416,9 @@ class TestE2ERewriteAndRerank:
         assert resp.status_code == 201
         n_chunks = resp.json()["data"]["chunk_count"]
         if n_chunks < 2:
-            pytest.fail(f"chunk_count={n_chunks} 不足以验证重排——请上传包含更多标题的文档")
+            pytest.fail(
+                f"chunk_count={n_chunks} 不足以验证重排——请上传包含更多标题的文档"
+            )
 
         # --- Act: mock LLM，触发 retrieve ---
         captured_candidates: list[list[dict]] = []
