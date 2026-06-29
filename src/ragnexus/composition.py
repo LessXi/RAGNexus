@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
 from ragnexus.adapters.http.create_kb_router import create_router as create_kb_router
 from ragnexus.adapters.http.error_handlers import register_error_handlers
+from ragnexus.adapters.http.health_router import create_router as create_health_router
 from ragnexus.adapters.http.middleware import LoggingMiddleware
 from ragnexus.adapters.http.retrieve_router import (
     create_router as create_retrieve_router,
@@ -301,6 +302,7 @@ async def lifespan(app: FastAPI):
         app.include_router(create_kb_router(create_kb_uc))
         app.include_router(create_upload_doc_router(upload_doc_uc_wrapped))
         app.include_router(create_retrieve_router(retrieve_uc))
+        app.include_router(create_health_router(lambda: store))
 
         # Stash references for teardown
         app.state.store = store
