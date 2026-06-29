@@ -69,7 +69,7 @@ def _require_deps():
 
 
 class TestE2ERetrieveBasic:
-    def test_retrieve_returns_expected_format(self, client):
+    def test_retrieve_returns_expected_format(self, client, mock_external_http):
         """检索返回标准格式 {code, data: {total, hits}, message}。"""
         # 先创建 KB
         import uuid

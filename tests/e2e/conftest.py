@@ -39,31 +39,14 @@ def _require_test_db():
 
 
 @pytest.fixture
-def non_mocked_hosts() -> list[str]:
-    """白名单 localhost —— pytest-httpx 只拦截外部 HTTP 请求，
-    不影响 TestClient 和 asyncpg 数据库连接。"""
-    return ["localhost"]
-
-
-@pytest.fixture(autouse=True)
 def mock_external_http(httpx_mock: HTTPXMock):
-    """Mock 外部 Embedder 和 LLM API 的所有 HTTP 请求，
-    让 E2E 测试无需真实 API Key 即可通过完整流程。
+    """Mock 外部 Embedder 和 LLM API 的 HTTP 请求。
 
-    用法: 测试函数或类声明 ``mock_external_http`` 依赖::
-
-        def test_xxx(self, client, mock_external_http):
-            ...
-
-        或使用标记:
-
-        @pytest.mark.usefixtures("mock_external_http")
-        class TestSuite:
-            ...
+    用法：测试函数声明 ``mock_external_http`` 参数即可。
+    不需要 mock 的测试（纯结构/参数校验）不声明此参数。
     """
     settings = get_settings()
 
-    # ── Embedder mock ──────────────────────────────────────────────
     embed_url = f"{settings.EMBED_BASE_URL.rstrip('/')}/embeddings"
     embed_dim = settings.EMBED_DIM
 
@@ -72,7 +55,6 @@ def mock_external_http(httpx_mock: HTTPXMock):
         texts = body.get("input", [])
         if isinstance(texts, str):
             texts = [texts]
-        # 非零向量，避免 pgvector cosine distance = NaN
         embeddings = [[0.1] * embed_dim for _ in texts]
         return httpx.Response(
             200,
@@ -87,14 +69,10 @@ def mock_external_http(httpx_mock: HTTPXMock):
             },
         )
 
-    # Catch-all：已注册的 mock 未被调用时不报错（结构测试不需要 embedder/LLM）
-    httpx_mock.add_response(is_optional=True)
-
     httpx_mock.add_callback(
         _embed_callback, url=embed_url, method="POST", is_reusable=True
     )
 
-    # ── LLM mock ──────────────────────────────────────────────────
     llm_url = f"{settings.LLM_BASE_URL.rstrip('/')}/chat/completions"
 
     def _llm_callback(request: httpx.Request) -> httpx.Response:
@@ -110,11 +88,7 @@ def mock_external_http(httpx_mock: HTTPXMock):
                         "message": {
                             "role": "assistant",
                             "content": json.dumps(
-                                {
-                                    "rankings": [],
-                                    "rewritten_query": "",
-                                    "result": "ok",
-                                }
+                                {"rankings": [], "rewritten_query": "", "result": "ok"}
                             ),
                         },
                         "finish_reason": "stop",
@@ -135,11 +109,7 @@ def mock_external_http(httpx_mock: HTTPXMock):
 
 @pytest.fixture(scope="module")
 def client(_apply_schema, ensure_test_db):
-    """Return a TestClient with the real app wired to the test DB.
-
-    The ``_apply_schema`` dependency ensures tables exist before the app starts;
-    ``ensure_test_db`` ensures Docker Compose is running.
-    """
+    """Return a TestClient with the real app wired to the test DB."""
     os.environ["PG_DSN"] = TEST_DSN
     os.environ["PG_POOL_MIN"] = "1"
     os.environ["PG_POOL_MAX"] = "3"
