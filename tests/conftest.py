@@ -47,6 +47,8 @@ def _start_compose() -> None:
             [
                 "docker",
                 "compose",
+                "-p",
+                "ragnexus_test",
                 "-f",
                 str(COMPOSE_FILE),
                 "up",
@@ -68,7 +70,16 @@ def _stop_compose() -> None:
     global _compose_started
     if _compose_started:
         subprocess.run(
-            ["docker", "compose", "-f", str(COMPOSE_FILE), "down", "-v"],
+            [
+                "docker",
+                "compose",
+                "-p",
+                "ragnexus_test",
+                "-f",
+                str(COMPOSE_FILE),
+                "down",
+                "-v",
+            ],
             capture_output=True,
             timeout=60,
         )
@@ -84,9 +95,7 @@ def ensure_test_db() -> None:
     """Start Docker Compose if not already running. No pool — tests create their own."""
     _start_compose()
     if not _compose_started:
-        pytest.skip(
-            "Docker not available — integration/E2E tests require Docker Compose"
-        )
+        pytest.skip("Docker not available — integration/E2E tests require Docker Compose")
 
 
 _schema_applied = False
