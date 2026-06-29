@@ -47,7 +47,8 @@ def mock_external_http(httpx_mock: HTTPXMock):
     """
     settings = get_settings()
 
-    embed_url = f"{settings.EMBED_BASE_URL.rstrip('/')}/embeddings"
+    import re
+    embed_pattern = re.compile(r".*/embeddings$")
     embed_dim = settings.EMBED_DIM
 
     def _embed_callback(request: httpx.Request) -> httpx.Response:
@@ -70,10 +71,10 @@ def mock_external_http(httpx_mock: HTTPXMock):
         )
 
     httpx_mock.add_callback(
-        _embed_callback, url=embed_url, method="POST", is_reusable=True
+        _embed_callback, url=embed_pattern, method="POST", is_reusable=True
     )
 
-    llm_url = f"{settings.LLM_BASE_URL.rstrip('/')}/chat/completions"
+    llm_pattern = re.compile(r".*/chat/completions$")
 
     def _llm_callback(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -102,7 +103,7 @@ def mock_external_http(httpx_mock: HTTPXMock):
             },
         )
 
-    httpx_mock.add_callback(_llm_callback, url=llm_url, method="POST", is_reusable=True)
+    httpx_mock.add_callback(_llm_callback, url=llm_pattern, method="POST", is_reusable=True)
 
     yield httpx_mock
 
