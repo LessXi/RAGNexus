@@ -134,9 +134,7 @@ class ContextAdapter(logging.LoggerAdapter):
                 if filename == cls._OUR_FILE or _is_stdlib_logging(filename):
                     f = f.f_back
                     continue
-                extra["_caller_module"] = os.path.splitext(os.path.basename(filename))[
-                    0
-                ]
+                extra["_caller_module"] = os.path.splitext(os.path.basename(filename))[0]
                 extra["_caller_func"] = f.f_code.co_name
                 extra["_caller_lineno"] = f.f_lineno
                 return
@@ -374,11 +372,7 @@ def log_model_call(model: str, prompt_arg: int = 0):
                 prompt_val = str(kwargs["prompt"])
             if prompt_val is not None:
                 if log_content:
-                    extra_request["prompt"] = (
-                        prompt_val[:200] + "..."
-                        if len(prompt_val) > 200
-                        else prompt_val
-                    )
+                    extra_request["prompt"] = prompt_val
                 else:
                     extra_request["prompt_length"] = len(prompt_val)
             logger.info("模型调用开始", extra=extra_request)
@@ -395,12 +389,7 @@ def log_model_call(model: str, prompt_arg: int = 0):
                 }
                 if result is not None:
                     if log_content:
-                        result_str = str(result)
-                        extra_response["response"] = (
-                            result_str[:200] + "..."
-                            if len(result_str) > 200
-                            else result_str
-                        )
+                        extra_response["response"] = str(result)
                     else:
                         extra_response["response_length"] = len(str(result))
                 logger.info("模型调用完成", extra=extra_response)
@@ -456,9 +445,7 @@ class LoggedPool:
         """透传 acquire()，返回底层 pool 的 async context manager。"""
         return self._pool.acquire()
 
-    async def _log(
-        self, op: str, query: str, method: Any, *args: Any, **kwargs: Any
-    ) -> Any:
+    async def _log(self, op: str, query: str, method: Any, *args: Any, **kwargs: Any) -> Any:
         start = time.monotonic()
         try:
             result = await method(query, *args, **kwargs)

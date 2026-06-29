@@ -28,13 +28,13 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         # 1. 生成或复用 req_id
         req_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())[:8]
 
-        # 2. 读取 body（仅在 JSON 场景回填给下游路由）
+        # 2. 读取 body（仅在 JSON 场景回填给下游路由），同时解码用于日志
         content_type = request.headers.get("content-type", "")
-        body_length = 0
+        body_str: str | None = None
         if "application/json" in content_type:
             try:
                 body_bytes = await request.body()
-                body_length = len(body_bytes)
+                body_str = body_bytes.decode("utf-8", errors="replace")
 
                 # 回填 body 给下游路由
                 async def receive():
@@ -46,23 +46,21 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
                 request = Request(request.scope, receive)
             except Exception:
-                body_length = -1  # 读取失败
-        elif "multipart" in content_type:
-            body_length = -1  # multipart 不读 body
+                pass  # 读取失败，body_str 保持 None
+        # multipart 请求不读 body，body_str 保持 None
 
         # 3. 注入 ContextVar（在 body 读取之后，确保异常路径也能走到 finally）
         client_ip = request.client.host if request.client else None
         set_log_context(req_id=req_id, client_ip=client_ip or "")
 
-        # 4. 记录 API_REQUEST（不记 body 内容，防敏感数据泄露）
+        # 4. 记录 API_REQUEST
         logger.info(
             "",
             extra={
                 "event_type": "API_REQUEST",
                 "method": request.method,
                 "path": request.url.path,
-                "body_present": body_length > 0,
-                "body_length": body_length,
+                "body": body_str or "",
             },
         )
 
