@@ -12,6 +12,7 @@ dependencies = [
   "pgvector>=0.3",
   "nanoid>=2.0",
   "colorlog>=6.0",
+  "alembic>=1.13",
   "python-multipart>=0.0.32",
 ]
 

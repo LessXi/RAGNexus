@@ -164,6 +164,19 @@ async def lifespan(app: FastAPI):
         )
         repo_pool = LoggedPool(_raw_repo_pool)
 
+        # --- 4a. 数据库迁移检测 -------------------------------------------------
+        try:
+            _version = await repo_pool.fetchval(
+                "SELECT version_num FROM alembic_version ORDER BY version_num DESC LIMIT 1"
+            )
+            _pending = await repo_pool.fetchval("SELECT count(*) FROM alembic_version")
+            if _pending is None:
+                logger.warning("数据库迁移未执行——部署前请运行 'alembic upgrade head'")
+        except Exception:
+            logger.warning(
+                "数据库迁移状态检测失败（alembic_version 表可能不存在）——部署前请运行 'alembic upgrade head'"
+            )
+
         # --- 4. Adapters ------------------------------------------------------
         embedder = OpenAICompatEmbedder(
             base_url=cfg.EMBED_BASE_URL,
