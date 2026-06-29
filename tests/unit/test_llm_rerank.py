@@ -954,3 +954,153 @@ class TestCacheEntry:
         assert entry.query_text == "测试"
         assert entry.rankings == {"c_1": 0.9}
         assert entry.timestamp == 123456.0
+
+
+class TestLLMRerankProviderFrozensetCacheIsolation:
+    """frozenset 多 KB 缓存隔离测试。"""
+
+    def test_frozenset_kb1_not_hit_kb2(self):
+        """frozenset({"kb1"}) 缓存不命中 frozenset({"kb2"})。"""
+        from ragnexus.adapters.rerank.llm import LLMRerankProvider
+
+        fake = FakeLLMProvider()
+        provider = LLMRerankProvider(llm=fake)  # type: ignore[arg-type]
+
+        query_vector = [0.1] * 10
+        chunks = [make_hit("c_1", score=0.9, text="text 1")]
+
+        fake.responses.append({"rankings": [{"chunk_id": "c_1", "rerank_score": 0.8}]})
+        asyncio.run(
+            provider.rerank(
+                query="测试",
+                query_vector=query_vector,
+                kb_ids=["kb1"],
+                chunks=chunks,
+                top_n=1,
+            )
+        )
+        assert len(fake.calls) == 1
+
+        # 第二次：相同 query/vector，但 kb_ids=["kb2"] → frozenset 键不同
+        fake.responses.append({"rankings": [{"chunk_id": "c_1", "rerank_score": 0.7}]})
+        asyncio.run(
+            provider.rerank(
+                query="测试",
+                query_vector=query_vector,
+                kb_ids=["kb2"],
+                chunks=chunks,
+                top_n=1,
+            )
+        )
+
+        assert (
+            len(fake.calls) == 2
+        )  # 再次调 LLM，因为 frozenset({"kb1"}) ≠ frozenset({"kb2"})
+
+    def test_frozenset_kb1kb2_not_hit_kb1(self):
+        """frozenset({"kb1","kb2"}) 缓存不命中 frozenset({"kb1"})。"""
+        from ragnexus.adapters.rerank.llm import LLMRerankProvider
+
+        fake = FakeLLMProvider()
+        provider = LLMRerankProvider(llm=fake)  # type: ignore[arg-type]
+
+        query_vector = [0.1] * 10
+        chunks = [make_hit("c_1", score=0.9, text="text 1")]
+
+        fake.responses.append({"rankings": [{"chunk_id": "c_1", "rerank_score": 0.8}]})
+        asyncio.run(
+            provider.rerank(
+                query="测试",
+                query_vector=query_vector,
+                kb_ids=["kb1", "kb2"],
+                chunks=chunks,
+                top_n=1,
+            )
+        )
+        assert len(fake.calls) == 1
+
+        # 第二次：kb_ids=["kb1"] → frozenset({"kb1"}) ≠ frozenset({"kb1","kb2"})
+        fake.responses.append({"rankings": [{"chunk_id": "c_1", "rerank_score": 0.7}]})
+        asyncio.run(
+            provider.rerank(
+                query="测试",
+                query_vector=query_vector,
+                kb_ids=["kb1"],
+                chunks=chunks,
+                top_n=1,
+            )
+        )
+
+        assert len(fake.calls) == 2  # 再次调 LLM，因为 frozenset 键不同
+
+    def test_clear_cache_kb1_removes_compound_key(self):
+        """clear_cache("kb1") 只清空包含 kb1 的 frozenset 条目。"""
+        import time
+        from ragnexus.adapters.rerank.llm import LLMRerankProvider, CacheEntry
+
+        fake = FakeLLMProvider()
+        provider = LLMRerankProvider(llm=fake)  # type: ignore[arg-type]
+
+        query_vector = [0.1] * 10
+        now = time.time()
+
+        # 手动构造三个 frozenset 键的缓存条目
+        entry_kb1 = CacheEntry(
+            query_embedding=query_vector,
+            query_text="测试1",
+            rankings={"c_1": 0.9},
+            timestamp=now,
+        )
+        entry_kb2 = CacheEntry(
+            query_embedding=query_vector,
+            query_text="测试2",
+            rankings={"c_2": 0.8},
+            timestamp=now,
+        )
+        entry_kb1kb3 = CacheEntry(
+            query_embedding=query_vector,
+            query_text="测试3",
+            rankings={"c_3": 0.7},
+            timestamp=now,
+        )
+
+        provider._cache[frozenset({"kb1"})] = [entry_kb1]
+        provider._cache[frozenset({"kb2"})] = [entry_kb2]
+        provider._cache[frozenset({"kb1", "kb3"})] = [entry_kb1kb3]
+
+        assert len(provider._cache) == 3
+
+        # clear_cache("kb1") 应删除 frozenset({"kb1"}) 和 frozenset({"kb1","kb3"})
+        asyncio.run(provider.clear_cache("kb1"))
+
+        assert frozenset({"kb1"}) not in provider._cache
+        assert frozenset({"kb1", "kb3"}) not in provider._cache
+        assert frozenset({"kb2"}) in provider._cache
+        assert len(provider._cache) == 1
+
+        # 行为验证：kb2 缓存仍有效（不调 LLM）
+        chunks_kb2 = [make_hit("c_2", score=0.9, text="text 2")]
+        asyncio.run(
+            provider.rerank(
+                query="测试2",
+                query_vector=query_vector,
+                kb_ids=["kb2"],
+                chunks=chunks_kb2,
+                top_n=1,
+            )
+        )
+        assert len(fake.calls) == 0
+
+        # kb1 缓存已清除 → 需要调 LLM
+        fake.responses.append({"rankings": [{"chunk_id": "c_1", "rerank_score": 0.9}]})
+        chunks_kb1 = [make_hit("c_1", score=0.9, text="text 1")]
+        asyncio.run(
+            provider.rerank(
+                query="测试1",
+                query_vector=query_vector,
+                kb_ids=["kb1"],
+                chunks=chunks_kb1,
+                top_n=1,
+            )
+        )
+        assert len(fake.calls) == 1

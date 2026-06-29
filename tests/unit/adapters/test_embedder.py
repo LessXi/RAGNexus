@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+import asyncio
 
 from ragnexus.core.errors import AppError, ErrorCode
 
@@ -178,3 +179,79 @@ class TestEmbed:
             await emb.embed(["hello"])
 
         assert exc_info.value.code == ErrorCode.UPSTREAM_ERROR.code
+
+
+# ---------------------------------------------------------------------------
+# Degradation & Resource Management Tests
+# ---------------------------------------------------------------------------
+
+
+class TestDegradation:
+    """OpenAICompatEmbedder 降级和资源管理测试。"""
+
+    @pytest.mark.asyncio
+    async def test_timeout_raises_upstream_error(self, embedder):
+        """超时异常 → AppError(UPSTREAM_ERROR)，重试耗尽后抛出。"""
+        emb, client = embedder
+        client.post.side_effect = httpx.TimeoutException("request timed out")
+
+        with pytest.raises(AppError) as exc_info:
+            await emb.embed(["hello", "world"])
+
+        assert exc_info.value.code == ErrorCode.UPSTREAM_ERROR.code
+        assert client.post.call_count == 3  # 初始 + 2 次重试
+
+    @pytest.mark.asyncio
+    async def test_429_exhausted_raises_upstream_error(self, embedder):
+        """429 重试耗尽 → AppError(UPSTREAM_ERROR)。"""
+        emb, client = embedder
+        client.post.return_value = _make_response(status_code=429)
+
+        with pytest.raises(AppError) as exc_info:
+            await emb.embed(["hello", "world"])
+
+        assert exc_info.value.code == ErrorCode.UPSTREAM_ERROR.code
+        assert client.post.call_count == 3  # 初始 + 2 次重试
+
+    @pytest.mark.asyncio
+    async def test_semaphore_limits_concurrent_calls(self, embedder):
+        """并发超过 max_concurrency=5 时等待而非直接失败。"""
+        emb, client = embedder
+
+        texts = [f"text_{i}" for i in range(12)]  # 12 texts = 6 batches, batch_size=2
+
+        in_flight: list[int] = []
+        peaks: list[int] = []
+
+        async def track_post(*args, **kwargs):
+            """记录高峰期并发数。"""
+            in_flight.append(1)
+            peaks.append(len(in_flight))
+            await asyncio.sleep(0.01)  # 让出事件循环，允许其他任务进入
+            in_flight.pop()
+            return _make_response()
+
+        client.post.side_effect = track_post
+
+        result = await emb.embed(texts)
+
+        # At most max_concurrency=5 batches should ever be in-flight concurrently
+        assert max(peaks) <= 5, f"峰值并发 {max(peaks)} > 5"
+        assert len(result) == 12
+
+    @pytest.mark.asyncio
+    async def test_close_sets_client_to_none(self, embedder):
+        """close() 后 _client 为 None，且二次调用安全（重入）。"""
+        emb, client = embedder
+
+        # 先触发 embed 以初始化 _client
+        client.post.return_value = _make_response()
+        await emb.embed(["hello", "world"])
+        assert emb._client is not None
+
+        await emb.close()
+        assert emb._client is None
+
+        # 重复调用 — 不应抛出
+        await emb.close()
+        assert emb._client is None
