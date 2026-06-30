@@ -1,0 +1,382 @@
+{
+  "mode": "full",
+  "timestamp": "2026-06-30 20:34:45",
+  "kb_id": "kb_3FtAzN4Z",
+  "results": [
+    {
+      "query_label": "口语-智能助手",
+      "query_text": "怎么做智能助手",
+      "runs": [
+        {
+          "label": "口语-智能助手",
+          "query": "怎么做智能助手",
+          "elapsed_s": 56.8177,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:4",
+            "doc_28d3c1016c5d52ac:5",
+            "doc_28d3c1016c5d52ac:3",
+            "doc_28d3c1016c5d52ac:8",
+            "doc_28d3c1016c5d52ac:0"
+          ],
+          "hit_scores": [
+            0.565802,
+            0.45977,
+            0.457984,
+            0.545986,
+            0.476754
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        },
+        {
+          "label": "口语-智能助手",
+          "query": "怎么做智能助手",
+          "elapsed_s": 0.6516,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:4",
+            "doc_28d3c1016c5d52ac:5",
+            "doc_28d3c1016c5d52ac:3",
+            "doc_28d3c1016c5d52ac:8",
+            "doc_28d3c1016c5d52ac:0"
+          ],
+          "hit_scores": [
+            0.565802,
+            0.45977,
+            0.457984,
+            0.545986,
+            0.476754
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        },
+        {
+          "label": "口语-智能助手",
+          "query": "怎么做智能助手",
+          "elapsed_s": 0.5552,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:4",
+            "doc_28d3c1016c5d52ac:5",
+            "doc_28d3c1016c5d52ac:3",
+            "doc_28d3c1016c5d52ac:8",
+            "doc_28d3c1016c5d52ac:0"
+          ],
+          "hit_scores": [
+            0.565802,
+            0.45977,
+            0.457984,
+            0.545986,
+            0.476754
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        }
+      ]
+    },
+    {
+      "query_label": "口语-检索效果",
+      "query_text": "怎么提升检索效果",
+      "runs": [
+        {
+          "label": "口语-检索效果",
+          "query": "怎么提升检索效果",
+          "elapsed_s": 65.6788,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:5",
+            "doc_3c0fd272af8b2f89:0",
+            "doc_28d3c1016c5d52ac:3",
+            "doc_61046e167e8d4cca:0",
+            "doc_28d3c1016c5d52ac:1"
+          ],
+          "hit_scores": [
+            0.528185,
+            0.470042,
+            0.454053,
+            0.450483,
+            0.434052
+          ],
+          "monotonic": true,
+          "query_rewritten": null
+        },
+        {
+          "label": "口语-检索效果",
+          "query": "怎么提升检索效果",
+          "elapsed_s": 26.2737,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:5",
+            "doc_28d3c1016c5d52ac:0",
+            "doc_28d3c1016c5d52ac:6",
+            "doc_28d3c1016c5d52ac:1",
+            "doc_28d3c1016c5d52ac:4"
+          ],
+          "hit_scores": [
+            0.528285,
+            0.392198,
+            0.426497,
+            0.434112,
+            0.406779
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        },
+        {
+          "label": "口语-检索效果",
+          "query": "怎么提升检索效果",
+          "elapsed_s": 0.3443,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:5",
+            "doc_28d3c1016c5d52ac:0",
+            "doc_28d3c1016c5d52ac:6",
+            "doc_28d3c1016c5d52ac:1",
+            "doc_28d3c1016c5d52ac:4"
+          ],
+          "hit_scores": [
+            0.528185,
+            0.392119,
+            0.426407,
+            0.434052,
+            0.406724
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        }
+      ]
+    },
+    {
+      "query_label": "专业-RAG流程",
+      "query_text": "RAG检索增强生成流程",
+      "runs": [
+        {
+          "label": "专业-RAG流程",
+          "query": "RAG检索增强生成流程",
+          "elapsed_s": 50.6858,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:5",
+            "doc_28d3c1016c5d52ac:3",
+            "doc_61046e167e8d4cca:0",
+            "doc_28d3c1016c5d52ac:4",
+            "doc_28d3c1016c5d52ac:1"
+          ],
+          "hit_scores": [
+            0.622019,
+            0.477112,
+            0.445791,
+            0.441621,
+            0.415568
+          ],
+          "monotonic": true,
+          "query_rewritten": null
+        },
+        {
+          "label": "专业-RAG流程",
+          "query": "RAG检索增强生成流程",
+          "elapsed_s": 31.6239,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:5",
+            "doc_28d3c1016c5d52ac:0",
+            "doc_28d3c1016c5d52ac:6",
+            "doc_28d3c1016c5d52ac:4",
+            "doc_28d3c1016c5d52ac:1"
+          ],
+          "hit_scores": [
+            0.622019,
+            0.410547,
+            0.410802,
+            0.441621,
+            0.415568
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        },
+        {
+          "label": "专业-RAG流程",
+          "query": "RAG检索增强生成流程",
+          "elapsed_s": 0.4831,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:5",
+            "doc_28d3c1016c5d52ac:0",
+            "doc_28d3c1016c5d52ac:6",
+            "doc_28d3c1016c5d52ac:4",
+            "doc_28d3c1016c5d52ac:1"
+          ],
+          "hit_scores": [
+            0.622019,
+            0.410547,
+            0.410802,
+            0.441621,
+            0.415568
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        }
+      ]
+    },
+    {
+      "query_label": "专业-RLHF",
+      "query_text": "RLHF对齐训练方法",
+      "runs": [
+        {
+          "label": "专业-RLHF",
+          "query": "RLHF对齐训练方法",
+          "elapsed_s": 29.6633,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:3",
+            "doc_28d3c1016c5d52ac:6",
+            "doc_28d3c1016c5d52ac:0",
+            "doc_28d3c1016c5d52ac:1",
+            "doc_28d3c1016c5d52ac:2"
+          ],
+          "hit_scores": [
+            0.659628,
+            0.393,
+            0.438713,
+            0.465458,
+            0.463713
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        },
+        {
+          "label": "专业-RLHF",
+          "query": "RLHF对齐训练方法",
+          "elapsed_s": 0.36,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:3",
+            "doc_28d3c1016c5d52ac:6",
+            "doc_28d3c1016c5d52ac:0",
+            "doc_28d3c1016c5d52ac:1",
+            "doc_28d3c1016c5d52ac:2"
+          ],
+          "hit_scores": [
+            0.659628,
+            0.393,
+            0.438713,
+            0.465458,
+            0.463713
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        },
+        {
+          "label": "专业-RLHF",
+          "query": "RLHF对齐训练方法",
+          "elapsed_s": 0.2557,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:3",
+            "doc_28d3c1016c5d52ac:6",
+            "doc_28d3c1016c5d52ac:0",
+            "doc_28d3c1016c5d52ac:1",
+            "doc_28d3c1016c5d52ac:2"
+          ],
+          "hit_scores": [
+            0.659616,
+            0.393019,
+            0.438737,
+            0.465514,
+            0.463785
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        }
+      ]
+    },
+    {
+      "query_label": "短-Agent",
+      "query_text": "Agent",
+      "runs": [
+        {
+          "label": "短-Agent",
+          "query": "Agent",
+          "elapsed_s": 33.2772,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:4",
+            "doc_28d3c1016c5d52ac:8",
+            "doc_28d3c1016c5d52ac:6",
+            "doc_28d3c1016c5d52ac:0",
+            "doc_28d3c1016c5d52ac:5"
+          ],
+          "hit_scores": [
+            0.621644,
+            0.665662,
+            0.533715,
+            0.564132,
+            0.411644
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        },
+        {
+          "label": "短-Agent",
+          "query": "Agent",
+          "elapsed_s": 0.6291,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:4",
+            "doc_28d3c1016c5d52ac:8",
+            "doc_28d3c1016c5d52ac:6",
+            "doc_28d3c1016c5d52ac:0",
+            "doc_28d3c1016c5d52ac:5"
+          ],
+          "hit_scores": [
+            0.621644,
+            0.665662,
+            0.533715,
+            0.564132,
+            0.411644
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        },
+        {
+          "label": "短-Agent",
+          "query": "Agent",
+          "elapsed_s": 0.4255,
+          "status": 200,
+          "total": 5,
+          "hit_ids": [
+            "doc_28d3c1016c5d52ac:4",
+            "doc_28d3c1016c5d52ac:8",
+            "doc_28d3c1016c5d52ac:6",
+            "doc_28d3c1016c5d52ac:0",
+            "doc_28d3c1016c5d52ac:5"
+          ],
+          "hit_scores": [
+            0.621561,
+            0.665592,
+            0.533617,
+            0.564087,
+            0.411536
+          ],
+          "monotonic": false,
+          "query_rewritten": null
+        }
+      ]
+    }
+  ]
+}

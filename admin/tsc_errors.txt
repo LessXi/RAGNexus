@@ -1,0 +1,1 @@
+src/pages/create-kb.tsx(196,1): error TS1128: Declaration or statement expected.

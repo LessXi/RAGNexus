@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import math
 import re
 import time
@@ -20,10 +19,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from ragnexus.adapters.llm.base import LLMProvider
+from ragnexus.core.logger import logger
 from ragnexus.domain.models import SearchHit
-
-logger = logging.getLogger("ragnexus")
-
 
 # ============================================================================
 # CacheEntry
@@ -423,9 +420,7 @@ class LLMRerankProvider:
                     else None
                 )
                 text = orig_chunk.text if orig_chunk else ""
-                preview = _build_content_preview(
-                    text, heading, self.cache_preview_max_chars
-                )
+                preview = _build_content_preview(text, heading, self.cache_preview_max_chars)
                 ref_scores.append(
                     {
                         "chunk_id": cid,

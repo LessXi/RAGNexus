@@ -3,6 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
+import { AxiosError } from 'axios';
 import { createKB } from '@/services/api';
 import { addKB, getKBs } from '@/utils/storage';
 import type { CachedKB } from '@/types/api';
@@ -51,12 +52,12 @@ export default function CreateKBPage() {
     setError(res.message || `错误码: ${res.code}`);
    }
   } catch (err: unknown) {
-   if (err instanceof Error) {
-    if (/network/i.test(err.message)) {
-     setError('无法连接后端服务 (localhost:8000)，请确认服务已启动');
-    } else {
-     setError(err.message);
-    }
+   if (err instanceof AxiosError && err.response?.data?.message) {
+    setError(err.response.data.message);
+   } else if (err instanceof Error && /network/i.test(err.message)) {
+    setError('无法连接后端服务 (localhost:8000)，请确认服务已启动');
+   } else if (err instanceof Error) {
+    setError(err.message);
    } else {
     setError('未知错误');
    }
