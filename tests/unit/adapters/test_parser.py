@@ -56,6 +56,62 @@ class TestParseMarkdown:
         assert result.raw_text is not None
 
 
+class TestParseMarkdownCodeFence:
+    """验证 fenced code block 内的 # 不被误识别为标题。"""
+
+    async def test_code_block_preserved(self, parser):
+        """代码块中的 Python 注释 ``#`` 不应创建幽灵 section。"""
+        content = "## 安装指南\n\n```python\n# 这是注释，不是标题\nprint('hello')\n```\n\n## 配置\n\n设置数据库连接。".encode()
+        result = await parser.parse(content, "test.md")
+
+        assert len(result.sections) == 2
+        assert result.sections[0].heading == "安装指南"
+        assert "print" in result.sections[0].content
+        assert result.sections[1].heading == "配置"
+        assert "数据库连接" in result.sections[1].content
+
+    async def test_tilde_fence_preserved(self, parser):
+        """Tilde fence 也应正确追踪，不会泄漏。"""
+        content = (
+            "## 说明\n\n~~~sh\n# shell 注释\necho done\n~~~\n\n后面文字。".encode()
+        )
+        result = await parser.parse(content, "test.md")
+
+        assert len(result.sections) == 1
+        assert result.sections[0].heading == "说明"
+        assert "shell 注释" in result.sections[0].content
+        assert "echo done" in result.sections[0].content
+        assert "后面文字" in result.sections[0].content
+
+    async def test_mixed_headings_and_code(self, parser):
+        """真实场景：多个标题 + 多个代码块交错。"""
+        content = (
+            "# 总览\n\n项目介绍。\n\n"
+            "## API\n\n```python\ndef foo():\n    # 内部注释\n    pass\n```\n\n"
+            "### 参数\n\n|字段|类型|\n|---|---|\n|name|str|\n\n"
+            '```json\n# JSON 没有注释，但这行有 #\n{"key": "value"}\n```\n\n'
+            "## FAQ\n\n常见问题。"
+        ).encode()
+        result = await parser.parse(content, "test.md")
+
+        headings = [s.heading for s in result.sections]
+        assert headings == ["总览", "API", "参数", "FAQ"]
+        # API section 应包含 Python 代码块内容
+        assert "def foo" in result.sections[1].content
+        assert "# 内部注释" in result.sections[1].content
+        # 参数 section 应包含 JSON 代码块
+        assert "key" in result.sections[2].content
+
+    async def test_headings_inside_code_block_are_not_sections(self, parser):
+        """代码块中的 ``## Title`` 行不应被识别为标题。"""
+        content = "## 步骤\n\n```\n## 这看起来像标题但实际在代码块中\n正文内容\n```\n\n继续正文。".encode()
+        result = await parser.parse(content, "test.md")
+
+        assert len(result.sections) == 1
+        assert result.sections[0].heading == "步骤"
+        assert "这看起来像标题但实际在代码块中" in result.sections[0].content
+
+
 class TestParseTxt:
     """Tests for parsing .txt files."""
 

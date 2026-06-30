@@ -19,13 +19,36 @@ class MarkdownAndTextParser:
         return ParsedDocument(filename=filename, sections=[], raw_text=text)
 
     def _parse_markdown(self, text: str, filename: str) -> ParsedDocument:
-        """按标题级别将 Markdown 文本拆分为章节。"""
+        """按标题级别将 Markdown 文本拆分为章节。
+
+        追踪 fenced code block（``` 和 ~~~），防止代码块内的 ``#`` 被误识别为标题。
+        """
         sections: list[Section] = []
         current_heading: str | None = None
         current_level: int = 0
         buffer: list[str] = []
+        in_fence: bool = False
+        fence_char: str = ""
 
         for line in text.splitlines():
+            stripped = line.strip()
+
+            # 检测 fenced code block 边界
+            if stripped.startswith("```") or stripped.startswith("~~~"):
+                if not in_fence:
+                    in_fence = True
+                    fence_char = stripped[0]
+                elif stripped.startswith(fence_char * 3):
+                    in_fence = False
+                    fence_char = ""
+                # 在 fence 内遇到不同 fencing 字符的 ```/~~~？不管，继续
+                # 这种情况只会在不规范文档中出现
+
+            # 在 fenced code block 内：跳过标题匹配，原样追加
+            if in_fence:
+                buffer.append(line)
+                continue
+
             m = re.match(r"^(#{1,6})\s+(.+)$", line)
             if m:
                 # Flush current section before switching heading
