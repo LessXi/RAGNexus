@@ -1,4 +1,5 @@
 repos:
+  # === Python 代码质量 ===
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.0
     hooks:
@@ -11,6 +12,32 @@ repos:
       - id: pyright
         name: pyright
         entry: uv run pyright
+        language: system
+        types: [python]
+        pass_filenames: false
+
+  # === 密钥扫描 ===
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # === 文档质量 ===
+  - repo: local
+    hooks:
+      - id: markdownlint
+        name: markdownlint
+        entry: npx markdownlint-cli2
+        language: system
+        types: [markdown]
+        pass_filenames: true
+
+  # === 数据库迁移安全 ===
+  - repo: local
+    hooks:
+      - id: squawk
+        name: squawk
+        entry: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/squawk-precommit.ps1
         language: system
         types: [python]
         pass_filenames: false

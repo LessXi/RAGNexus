@@ -59,7 +59,4 @@ openspec/
 .comet/
 docs/superpowers/
 
-# Node package files — this is a Python+uv repo; node only served the openspec CLI
-package.json
-package-lock.json
 config/mcporter.json

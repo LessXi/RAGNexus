@@ -1,0 +1,17 @@
+{
+  "config": {
+    "default": true,
+    // 放宽行宽限制，代码块和表格不检查
+    "MD013": { "line_length": 120, "code_blocks": false, "tables": false },
+    // 允许部分 HTML 标签（details/summary 折叠块很有用）
+    "MD033": { "allowed_elements": ["br", "details", "summary", "kbd"] },
+    // 不要求第一行必须是顶级标题
+    "MD041": false,
+    // 允许同名标题（仅限非兄弟层级）
+    "MD024": { "siblings_only": true }
+  },
+  "globs": [
+    "README.md",
+    "docs/**/*.md"
+  ]
+}

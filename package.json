@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@fission-ai/openspec": "^1.4.1"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "^0.22.1"
+  },
+  "scripts": {
+    "docs:lint": "markdownlint-cli2",
+    "docs:lint:fix": "markdownlint-cli2 --fix"
+  }
+}

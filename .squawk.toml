@@ -1,0 +1,28 @@
+# squawk 配置 - RAGNexus 项目
+# https://github.com/sbdchd/squawk
+
+[rules]
+# Alembic 自动生成的 migration 不需要注释
+"required-comment" = false
+
+# 允许 ADD COLUMN 不带 DEFAULT（RAGNexus 数据量小）
+"adding-field-with-default" = "warn"
+
+# 禁止不加锁超时的 DDL
+"constraint-missing-not-valid" = "error"
+
+# 禁止不加 IF NOT EXISTS 的约束
+"prefer-robust-stmts" = "error"
+
+# 禁止不加 CONCURRENTLY 的索引创建
+"require-concurrent-index-creation" = "warn"
+
+# 禁止不加 CONCURRENTLY 的索引删除
+"require-concurrent-index-deletion" = "warn"
+
+# 禁止 ban 掉的类型
+"ban-drop-database" = "error"
+"ban-drop-column" = "error"
+
+# 事务相关
+"transaction-nesting" = "error"
