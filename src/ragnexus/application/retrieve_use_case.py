@@ -1,7 +1,6 @@
 """RetrieveUseCase — 校验查询、嵌入向量、搜索向量库、异步记录日志。"""
 
 import asyncio
-import contextlib
 import time
 
 from ragnexus.core.errors import AppError, ErrorCode

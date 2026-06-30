@@ -4,13 +4,14 @@
 所有测试使用真实 FastAPI TestClient + test-db（pg_pool / _apply_schema 来自 conftest.py）。
 """
 
-import pytest
 import asyncio
+
+import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from ragnexus.composition import build_app
-from ragnexus.config import Settings, get_settings
+from ragnexus.config import get_settings
 from tests.integration.conftest import TEST_DSN
 
 pytestmark = [pytest.mark.integration]
@@ -273,9 +274,8 @@ class TestLifespanErrorRecovery:
         )
 
         # lifespan 启动失败，但 finally 应清理已创建的资源
-        with pytest.raises(Exception):
-            with TestClient(app):
-                pass
+        with pytest.raises(Exception), TestClient(app):
+            pass
 
         # lifespan 中 connect() 前创建了 _raw_store_pool
         assert len(created_pools) >= 1, "lifespan 未创建连接池"

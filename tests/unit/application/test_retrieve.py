@@ -4,11 +4,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from ragnexus.adapters.rerank.noop import NoopRerankProvider
+from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.core.errors import AppError
 from ragnexus.domain.models import SearchHit
-from ragnexus.adapters.rerank.noop import NoopRerankProvider
-from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
 from ragnexus.domain.ports import RewriteResult
 
 

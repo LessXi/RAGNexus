@@ -7,13 +7,13 @@
 import asyncio
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from ragnexus.core.logger import logger
 from ragnexus import __version__
+from ragnexus.core.logger import logger
 
 _start_time: float = time.time()
 
@@ -52,7 +52,7 @@ def create_router(get_store) -> APIRouter:
                 "status": status,
                 "checks": checks,
                 "version": __version__,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "uptime_seconds": int(time.time() - _start_time),
                 "python_version": sys.version.split()[0],
             },

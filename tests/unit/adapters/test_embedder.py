@@ -4,11 +4,11 @@ TDD: RED → GREEN → REFACTOR.
 Runs uv run pytest tests/unit/adapters/test_embedder.py -v.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-import asyncio
 
 from ragnexus.core.errors import AppError, ErrorCode
 

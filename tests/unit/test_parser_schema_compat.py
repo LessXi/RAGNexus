@@ -17,7 +17,6 @@ from ragnexus.adapters.rerank.llm import (
 )
 from ragnexus.adapters.rewrite.llm import _parse_rewrite_json
 
-
 # ═══════════════════════════════════════════════════════════════════
 # Rerank Parser — _extract_rankings_from_dict
 # ═══════════════════════════════════════════════════════════════════

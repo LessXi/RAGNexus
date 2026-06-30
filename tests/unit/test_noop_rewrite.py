@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 
-from ragnexus.domain.ports import RewritePort, RewriteResult
+from ragnexus.domain.ports import RewriteResult
 
 
 class TestNoopRewriteProvider:

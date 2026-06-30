@@ -14,7 +14,6 @@ from pydantic import BaseModel
 from ragnexus.adapters.http.retrieve_router import _RetrieveRequest, create_router
 from ragnexus.domain.models import SearchHit
 
-
 # ═══════════════════════════════════════════════════════════════════
 # 请求 schema 不变性
 # ═══════════════════════════════════════════════════════════════════

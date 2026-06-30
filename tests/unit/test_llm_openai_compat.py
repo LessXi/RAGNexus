@@ -13,7 +13,6 @@ import pytest
 from ragnexus.adapters.llm.base import LLMProvider
 from ragnexus.core.errors import AppError, ErrorCode
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -457,7 +456,6 @@ class TestBridgePattern:
 
     def test_call_api_method_exists(self, provider):
         """_call_api 方法应存在于 provider 实例上。"""
-        from ragnexus.adapters.llm.openai_compatible import OpenAICompatibleLLMProvider
 
         prov, _mock = provider
         assert hasattr(prov, "_call_api")

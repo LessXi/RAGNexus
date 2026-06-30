@@ -60,3 +60,10 @@ openspec/
 docs/superpowers/
 
 config/mcporter.json
+
+# Babysitter / OMP run artifacts
+.a5c/
+.tmp/
+
+# Generated HTML reports (agent output in workspace root)
+babysitter-*.html

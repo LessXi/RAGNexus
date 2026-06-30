@@ -6,8 +6,9 @@ Usage::
     app = build_app()  # FastAPI instance with all wiring
 """
 
-from contextlib import asynccontextmanager
 import asyncio
+from contextlib import asynccontextmanager
+from datetime import UTC
 from typing import Any, cast
 
 import asyncpg
@@ -243,10 +244,10 @@ async def lifespan(app: FastAPI):
             """启动 5 秒后执行一次清理，不阻塞主流程。"""
             try:
                 await asyncio.sleep(5)
-                from datetime import datetime, timedelta, timezone
+                from datetime import datetime, timedelta
 
                 _deleted = await log_repo.prune(
-                    datetime.now(timezone.utc) - timedelta(days=30)
+                    datetime.now(UTC) - timedelta(days=30)
                 )
                 logger.info("清理过期检索日志: %d 条已删除", _deleted)
             except Exception:
@@ -254,13 +255,13 @@ async def lifespan(app: FastAPI):
 
         # 注册 24h 周期清理任务
         async def _periodic_log_cleanup():
-            from datetime import datetime, timedelta, timezone
+            from datetime import datetime, timedelta
 
             while True:
                 await asyncio.sleep(86400)
                 try:
                     await log_repo.prune(
-                        datetime.now(timezone.utc) - timedelta(days=30)
+                        datetime.now(UTC) - timedelta(days=30)
                     )
                 except Exception:
                     logger.error("周期日志清理失败", exc_info=True)

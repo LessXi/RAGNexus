@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 """verify-production.py — 生产环境一键验收。用法: python scripts/verify-production.py"""
 
-import os, subprocess, sys
+import os
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 

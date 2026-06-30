@@ -45,6 +45,7 @@ def _start_compose() -> None:
     # 先检测 DB 是否已可达（由其他进程启动的 compose）
     try:
         import asyncio as _asyncio
+
         import asyncpg as _asyncpg
 
         async def _probe():

@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 
 from ragnexus.domain.models import SearchHit
-from ragnexus.domain.ports import RerankPort
 
 
 class TestNoopRerankProvider:

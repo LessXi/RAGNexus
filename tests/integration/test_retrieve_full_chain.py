@@ -28,7 +28,6 @@ from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
 from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.domain.models import Chunk, SearchHit
-from ragnexus.domain.ports import RewriteResult
 
 pytestmark = [pytest.mark.integration]
 

@@ -5,9 +5,9 @@
 """
 
 import asyncio
-import httpx
 import os
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -292,7 +292,8 @@ class TestE2ERewriteAndRerank:
 
         app = build_app()
         # 注册 httpx mock（embedder + LLM），避免真实 API 调用
-        import re as _re, json as _json
+        import json as _json
+        import re as _re
 
         s = get_settings()
         httpx_mock.add_callback(
