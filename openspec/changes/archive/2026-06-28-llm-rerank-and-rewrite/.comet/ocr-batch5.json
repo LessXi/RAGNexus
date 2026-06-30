@@ -1,0 +1,93 @@
+{
+  "status": "success",
+  "summary": {
+    "files_reviewed": 7,
+    "comments": 9,
+    "total_tokens": 445405,
+    "input_tokens": 401331,
+    "output_tokens": 44074,
+    "elapsed": "2m8s"
+  },
+  "tool_calls": {
+    "total": 45,
+    "by_tool": {
+      "code_comment": 6,
+      "code_search": 21,
+      "file_read": 9,
+      "file_read_diff": 9
+    }
+  },
+  "comments": [
+    {
+      "path": "tests/unit/test_noop_rewrite.py",
+      "content": "The hardcoded Chinese string `\"禁用改写，直通\"` is used both in the implementation (`noop.py`) and asserted directly in the test. If the implementation changes this string (e.g., to English or a different wording), the test will break unnecessarily. Consider extracting the reason string as a module-level constant in `noop.py` (e.g., `NOOP_REWRITE_REASON = \"禁用改写，直通\"`) and importing it in the test, or defining a shared constant. This decouples the test from non-functional text changes.",
+      "suggestion_code": "from ragnexus.adapters.rewrite.noop import NOOP_REWRITE_REASON\n# ...\nassert result.reason == NOOP_REWRITE_REASON",
+      "existing_code": "assert result.reason == \"禁用改写，直通\"",
+      "start_line": 86,
+      "end_line": 86
+    },
+    {
+      "path": "src/ragnexus/adapters/rewrite/llm.py",
+      "content": "**Redundant embedding calls across multiple kb_ids**\n\nIn `_rewrite_impl`, `_check_cache` is called inside a `for kb_id in kb_ids` loop, and each invocation re-embeds the same query. Similarly, `_write_cache` also re-embeds the query. When a query is associated with multiple kb_ids, this results in unnecessary API calls to the embedding service and increased latency.\n\n**Suggestion**: Compute the query embedding once before the loop and pass it to `_check_cache` and `_write_cache` as an optional parameter to avoid redundant embedding calls.",
+      "suggestion_code": "        # Step a) 查缓存 — 仅当没有 kb 命中时才继续\n        # 先尝试通过原始文本匹配快速命中缓存（需要向量时再 embed）\n        query_embedding: list[float] | None = None\n\n        for kb_id in kb_ids:\n            cached = await self._check_cache(kb_id, query, query_embedding)\n            if cached is not None:\n                return cached\n            # 仅在需要时计算一次 embedding\n            if query_embedding is None:\n                try:\n                    vectors = await self.embedder.embed([query])\n                    query_embedding = vectors[0]\n                except Exception:\n                    pass",
+      "existing_code": "        # Step a) 查缓存\n        for kb_id in kb_ids:\n            cached = await self._check_cache(kb_id, query)\n            if cached is not None:\n                return cached",
+      "start_line": 281,
+      "end_line": 285
+    },
+    {
+      "path": "src/ragnexus/adapters/rewrite/llm.py",
+      "content": "**Refinement failure unnecessarily degrades to original query**\n\nWhen the rewritten query exceeds 200 characters and the LLM refinement call fails (exception, invalid JSON, etc.), `_refine_if_needed` returns the original `query`. Back in `_rewrite_impl`, this triggers `refined_query == query` and returns a fully degraded `RewriteResult` with the original query and `needs_rewrite=False`. This discards the initial long but valid rewritten query, which was likely better for retrieval than the original.\n\n**Suggestion**: On refinement failure, fall back to the original long `rewritten_query` (with `needs_rewrite=True`) rather than fully degrading to the original query. This preserves a reasonable rewrite even if it exceeds the length preference.",
+      "suggestion_code": "    async def _refine_if_needed(\n        self,\n        query: str,\n        rewritten_query: str,\n        llm_reason: str,\n    ) -\u003e tuple[str, str]:\n        \"\"\"如果 rewritten_query \u003e 200 字，触发二次精炼。返回 (final_query, reason)。\"\"\"\n        if len(rewritten_query) \u003c= 200:\n            return rewritten_query, llm_reason\n\n        try:\n            refined_response = await self.llm.chat_json(\n                system_prompt=REFINE_SYSTEM_PROMPT,\n                user_payload={\"query\": rewritten_query},\n                temperature=self.temperature,\n            )\n            refined = _parse_refine_json(refined_response)\n            if refined and refined.strip():\n                return refined, f\"{llm_reason}（二次精炼）\"\n        except Exception:\n            pass\n\n        # 精炼失败 → 保留原始改写结果，而非完全降级\n        return rewritten_query, f\"{llm_reason}（二次精炼失败，保留原始改写）\"",
+      "existing_code": "    async def _refine_if_needed(\n        self,\n        query: str,\n        rewritten_query: str,\n        llm_reason: str,\n    ) -\u003e tuple[str, str]:\n        \"\"\"如果 rewritten_query \u003e 200 字，触发二次精炼。返回 (final_query, reason)。\"\"\"\n        if len(rewritten_query) \u003c= 200:\n            return rewritten_query, llm_reason\n\n        try:\n            refined_response = await self.llm.chat_json(\n                system_prompt=REFINE_SYSTEM_PROMPT,\n                user_payload={\"query\": rewritten_query},\n                temperature=self.temperature,\n            )\n            refined = _parse_refine_json(refined_response)\n            if refined and refined.strip():\n                return refined, f\"{llm_reason}（二次精炼）\"\n        except Exception:\n            pass\n\n        # 精炼失败 → 降级\n        return query, \"二次精炼失败，降级为原始 query\"",
+      "start_line": 405,
+      "end_line": 428
+    },
+    {
+      "path": "src/ragnexus/adapters/rewrite/llm.py",
+      "content": "**Regex for outer `{...}` extraction may fail on deeply nested JSON**\n\nThe Layer 3 extraction regex `\\{[^{}]*(?:\\{[^{}]*\\}[^{}]*)*\\}` only supports up to 2 levels of brace nesting (outer level + one level of inner `{...}`). If the LLM returns JSON with deeper nesting (e.g., arrays of objects: `{\"items\": [{\"key\": \"value\"}]}`), the regex will fail to capture the full object, triggering an unnecessary degraded path.\n\n**Suggestion**: Use a more robust regex that handles arbitrary nesting, e.g., `\\{(?:[^{}]|\\{(?:[^{}]|\\{[^{}]*\\})*\\})*\\}` for 3 levels, or consider using a bracket-balancing approach. However, since the LLM output format is tightly controlled (simple JSON with 3 fields), the practical risk is low.",
+      "suggestion_code": "                    # Layer 3: 正则提取最外层 {...}（支持更深的嵌套）\n                    m2 = re.search(r\"\\{(?:[^{}]|\\{(?:[^{}]|\\{[^{}]*\\})*\\})*\\}\", obj)",
+      "existing_code": "                    # Layer 3: 正则提取最外层 {...}\n                    m2 = re.search(r\"\\{[^{}]*(?:\\{[^{}]*\\}[^{}]*)*\\}\", obj)",
+      "start_line": 111,
+      "end_line": 112
+    },
+    {
+      "path": "tests/unit/test_llm_rewrite.py",
+      "content": "**Inconsistent mocking style** — This test mixes constructor-based mocking (used by all other tests via `FakeLLMProvider(responses=[...])`) with direct attribute mocking (`llm.chat_json = AsyncMock(...)`).\n\n`FakeLLMProvider()` is created with an empty `responses` list, then `chat_json` is directly overridden. This bypasses the `FakeLLMProvider` logic entirely and contradicts the pattern used consistently across all other tests in this file (see lines 125, 147, 173, 199, etc.).\n\n**Suggestion:** Consider using `FakeLLMProvider(responses=[...])` for the first call and handling the second (refinement) exception separately, or use `unittest.mock.patch.object(provider, '_refine_if_needed')` to simulate the refinement failure while keeping the mocked LLM style consistent.",
+      "suggestion_code": "        llm = FakeLLMProvider(\n            responses=[\n                {\"needs_rewrite\": True, \"rewritten_query\": long_text, \"reason\": \"过长\"},\n            ]\n        )\n        # Simulate refinement failure by patching _refine_if_needed\n        # or use a specialized mock for the second call",
+      "existing_code": "        llm = FakeLLMProvider()\n        llm.chat_json = AsyncMock(\n            side_effect=[\n                {\"needs_rewrite\": True, \"rewritten_query\": long_text, \"reason\": \"过长\"},\n                Exception(\"精炼调用失败\"),\n            ]\n        )",
+      "start_line": 441,
+      "end_line": 447
+    },
+    {
+      "path": "tests/unit/test_llm_rewrite.py",
+      "content": "**Testing private function `_parse_rewrite_json` directly** — These 4 tests import and test the private (underscore-prefixed) function `_parse_rewrite_json` directly. This couples the tests to internal implementation details:\n- Renaming `_parse_rewrite_json` (refactoring) will silently break these tests.\n- Changing its signature or return format requires updating multiple tests.\n- Private functions are conventionally not part of the public contract and may change without notice.\n\n**Suggestion:** Consider testing parsing behavior through the public `rewrite()` method instead, using `FakeLLMProvider` to control the JSON response. This would make tests more robust against internal refactoring. For cases where direct parser testing is truly needed (e.g., complex regex edge cases), consider extracting it as a public helper function or documenting the rationale.",
+      "existing_code": "        from ragnexus.adapters.rewrite.llm import _parse_rewrite_json\n\n        raw = '```json\\n{\"needs_rewrite\": true, \"rewritten_query\": \"测试改写\", \"reason\": \"OK\"}\\n```'\n        result = _parse_rewrite_json(raw)",
+      "start_line": 231,
+      "end_line": 234
+    },
+    {
+      "path": "tests/unit/test_rewrite_port.py",
+      "content": "Missing type annotation assertions for `query` and `kb_ids` parameters. The test only checks parameter names and keyword-only status but does not verify that `query: str` and `kb_ids: list[str]` as defined in the protocol. This means the test would pass even if the protocol signature changed to unbounded types (e.g., `query: Any`). Consider adding annotation checks.",
+      "suggestion_code": "        for p in params[1:]:  # 跳过 self\n            assert (\n                p.kind == inspect.Parameter.KEYWORD_ONLY\n            ), f\"{p.name} 应为 KEYWORD_ONLY，实际: {p.kind}\"\n        # 验证参数类型注解\n        assert params[1].annotation is str, f\"query 类型应为 str，实际: {params[1].annotation}\"\n        assert params[2].annotation == list[str], f\"kb_ids 类型应为 list[str]，实际: {params[2].annotation}\"",
+      "existing_code": "        for p in params[1:]:  # 跳过 self\n            assert (\n                p.kind == inspect.Parameter.KEYWORD_ONLY\n            ), f\"{p.name} 应为 KEYWORD_ONLY，实际: {p.kind}\"",
+      "start_line": 72,
+      "end_line": 75
+    },
+    {
+      "path": "tests/unit/test_rewrite_port.py",
+      "content": "Missing parameter kind assertion for `kb_id`. The protocol defines `clear_cache(self, kb_id: str)` where `kb_id` is positional-or-keyword (no `*` or `/`). The test checks name, type annotation, and return type, but does not verify the parameter kind. If the signature changed to keyword-only (`self, *, kb_id: str`) or positional-only (`self, kb_id: str, /`), the test would not detect the change.",
+      "suggestion_code": "        assert params[1].name == \"kb_id\"\n        assert params[1].annotation is str\n        assert params[1].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD\n        assert sig.return_annotation is None",
+      "existing_code": "        assert params[1].name == \"kb_id\"\n        assert params[1].annotation is str\n        assert sig.return_annotation is None",
+      "start_line": 91,
+      "end_line": 93
+    },
+    {
+      "path": "tests/unit/test_rewrite_port.py",
+      "content": "Using `asyncio.run()` in a synchronous test is inconsistent with the project's convention. The codebase consistently uses `@pytest.mark.asyncio` and `async def` test methods (see `tests/unit/test_llm_rewrite.py`, `tests/unit/adapters/test_embedder.py`, and many others). `asyncio.run()` will raise `RuntimeError` if called when a running event loop already exists (e.g., when pytest-asyncio is active). Consider refactoring this test to use `@pytest.mark.asyncio` with proper async test methods.",
+      "suggestion_code": "    @pytest.mark.asyncio\n    async def test_minimal_implementation_satisfies_protocol(self) -\u003e None:\n        \"\"\"一个最小实现类应满足 RewritePort 协议结构。\"\"\"\n\n        class _MinimalRewriter:\n            async def rewrite(\n                self,\n                *,\n                query: str,\n                kb_ids: list[str],\n            ) -\u003e RewriteResult:\n                return RewriteResult(\n                    original_query=query,\n                    rewritten_query=query,\n                    needs_rewrite=False,\n                    reason=\"no rewrite needed\",\n                )\n\n            async def clear_cache(self, kb_id: str) -\u003e None:\n                pass\n\n        instance = _MinimalRewriter()\n        result = await instance.rewrite(query=\"什么是 RAG\", kb_ids=[\"kb1\", \"kb2\"])\n        assert result.original_query == \"什么是 RAG\"\n        assert result.rewritten_query == \"什么是 RAG\"\n        assert result.needs_rewrite is False\n        assert result.reason == \"no rewrite needed\"\n        await instance.clear_cache(kb_id=\"kb1\")",
+      "existing_code": "        instance = _MinimalRewriter()\n\n        async def _run_rewrite() -\u003e RewriteResult:\n            return await instance.rewrite(\n                query=\"什么是 RAG\",\n                kb_ids=[\"kb1\", \"kb2\"],\n            )\n\n        result = asyncio.run(_run_rewrite())",
+      "start_line": 121,
+      "end_line": 129
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "change": "comprehensive-test-coverage",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "b9c108b1b5760396a2658c2d931923ad5180c308f56ffabde0ec1a95cbbf8bed",
+  "files": [
+    { "path": "openspec/changes/comprehensive-test-coverage/proposal.md", "sha256": "b4d70119d2d0caed515b2b9df82982c1461500857503098ac2501b865d4c8dae" },
+    { "path": "openspec/changes/comprehensive-test-coverage/design.md", "sha256": "dc9dc0f13f69f7519728bf37fa53bd3afde9f789a9f82ce1c3193b93bf677172" },
+    { "path": "openspec/changes/comprehensive-test-coverage/tasks.md", "sha256": "9b2f67760b43afa15a43e2b1ef64e17935bf2e60eda622f16a18879bfa4f488b" },
+    { "path": "openspec/changes/comprehensive-test-coverage/specs/coverage-config/spec.md", "sha256": "7ccb9cff5784827d2cc8b78b0a06defc14b3fbfc7d815e137295aedd304a39df" },
+    { "path": "openspec/changes/comprehensive-test-coverage/specs/e2e-testing/spec.md", "sha256": "5a79758f398e86c4fa69ab9ab20a46a3d013d2e9abd4676ff9344b413cf6e70c" },
+    { "path": "openspec/changes/comprehensive-test-coverage/specs/failure-mode-testing/spec.md", "sha256": "bb0d2664b1dae6ce5c5cb6c082bace8faaeb7ddb0ca4211470cb7e0a719ee971" },
+    { "path": "openspec/changes/comprehensive-test-coverage/specs/integration-testing/spec.md", "sha256": "5d7d683697528b9f5509652c9c7a4bcadcb7adc408fd9778ce441289a7854b7f" },
+    { "path": "openspec/changes/comprehensive-test-coverage/specs/manual-verification/spec.md", "sha256": "a5075e1ddc330f3fde0675abf4eb05fe8282f75de441552bb3164ee36988727b" }
+  ]
+}
