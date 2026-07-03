@@ -15,7 +15,7 @@ import json
 import math
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ragnexus.adapters.llm.base import LLMProvider
@@ -32,8 +32,10 @@ class CacheEntry:
     """重排缓存条目。
 
     存储一次 LLM 重排的全量结果，包括：
-    - query_embedding: 用于余弦相似度匹配
-    - query_text: 原始 query，用于日志
+    - query_embedding: 改写后 query 的嵌入向量，向后兼容
+    - original_query_embedding: 原始 query 的嵌入向量，优先用于缓存匹配
+    - query_text: 改写后 query，用于日志
+    - original_query_text: 原始 query，用于日志追溯
     - rankings: {chunk_id: rerank_score} 全量打分映射
     - timestamp: 写入时间，用于 TTL 过期
     """
@@ -42,6 +44,8 @@ class CacheEntry:
     query_text: str
     rankings: dict[str, float]
     timestamp: float
+    original_query_embedding: list[float] = field(default_factory=list)
+    original_query_text: str = ""
 
 
 # ============================================================================
@@ -267,7 +271,7 @@ class LLMRerankProvider:
 
         参数:
             query: 用户原始问题
-            query_vector: 查询向量（用于缓存余弦相似度匹配）
+            query_vector: 原始 query 的嵌入向量（用于缓存余弦相似度匹配）
             kb_ids: 检索目标 KB 列表（用于缓存分区）
             chunks: 向量召回的 SearchHit 列表（按 score 降序）
             top_n: 最终返回数
@@ -330,7 +334,11 @@ class LLMRerankProvider:
                 # TTL 过期检查
                 if now - entry.timestamp > self.cache_ttl_seconds:
                     continue
-                sim = _cosine_similarity(query_vector, entry.query_embedding)
+                # 优先用 original_query_embedding 匹配；回退到 query_embedding
+                embedding = entry.original_query_embedding or entry.query_embedding
+                if not embedding:
+                    continue
+                sim = _cosine_similarity(query_vector, embedding)
                 if sim >= self.cache_similarity_threshold and sim > cache_max_sim:
                     cache_max_sim = sim
                     cache_hit_entry = entry
@@ -420,7 +428,9 @@ class LLMRerankProvider:
                     else None
                 )
                 text = orig_chunk.text if orig_chunk else ""
-                preview = _build_content_preview(text, heading, self.cache_preview_max_chars)
+                preview = _build_content_preview(
+                    text, heading, self.cache_preview_max_chars
+                )
                 ref_scores.append(
                     {
                         "chunk_id": cid,
@@ -471,7 +481,9 @@ class LLMRerankProvider:
 
         cache_entry = CacheEntry(
             query_embedding=list(query_vector),
+            original_query_embedding=list(query_vector),
             query_text=query,
+            original_query_text=query,
             rankings=full_rankings,
             timestamp=time.time(),
         )

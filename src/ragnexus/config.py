@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """46 个配置字段，从 .env 加载。"""
+    """51 个配置字段，从 .env 加载。"""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -56,8 +56,9 @@ class Settings(BaseSettings):
 
     # Rerank 配置
     RERANK_ENABLED: bool = False
-    RERANK_CANDIDATE_MULTIPLIER: int = 3
-    RERANK_MIN_CANDIDATES: int = 10
+    # # 废弃: 被 CANDIDATE_K 替代
+    # RERANK_CANDIDATE_MULTIPLIER: int = 3
+    # RERANK_MIN_CANDIDATES: int = 10
     RERANK_MAX_CANDIDATES: int = 20
     RERANK_CHUNK_MAX_CHARS: int = 1000
     RERANK_TEMPERATURE: float = 0.0
@@ -71,6 +72,15 @@ class Settings(BaseSettings):
     REWRITE_CACHE_TTL_SECONDS: int = 300
     REWRITE_CACHE_MAX_ENTRIES: int = 100
     REWRITE_CACHE_SIMILARITY_THRESHOLD: float = 0.95
+
+    # 混合检索配置
+    RETRIEVAL_MODE: str = "hybrid"  # hybrid | vector | bm25
+    ES_ENABLED: bool = False
+    ELASTICSEARCH_URL: str = "http://localhost:9200"
+    ELASTICSEARCH_INDEX: str = "ragnexus_chunks"
+    ELASTICSEARCH_REQUEST_TIMEOUT: float = 10.0
+    CANDIDATE_K: int = 20  # 每路召回候选数
+    RRF_K: int = 60  # RRF 平滑参数
 
 
 @cache

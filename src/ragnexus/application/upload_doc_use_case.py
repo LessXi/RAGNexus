@@ -10,12 +10,14 @@
 7. 分块（注入的 chunker 函数）
 8. 嵌入（EmbedderPort，批次/并发内部处理）
 9. 构造带 common_meta 的 Chunk 列表
-10. 事务性 upsert（store.upsert）
+10. 事务性双写（PG + ES 并发，外部控 commit；es_enabled=False 时仅 PG）
 返回 UploadResult。
 """
 
+import asyncio
 import hashlib
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import logger
@@ -23,9 +25,13 @@ from ragnexus.domain.models import Chunk, UploadResult
 from ragnexus.domain.ports import (
     EmbedderPort,
     KnowledgeBasePort,
+    KeywordSearchPort,
     ParserPort,
     VectorStorePort,
 )
+
+if TYPE_CHECKING:
+    from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 
 
 class UploadDocumentUseCase:
@@ -42,16 +48,21 @@ class UploadDocumentUseCase:
         allowed_exts: tuple[str, ...] = (".md", ".txt"),
         chunk_max_chars: int = 1500,
         chunk_overlap: int = 50,
+        keyword_store: KeywordSearchPort | None = None,
+        es_enabled: bool = False,
     ) -> None:
         self._kb_repo = kb_repo
         self._parser = parser
         self._embedder = embedder
         self._chunker = chunker
         self._store = store
+        self._pg_store: PgVectorStore = store  # type: ignore[assignment]
         self._max_file_size = max_file_size
         self._allowed_exts = allowed_exts
         self._chunk_max_chars = chunk_max_chars
         self._chunk_overlap = chunk_overlap
+        self._keyword_store = keyword_store
+        self._es_enabled = es_enabled
 
     async def execute(
         self,
@@ -168,8 +179,84 @@ class UploadDocumentUseCase:
             for i, cd in enumerate(chunk_dicts)
         ]
 
-        # 10. Transactional write (all-or-nothing)
-        await self._store.upsert(kb_id, chunks)
+        # 10. Dual write: PG + ES 并发，外部控 PG commit
+        if self._es_enabled and self._keyword_store is not None:
+            conn = await self._pg_store.acquire_connection()
+            try:
+                es_task = asyncio.ensure_future(
+                    self._keyword_store.upsert(kb_id, chunks)
+                )
+                pg_task = asyncio.ensure_future(
+                    self._pg_store._upsert_in_transaction(conn, kb_id, chunks)
+                )
+                done, _ = await asyncio.wait(
+                    [es_task, pg_task], return_when=asyncio.ALL_COMPLETED
+                )
+
+                es_ok = not es_task.exception()
+                pg_ok = not pg_task.exception()
+
+                if es_ok and pg_ok:
+                    # 双写成功 → commit PG 事务
+                    await conn.execute("COMMIT")
+                    logger.info(
+                        "",
+                        extra={
+                            "event_type": "BIZ_EVENT",
+                            "event": "keyword_upsert_done",
+                            "kb_id": kb_id,
+                            "doc_id": doc_id,
+                            "chunk_count": len(chunks),
+                        },
+                    )
+                elif not es_ok and not pg_ok:
+                    # 双写均失败 → rollback PG
+                    await conn.execute("ROLLBACK")
+                    raise pg_task.exception()  # type: ignore[misc]
+                elif pg_ok and not es_ok:
+                    # PG 成功但 ES 失败 → rollback PG，传播 ES 异常
+                    await conn.execute("ROLLBACK")
+                    logger.warning(
+                        "",
+                        extra={
+                            "event_type": "BIZ_EVENT",
+                            "event": "keyword_upsert_fail",
+                            "kb_id": kb_id,
+                            "doc_id": doc_id,
+                            "error": str(es_task.exception()),
+                        },
+                    )
+                    raise es_task.exception()  # type: ignore[misc]
+                else:
+                    # PG 失败但 ES 成功 → 清理 ES 孤儿数据，传播 PG 异常
+                    try:
+                        ids = [c.id for c in chunks]
+                        await self._keyword_store.delete(kb_id, ids)
+                        logger.warning(
+                            "",
+                            extra={
+                                "event_type": "BIZ_EVENT",
+                                "event": "es_orphan_cleanup_done",
+                                "kb_id": kb_id,
+                                "chunk_count": len(chunks),
+                            },
+                        )
+                    except Exception as cleanup_err:
+                        logger.error(
+                            "",
+                            extra={
+                                "event_type": "BIZ_EVENT",
+                                "event": "es_orphan_cleanup_fail",
+                                "kb_id": kb_id,
+                                "error": str(cleanup_err),
+                            },
+                        )
+                    await conn.execute("ROLLBACK")
+                    raise pg_task.exception()  # type: ignore[misc]
+            finally:
+                await self._pg_store.pool.release(conn)
+        else:
+            await self._store.upsert(kb_id, chunks)
 
         # BIZ_EVENT: 文档上传成功（用户可感知结果）
         logger.info(

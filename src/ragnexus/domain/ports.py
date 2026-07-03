@@ -72,13 +72,49 @@ class RerankPort(Protocol):
         kb_ids: list[str],
         chunks: list[SearchHit],
         top_n: int,
-    ) -> list[SearchHit]: ...
+    ) -> list[SearchHit]:
+        """对向量召回的候选 chunk 重排序，返回 top_n 结果。
+
+        Args:
+            query: 原始查询字符串（未改写），与 BM25 检索和 LLM 看到的 query 一致。
+            query_vector: embed(原始 query) 的嵌入向量，用于缓存匹配键。
+                注意：不是改写后 query 的向量——缓存必须与原始 query 对齐，
+                因为 BM25 和 LLM 都使用原始 query，改写仅用于向量检索阶段。
+            kb_ids: 目标知识库 ID 列表。
+            chunks: 向量召回返回的候选 chunk 列表。
+            top_n: 最终返回的 chunk 数量。
+
+        Returns:
+            重排后的 list[SearchHit]，score 保持向量原始分不变。
+        """
+        ...
 
     async def clear_cache(self, kb_id: str) -> None:
         """清空指定 KB 的缓存。文档上传后由 composition.py 调用。
 
         NoopRerankProvider 实现为空。
         """
+        ...
+
+
+class KeywordSearchPort(Protocol):
+    """关键词检索端口 — BM25 全文匹配。骨架实现: Elasticsearch。"""
+
+    async def upsert(self, kb_id: str, chunks: list[Chunk]) -> None:
+        """将 chunks 写入关键词索引（BM25），同 chunk_id 覆盖。"""
+        ...
+
+    async def search_by_keyword(
+        self,
+        kb_id: str,
+        query: str,
+        top_k: int,
+    ) -> list[SearchHit]:
+        """BM25 检索，返回带原始 BM25 score 的 SearchHit。"""
+        ...
+
+    async def delete(self, kb_id: str, chunk_ids: list[str]) -> None:
+        """从关键词索引删除指定 chunk。"""
         ...
 
 

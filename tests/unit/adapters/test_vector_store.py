@@ -10,7 +10,11 @@ from ragnexus.domain.models import Chunk, SearchHit
 
 
 class _AcquireCM:
-    """Async context manager simulating ``pool.acquire()``."""
+    """Async context manager simulating ``pool.acquire()``.
+
+    支持 ``async with pool.acquire() as conn:`` 和
+    ``conn = await pool.acquire()`` 两种用法。
+    """
 
     def __init__(self, conn):
         self._conn = conn
@@ -20,6 +24,12 @@ class _AcquireCM:
 
     async def __aexit__(self, *args):
         pass
+
+    def __await__(self):
+        async def _inner():
+            return self._conn
+
+        return _inner().__await__()
 
 
 class _TransactionCM:
@@ -75,6 +85,7 @@ def mock_pool(mock_conn):
     """
     pool = Mock(name="pool")
     pool.acquire.return_value = _AcquireCM(mock_conn)
+    pool.release = AsyncMock(name="release")
     return pool
 
 
@@ -127,6 +138,9 @@ async def test_upsert_new_doc(pg_store, mock_conn, sample_chunks):
     assert json.loads(chunk_calls[0].args[5])["chunk_index"] == 0
     assert chunk_calls[0].args[6] == [0.1, 0.2, 0.3]
 
+    # 4) 事务提交
+    mock_conn.execute.assert_any_await("COMMIT")
+
 
 @pytest.mark.asyncio
 async def test_upsert_duplicate_doc(pg_store, mock_conn, sample_chunks):
@@ -138,7 +152,7 @@ async def test_upsert_duplicate_doc(pg_store, mock_conn, sample_chunks):
 
     assert exc_info.value.code == ErrorCode.RESOURCE_EXISTS.code
     assert exc_info.value.http_status == 409
-    mock_conn.execute.assert_not_called()
+    mock_conn.execute.assert_any_await("ROLLBACK")
 
 
 @pytest.mark.asyncio
@@ -147,7 +161,11 @@ async def test_upsert_race_condition(pg_store, mock_conn, sample_chunks):
     import asyncpg
 
     mock_conn.fetchval.return_value = None  # application-level check passes
-    mock_conn.execute.side_effect = asyncpg.UniqueViolationError("duplicate key value")
+    mock_conn.execute.side_effect = [
+        None,  # BEGIN 成功
+        asyncpg.UniqueViolationError("duplicate key value"),  # INSERT 触发唯一约束冲突
+        None,  # ROLLBACK 成功
+    ]
 
     with pytest.raises(AppError) as exc_info:
         await pg_store.upsert("kb_test", sample_chunks)

@@ -87,16 +87,23 @@ class TestErrorCode:
         + SYSTEM_CASES
     )
 
-    @pytest.mark.parametrize("member,expected_code,expected_http,expected_msg", ALL_CASES)
-    def test_error_code_values(self, member, expected_code, expected_http, expected_msg):
+    @pytest.mark.parametrize(
+        "member,expected_code,expected_http,expected_msg", ALL_CASES
+    )
+    def test_error_code_values(
+        self, member, expected_code, expected_http, expected_msg
+    ):
         """校验每个 ErrorCode 成员的 code、http_status、msg 属性"""
         assert member.code == expected_code, f"{member.name}: code mismatch"
-        assert member.http_status == expected_http, f"{member.name}: http_status mismatch"
+        assert (
+            member.http_status == expected_http
+        ), f"{member.name}: http_status mismatch"
         assert member.msg == expected_msg, f"{member.name}: msg mismatch"
 
     def test_total_count(self):
-        """确认枚举成员总数 —— 33 条，与 spec 完整清单一致（spec 头标 40+、step 4 说 34 条，留意）"""
-        assert len(list(ErrorCode)) == 33
+        assert (
+            len(list(ErrorCode)) == 35
+        )  # 33 原有 + 2 新增 (KEYWORD_UPSERT_FAILED, KEYWORD_DELETE_FAILED)
 
 
 class TestAppError:
@@ -168,5 +175,7 @@ class TestRaiseError:
     def test_raise_error_with_errors_list(self):
         """raise_error 支持 errors 列表"""
         with pytest.raises(AppError) as exc_info:
-            raise_error(ErrorCode.PARAM_ERROR, errors=[{"field": "name", "reason": "必填"}])
+            raise_error(
+                ErrorCode.PARAM_ERROR, errors=[{"field": "name", "reason": "必填"}]
+            )
         assert exc_info.value.errors == [{"field": "name", "reason": "必填"}]

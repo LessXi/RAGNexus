@@ -15,6 +15,7 @@ import asyncpg
 from fastapi import FastAPI
 
 from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
+from ragnexus.adapters.keyword_search.elasticsearch import ESKeywordSearchProvider
 from ragnexus.adapters.http.create_kb_router import create_router as create_kb_router
 from ragnexus.adapters.http.error_handlers import register_error_handlers
 from ragnexus.adapters.http.health_router import create_router as create_health_router
@@ -105,6 +106,7 @@ async def lifespan(app: FastAPI):
     store = None
     embedder = None
     llm_provider = None
+    keyword_store = None
 
     try:
         # --- 1. Vector store (external pool wrapped with LoggedPool) ----------
@@ -214,12 +216,8 @@ async def lifespan(app: FastAPI):
                 cache_ttl_seconds=cfg.RERANK_CACHE_TTL_SECONDS,
                 temperature=cfg.RERANK_TEMPERATURE,
             )
-            candidate_multiplier = cfg.RERANK_CANDIDATE_MULTIPLIER
-            min_candidates = cfg.RERANK_MIN_CANDIDATES
         else:
             reranker = NoopRerankProvider()
-            candidate_multiplier = 1
-            min_candidates = 0
         parser = MarkdownAndTextParser()
 
         # --- Rewrite Provider ---
@@ -246,9 +244,7 @@ async def lifespan(app: FastAPI):
                 await asyncio.sleep(5)
                 from datetime import datetime, timedelta
 
-                _deleted = await log_repo.prune(
-                    datetime.now(UTC) - timedelta(days=30)
-                )
+                _deleted = await log_repo.prune(datetime.now(UTC) - timedelta(days=30))
                 logger.info("清理过期检索日志: %d 条已删除", _deleted)
             except Exception:
                 logger.debug("启动时检索日志清理失败", exc_info=True)
@@ -260,9 +256,7 @@ async def lifespan(app: FastAPI):
             while True:
                 await asyncio.sleep(86400)
                 try:
-                    await log_repo.prune(
-                        datetime.now(UTC) - timedelta(days=30)
-                    )
+                    await log_repo.prune(datetime.now(UTC) - timedelta(days=30))
                 except Exception:
                     logger.error("周期日志清理失败", exc_info=True)
 
@@ -280,6 +274,25 @@ async def lifespan(app: FastAPI):
         # Chunker: pass raw function so use case controls max_chars/overlap
         chunker = heading_aware_split
 
+        # --- Keyword Search Provider (BM25) ---
+        keyword_store = None
+        if cfg.ES_ENABLED:
+            keyword_store = ESKeywordSearchProvider(
+                url=cfg.ELASTICSEARCH_URL,
+                index=cfg.ELASTICSEARCH_INDEX,
+                request_timeout=cfg.ELASTICSEARCH_REQUEST_TIMEOUT,
+            )
+            try:
+                await keyword_store.connect()
+                await keyword_store.ensure_index()
+            except Exception:
+                logger.warning("ES 连接失败，降级为纯向量模式", exc_info=True)
+                try:
+                    await keyword_store.close()
+                except Exception:
+                    pass
+                keyword_store = None
+
         # --- 5. Use cases -----------------------------------------------------
         create_kb_uc = CreateKnowledgeBaseUseCase(kb_repo=kb_repo)
         upload_doc_uc = UploadDocumentUseCase(
@@ -291,6 +304,8 @@ async def lifespan(app: FastAPI):
             max_file_size=cfg.MAX_FILE_SIZE,
             chunk_max_chars=cfg.CHUNK_MAX_CHARS,
             chunk_overlap=cfg.CHUNK_OVERLAP,
+            keyword_store=keyword_store,
+            es_enabled=cfg.ES_ENABLED,
         )
 
         # 包装 upload_doc_uc，成功后清空 rerank 和 rewrite 缓存
@@ -304,8 +319,9 @@ async def lifespan(app: FastAPI):
             log_port=log_repo,
             reranker=reranker,
             rewriter=rewriter,
-            candidate_multiplier=candidate_multiplier,
-            min_candidates=min_candidates,
+            keyword_store=keyword_store,
+            candidate_k=cfg.CANDIDATE_K,
+            retrieval_mode=cfg.RETRIEVAL_MODE,
         )
         # --- 6. Routers -------------------------------------------------------
         app.include_router(create_kb_router(create_kb_uc))
@@ -327,6 +343,13 @@ async def lifespan(app: FastAPI):
         if cleanup_tasks:
             for t in cleanup_tasks:
                 t.cancel()
+
+        # 关闭 keyword store (ES)
+        if keyword_store is not None:
+            try:
+                await keyword_store.close()
+            except Exception:
+                logger.debug("keyword_store 关闭失败", exc_info=True)
 
         # 逆序关闭生命周期资源（llm → embedder → repo_pool → store_pool → log_listener）
         await _shutdown_resources(

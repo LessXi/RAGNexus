@@ -33,6 +33,11 @@ def mock_log_port():
 
 
 @pytest.fixture
+def mock_keyword_store():
+    return AsyncMock()
+
+
+@pytest.fixture
 def mock_reranker():
     """RerankPort mock — 默认直通返回，各测试可按需覆盖 return_value。"""
     m = AsyncMock()
@@ -58,7 +63,13 @@ def mock_rewriter():
 
 @pytest.fixture
 def use_case(
-    mock_kb_repo, mock_embedder, mock_store, mock_log_port, mock_reranker, mock_rewriter
+    mock_kb_repo,
+    mock_embedder,
+    mock_store,
+    mock_keyword_store,
+    mock_log_port,
+    mock_reranker,
+    mock_rewriter,
 ):
     return RetrieveUseCase(
         kb_repo=mock_kb_repo,
@@ -67,6 +78,7 @@ def use_case(
         log_port=mock_log_port,
         reranker=mock_reranker,
         rewriter=mock_rewriter,
+        keyword_store=mock_keyword_store,
     )
 
 
@@ -107,7 +119,7 @@ async def test_retrieve_success(
     top_k = 5
 
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
+    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = sample_hits
 
@@ -117,19 +129,18 @@ async def test_retrieve_success(
     assert all(isinstance(h, SearchHit) for h in result)
     assert all(isinstance(h.score, float) for h in result)
 
-    mock_embedder.embed.assert_awaited_once_with(["test query"])
-    # 默认 multiplier=1, min=0 → candidate_k == top_k
-    candidate_k = max(top_k * 1, top_k + 0)
-    mock_store.search_by_vector.assert_awaited_once_with(
-        [0.1, 0.2, 0.3], candidate_k, kb_ids
-    )
-    mock_reranker.rerank.assert_awaited_once_with(
-        query="test query",
-        query_vector=[0.1, 0.2, 0.3],
-        kb_ids=kb_ids,
-        chunks=sample_hits,
-        top_n=top_k,
-    )
+    mock_embedder.embed.assert_awaited_once_with(["test query", "test query"])
+    # 默认 candidate_k=20
+    mock_store.search_by_vector.assert_awaited_once_with([0.1, 0.2, 0.3], 20, kb_ids)
+    mock_reranker.rerank.assert_awaited_once()
+    rerank_kwargs = mock_reranker.rerank.await_args.kwargs
+    assert rerank_kwargs["query"] == "test query"
+    assert rerank_kwargs["query_vector"] == [0.4, 0.5, 0.6]
+    assert rerank_kwargs["kb_ids"] == kb_ids
+    assert [h.chunk_id for h in rerank_kwargs["chunks"]] == [
+        h.chunk_id for h in sample_hits
+    ]
+    assert rerank_kwargs["top_n"] == top_k
     mock_kb_repo.exists.assert_awaited_once_with("kb_test")
 
     # log_port.log should have been called via create_task (fire-and-forget)
@@ -154,7 +165,7 @@ async def test_retrieve_logs_biz_event(
     import asyncio
 
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
+    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = sample_hits
 
@@ -162,14 +173,18 @@ async def test_retrieve_logs_biz_event(
         await use_case.execute(query="test query", kb_ids=["kb_test"], top_k=5)
         await asyncio.sleep(0.01)  # yield to let the fire-and-forget task run
 
-        # 找到 BIZ_EVENT 调用
+        # 找到 BIZ_EVENT 调用（hybrid 模式下有 keyword_search_done + retrieve_completed 两个）
         biz_calls = [
             call
             for call in mock_info.call_args_list
             if call.kwargs.get("extra", {}).get("event_type") == "BIZ_EVENT"
         ]
-        assert len(biz_calls) == 1
-        extra = biz_calls[0].kwargs["extra"]
+        # 过滤出 retrieve_completed
+        rc_calls = [
+            c for c in biz_calls if c.kwargs["extra"]["event"] == "retrieve_completed"
+        ]
+        assert len(rc_calls) == 1
+        extra = rc_calls[0].kwargs["extra"]
         assert extra["event"] == "retrieve_completed"
         assert extra["kb_ids"] == ["kb_test"]
         assert extra["top_k"] == 5
@@ -294,7 +309,7 @@ async def test_retrieve_log_fire_and_forget(
     sample_hits,
 ):
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
+    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = sample_hits
     mock_log_port.log.side_effect = RuntimeError("log failure")
@@ -317,16 +332,17 @@ async def test_retrieve_log_fire_and_forget(
 
 
 @pytest.mark.asyncio
-async def test_candidate_k_uses_multiplier(
+async def test_candidate_k_passed_to_vector_search(
     mock_kb_repo,
     mock_embedder,
     mock_store,
+    mock_keyword_store,
     mock_log_port,
     mock_reranker,
     mock_rewriter,
     sample_hits,
 ):
-    """candidate_multiplier=3, min_candidates=0 → candidate_k = top_k * 3。"""
+    """candidate_k=15 时，search_by_vector 收到 candidate_k=15。"""
     uc = RetrieveUseCase(
         kb_repo=mock_kb_repo,
         embedder=mock_embedder,
@@ -334,34 +350,33 @@ async def test_candidate_k_uses_multiplier(
         log_port=mock_log_port,
         reranker=mock_reranker,
         rewriter=mock_rewriter,
-        candidate_multiplier=3,
-        min_candidates=0,
+        keyword_store=mock_keyword_store,
+        candidate_k=15,
     )
-    top_k = 5
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
+    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = sample_hits[:2]
 
-    await uc.execute(query="q", kb_ids=["kb_test"], top_k=top_k)
+    await uc.execute(query="q", kb_ids=["kb_test"], top_k=5)
 
-    # candidate_k = max(5*3, 5+0) = 15
     mock_store.search_by_vector.assert_awaited_once_with(
         [0.1, 0.2, 0.3], 15, ["kb_test"]
     )
 
 
 @pytest.mark.asyncio
-async def test_candidate_k_uses_min_candidates(
+async def test_candidate_k_passed_to_keyword_search(
     mock_kb_repo,
     mock_embedder,
     mock_store,
+    mock_keyword_store,
     mock_log_port,
     mock_reranker,
     mock_rewriter,
     sample_hits,
 ):
-    """multiplier=1, min_candidates=10 → candidate_k = top_k + 10。"""
+    """candidate_k=25 时，BM25 search 也收到 candidate_k=25。"""
     uc = RetrieveUseCase(
         kb_repo=mock_kb_repo,
         embedder=mock_embedder,
@@ -369,56 +384,18 @@ async def test_candidate_k_uses_min_candidates(
         log_port=mock_log_port,
         reranker=mock_reranker,
         rewriter=mock_rewriter,
-        candidate_multiplier=1,
-        min_candidates=10,
+        keyword_store=mock_keyword_store,
+        candidate_k=25,
     )
-    top_k = 5
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
+    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
     mock_store.search_by_vector.return_value = sample_hits
+    mock_keyword_store.search_by_keyword.return_value = []
     mock_reranker.rerank.return_value = sample_hits[:2]
 
-    await uc.execute(query="q", kb_ids=["kb_test"], top_k=top_k)
+    await uc.execute(query="q", kb_ids=["kb_test"], top_k=5)
 
-    # candidate_k = max(5*1, 5+10) = 15
-    mock_store.search_by_vector.assert_awaited_once_with(
-        [0.1, 0.2, 0.3], 15, ["kb_test"]
-    )
-
-
-@pytest.mark.asyncio
-async def test_candidate_k_takes_max(
-    mock_kb_repo,
-    mock_embedder,
-    mock_store,
-    mock_log_port,
-    mock_reranker,
-    mock_rewriter,
-    sample_hits,
-):
-    """multiplier=2 给出 10，min_candidates=2 给出 7，取大者 10。"""
-    uc = RetrieveUseCase(
-        kb_repo=mock_kb_repo,
-        embedder=mock_embedder,
-        store=mock_store,
-        log_port=mock_log_port,
-        reranker=mock_reranker,
-        rewriter=mock_rewriter,
-        candidate_multiplier=2,
-        min_candidates=2,
-    )
-    top_k = 5
-    mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
-    mock_store.search_by_vector.return_value = sample_hits
-    mock_reranker.rerank.return_value = sample_hits[:2]
-
-    await uc.execute(query="q", kb_ids=["kb_test"], top_k=top_k)
-
-    # candidate_k = max(5*2, 5+2) = 10
-    mock_store.search_by_vector.assert_awaited_once_with(
-        [0.1, 0.2, 0.3], 10, ["kb_test"]
-    )
+    mock_keyword_store.search_by_keyword.assert_awaited_once_with("kb_test", "q", 25)
 
 
 @pytest.mark.asyncio
@@ -426,6 +403,7 @@ async def test_rerank_called_with_correct_kwargs(
     mock_kb_repo,
     mock_embedder,
     mock_store,
+    mock_keyword_store,
     mock_log_port,
     mock_reranker,
     mock_rewriter,
@@ -439,30 +417,35 @@ async def test_rerank_called_with_correct_kwargs(
         log_port=mock_log_port,
         reranker=mock_reranker,
         rewriter=mock_rewriter,
+        keyword_store=mock_keyword_store,
     )
     top_k = 3
     query = "什么是 RAG？"
     kb_ids = ["kb_a", "kb_b"]
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.5, 0.6]]
+    mock_embedder.embed.return_value = [[0.5, 0.6], [0.7, 0.8]]
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = sample_hits[:1]
 
     await uc.execute(query=query, kb_ids=kb_ids, top_k=top_k)
 
-    mock_reranker.rerank.assert_awaited_once_with(
-        query=query,
-        query_vector=[0.5, 0.6],
-        kb_ids=kb_ids,
-        chunks=sample_hits,
-        top_n=top_k,
-    )
+    mock_reranker.rerank.assert_awaited_once()
+    rerank_kwargs = mock_reranker.rerank.await_args.kwargs
+    assert rerank_kwargs["query"] == query
+    assert rerank_kwargs["query_vector"] == [0.7, 0.8]
+    assert rerank_kwargs["kb_ids"] == kb_ids
+    assert [h.chunk_id for h in rerank_kwargs["chunks"]] == [
+        h.chunk_id for h in sample_hits
+    ]
+    assert rerank_kwargs["top_n"] == top_k
 
 
+@pytest.mark.asyncio
 async def test_rerank_result_is_returned(
     mock_kb_repo,
     mock_embedder,
     mock_store,
+    mock_keyword_store,
     mock_log_port,
     mock_reranker,
     mock_rewriter,
@@ -476,11 +459,12 @@ async def test_rerank_result_is_returned(
         log_port=mock_log_port,
         reranker=mock_reranker,
         rewriter=mock_rewriter,
+        keyword_store=mock_keyword_store,
     )
     # 构造一个与向量召回不同的 rerank 返回（顺序或内容不同）
     reranked = [sample_hits[1], sample_hits[0]]  # 顺序反转
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.1, 0.2]]
+    mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = reranked
 
@@ -496,6 +480,7 @@ async def test_noop_rerank_integration(
     mock_kb_repo,
     mock_embedder,
     mock_store,
+    mock_keyword_store,
     mock_log_port,
     sample_hits,
 ):
@@ -507,17 +492,18 @@ async def test_noop_rerank_integration(
         log_port=mock_log_port,
         reranker=NoopRerankProvider(),
         rewriter=NoopRewriteProvider(),
+        keyword_store=mock_keyword_store,
     )
     top_k = 1
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.1, 0.2]]
+    mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
     mock_store.search_by_vector.return_value = sample_hits  # 2 条
 
     result = await uc.execute(query="q", kb_ids=["kb_test"], top_k=top_k)
 
     # NoopRerankProvider 返回 chunks[:top_n]，即只保留前 top_k 条
     assert len(result) == 1
-    assert result[0] == sample_hits[0]
+    assert result[0].chunk_id == sample_hits[0].chunk_id
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -535,7 +521,7 @@ async def test_rewriter_called_before_embed(
 ):
     """rewriter.rewrite 在 embedder.embed 之前调用。"""
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.1, 0.2]]
+    mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
     mock_store.search_by_vector.return_value = []
 
     await use_case.execute(query="test query", kb_ids=["kb1"], top_k=3)
@@ -553,7 +539,7 @@ async def test_rewritten_query_used_for_embed(
 ):
     """rewrite 后 embed 使用 rewritten_query，而非原始 query。"""
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.1, 0.2]]
+    mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
     mock_store.search_by_vector.return_value = []
 
     # 覆写 mock_rewriter，返回不同改写结果
@@ -567,8 +553,10 @@ async def test_rewritten_query_used_for_embed(
 
     await use_case.execute(query="hello world", kb_ids=["kb1"], top_k=3)
 
-    # embed 用改写后的 query
-    mock_embedder.embed.assert_awaited_once_with(["hello world technical definition"])
+    # embed 用改写后的 query（第一个）+ 原始 query（第二个）
+    mock_embedder.embed.assert_awaited_once_with(
+        ["hello world technical definition", "hello world"]
+    )
 
 
 @pytest.mark.asyncio
@@ -580,9 +568,12 @@ async def test_rerank_uses_original_query_rewritten_vector(
     mock_reranker,
     mock_rewriter,
 ):
-    """rerank 用原始 query 做相关性判断，query_vector 用改写后的向量。"""
+    """rerank 用原始 query 做相关性判断，query_vector 用原始 query 的 embedding。"""
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.9, 0.1]]
+    mock_embedder.embed.return_value = [
+        [0.9, 0.1],
+        [0.2, 0.3],
+    ]  # [改写后向量, 原始向量]
     mock_store.search_by_vector.return_value = []
     mock_reranker.rerank.return_value = []
 
@@ -601,8 +592,8 @@ async def test_rerank_uses_original_query_rewritten_vector(
     mock_reranker.rerank.assert_awaited_once()
     rerank_kwargs = mock_reranker.rerank.call_args.kwargs
     assert rerank_kwargs["query"] == "what is RAG"
-    # query_vector 是改写后嵌入的向量
-    assert rerank_kwargs["query_vector"] == [0.9, 0.1]
+    # query_vector 现在是原始 query 的 embedding（第二个向量），用于缓存匹配
+    assert rerank_kwargs["query_vector"] == [0.2, 0.3]
 
 
 @pytest.mark.asyncio
@@ -610,6 +601,7 @@ async def test_noop_rewrite_integration(
     mock_kb_repo,
     mock_embedder,
     mock_store,
+    mock_keyword_store,
     mock_log_port,
     mock_reranker,
     sample_hits,
@@ -622,19 +614,20 @@ async def test_noop_rewrite_integration(
         log_port=mock_log_port,
         reranker=mock_reranker,
         rewriter=NoopRewriteProvider(),
+        keyword_store=mock_keyword_store,
     )
     query = "test query"
     kb_ids = ["kb_test"]
     top_k = 2
     mock_kb_repo.exists.return_value = True
-    mock_embedder.embed.return_value = [[0.5, 0.5]]
+    mock_embedder.embed.return_value = [[0.5, 0.5], [0.6, 0.6]]
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = sample_hits[:top_k]
 
     result = await uc.execute(query=query, kb_ids=kb_ids, top_k=top_k)
 
-    # NoopRewriteProvider 直通：embed 用原始 query
-    mock_embedder.embed.assert_awaited_once_with([query])
+    # NoopRewriteProvider 直通：embed 用原始 query（两次，改写后和原始相同）
+    mock_embedder.embed.assert_awaited_once_with([query, query])
     # 其他行为不变
     mock_reranker.rerank.assert_awaited_once()
     mock_store.search_by_vector.assert_awaited_once()

@@ -134,7 +134,9 @@ class ContextAdapter(logging.LoggerAdapter):
                 if filename == cls._OUR_FILE or _is_stdlib_logging(filename):
                     f = f.f_back
                     continue
-                extra["_caller_module"] = os.path.splitext(os.path.basename(filename))[0]
+                extra["_caller_module"] = os.path.splitext(os.path.basename(filename))[
+                    0
+                ]
                 extra["_caller_func"] = f.f_code.co_name
                 extra["_caller_lineno"] = f.f_lineno
                 return
@@ -445,7 +447,17 @@ class LoggedPool:
         """透传 acquire()，返回底层 pool 的 async context manager。"""
         return self._pool.acquire()
 
-    async def _log(self, op: str, query: str, method: Any, *args: Any, **kwargs: Any) -> Any:
+    def release(self, connection: Any) -> None:
+        """透传 release()，释放连接回池。"""
+        return self._pool.release(connection)
+
+    async def close(self) -> None:
+        """透传 close()，关闭连接池。"""
+        return await self._pool.close()
+
+    async def _log(
+        self, op: str, query: str, method: Any, *args: Any, **kwargs: Any
+    ) -> Any:
         start = time.monotonic()
         try:
             result = await method(query, *args, **kwargs)

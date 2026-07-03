@@ -50,8 +50,6 @@ def test_defaults(monkeypatch):
 
     # ---- Rerank 配置 ----
     assert s.RERANK_ENABLED is False
-    assert s.RERANK_CANDIDATE_MULTIPLIER == 3
-    assert s.RERANK_MIN_CANDIDATES == 10
     assert s.RERANK_MAX_CANDIDATES == 20
     assert s.RERANK_CHUNK_MAX_CHARS == 1000
     assert s.RERANK_TEMPERATURE == 0.0

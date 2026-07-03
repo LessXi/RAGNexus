@@ -67,6 +67,10 @@ class ErrorCode(IntEnum):
     DB_QUERY_TIMEOUT = (30003, 504, "数据库查询超时")
     DATA_DUPLICATE = (30004, 409, "数据已存在")
 
+    # 关键词检索
+    KEYWORD_UPSERT_FAILED = (30005, 500, "关键词索引写入失败")
+    KEYWORD_DELETE_FAILED = (30006, 500, "关键词索引删除失败")
+
     # 模型调用 (40000~40999)
     MODEL_ERROR = (40000, 502, "大模型调用失败")
     MODEL_TIMEOUT = (40001, 504, "大模型响应超时")
@@ -81,7 +85,9 @@ class ErrorCode(IntEnum):
     CONFIG_ERROR = (50001, 500, "服务配置错误")
     SYSTEM_BUSY = (50002, 503, "系统繁忙，请稍后再试")
 
-    def __new__(cls, code: int, http_status: int, msg: str) -> ErrorCode:  # noqa: PYI034
+    def __new__(
+        cls, code: int, http_status: int, msg: str
+    ) -> ErrorCode:  # noqa: PYI034
         obj = int.__new__(cls, code)
         obj._value_ = code
         object.__setattr__(obj, "_http_status", http_status)

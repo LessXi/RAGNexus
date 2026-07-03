@@ -66,80 +66,113 @@ class PgVectorStore:
         if self._owns_pool and self.pool is not None:
             await self.pool.close()
 
-    async def upsert(self, kb_id: str, chunks: list[Chunk]) -> None:
-        """在单事务中插入或拒绝 chunk。
+    async def acquire_connection(self) -> asyncpg.Connection:
+        """从连接池获取一个连接。
+
+        Returns:
+            asyncpg.Connection: 从池中取出的原始连接。
+        """
+        assert self.pool is not None, "调用 connect() 先"
+        return await self.pool.acquire()
+
+    async def _upsert_in_transaction(
+        self, conn: asyncpg.Connection, kb_id: str, chunks: list[Chunk]
+    ) -> None:
+        """在已有连接上开启事务并执行 upsert 核心逻辑。
+
+        不提交事务 — 由调用方决定 commit 或 rollback。
 
         当存在相同 ``doc_id`` 的 chunk 时抛出 ``AppError(ErrorCode.RESOURCE_EXISTS)``。
         """
         if not chunks:
             return
-        assert self.pool is not None, "call connect() first"
         doc_id = chunks[0].doc_id
-        async with self.pool.acquire() as conn, conn.transaction():
-            await register_vector(
-                conn
-            )  # 注册 pgvector 编码器（external_pool 场景必需）
-            # 1. Deduplicate check (application-level guard + UNIQUE index)
-            exists = await conn.fetchval(
-                "SELECT 1 FROM chunks WHERE doc_id = $1 LIMIT 1",
-                doc_id,
+
+        # 注册 pgvector 编码器（external_pool 场景必需）
+        await register_vector(conn)
+
+        # 开启事务（在重复检查前开启，确保异常时调用方可 ROLLBACK）
+        await conn.execute("BEGIN")
+
+        # 1. Deduplicate check（应用层守卫 + UNIQUE 索引）
+        exists = await conn.fetchval(
+            "SELECT 1 FROM chunks WHERE doc_id = $1 LIMIT 1",
+            doc_id,
+        )
+        if exists:
+            raise AppError(
+                ErrorCode.RESOURCE_EXISTS,
+                f"doc_id={doc_id} 已存在",
+                errors=[
+                    {
+                        "field": "doc_id",
+                        "reason": f"{doc_id} 已存在",
+                    }
+                ],
             )
-            if exists:
-                raise AppError(
-                    ErrorCode.RESOURCE_EXISTS,
-                    f"doc_id={doc_id} 已存在",
-                    errors=[
-                        {
-                            "field": "doc_id",
-                            "reason": f"{doc_id} 已存在",
-                        }
-                    ],
-                )
 
-            try:
-                # 2. Insert document metadata row
-                first = chunks[0]
+        try:
+            # 2. 插入文档元数据行
+            first = chunks[0]
+            await conn.execute(
+                """INSERT INTO documents
+                       (doc_id, kb_id, filename, file_hash,
+                        file_size, content_type, chunk_count)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7)
+                       ON CONFLICT (doc_id) DO NOTHING""",
+                first.doc_id,
+                first.kb_id,
+                first.metadata.get("filename", ""),
+                first.metadata.get("file_hash", ""),
+                first.metadata.get("file_size", 0),
+                first.metadata.get("content_type"),
+                len(chunks),
+            )
+
+            # 3. 逐条插入 chunks
+            # 使用逐条 execute 而非 executemany：executemany 的二进制协议
+            # 无法正确序列化 list[float] → pgvector 类型，而单条 execute 可以
+            for c in chunks:
                 await conn.execute(
-                    """INSERT INTO documents
-                           (doc_id, kb_id, filename, file_hash,
-                            file_size, content_type, chunk_count)
-                           VALUES ($1, $2, $3, $4, $5, $6, $7)
-                           ON CONFLICT (doc_id) DO NOTHING""",
-                    first.doc_id,
-                    first.kb_id,
-                    first.metadata.get("filename", ""),
-                    first.metadata.get("file_hash", ""),
-                    first.metadata.get("file_size", 0),
-                    first.metadata.get("content_type"),
-                    len(chunks),
+                    """INSERT INTO chunks
+                           (id, kb_id, doc_id, text, metadata, embedding)
+                           VALUES ($1, $2, $3, $4, $5, $6)""",
+                    c.id,
+                    c.kb_id,
+                    c.doc_id,
+                    c.text,
+                    json.dumps(c.metadata),
+                    c.vector,
                 )
+        except asyncpg.UniqueViolationError as e:
+            raise AppError(
+                ErrorCode.RESOURCE_EXISTS,
+                f"doc_id={doc_id} 已存在",
+                errors=[
+                    {
+                        "field": "doc_id",
+                        "reason": f"{doc_id} 已存在",
+                    }
+                ],
+            ) from e
 
-                # 3. Batch insert chunks
-                # 使用逐条 execute 而非 executemany：executemany 的二进制协议
-                # 无法正确序列化 list[float] → pgvector 类型，而单条 execute 可以
-                for c in chunks:
-                    await conn.execute(
-                        """INSERT INTO chunks
-                               (id, kb_id, doc_id, text, metadata, embedding)
-                               VALUES ($1, $2, $3, $4, $5, $6)""",
-                        c.id,
-                        c.kb_id,
-                        c.doc_id,
-                        c.text,
-                        json.dumps(c.metadata),
-                        c.vector,
-                    )
-            except asyncpg.UniqueViolationError as e:
-                raise AppError(
-                    ErrorCode.RESOURCE_EXISTS,
-                    f"doc_id={doc_id} 已存在",
-                    errors=[
-                        {
-                            "field": "doc_id",
-                            "reason": f"{doc_id} 已存在",
-                        }
-                    ],
-                ) from e
+    async def upsert(self, kb_id: str, chunks: list[Chunk]) -> None:
+        """在单事务中插入或更新 chunk（便捷方法）。
+
+        内部管理连接获取/释放和事务提交/回滚。
+        当存在相同 ``doc_id`` 的 chunk 时抛出 ``AppError(ErrorCode.RESOURCE_EXISTS)``。
+        """
+        if not chunks:
+            return
+        conn = await self.acquire_connection()
+        try:
+            await self._upsert_in_transaction(conn, kb_id, chunks)
+            await conn.execute("COMMIT")
+        except Exception:
+            await conn.execute("ROLLBACK")
+            raise
+        finally:
+            await self.pool.release(conn)
 
     async def search_by_vector(
         self,
