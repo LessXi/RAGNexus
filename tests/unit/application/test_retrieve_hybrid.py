@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
-from ragnexus.domain.models import SearchHit
+from ragnexus.domain.models import RetrieveResult, SearchHit
 from ragnexus.domain.ports import RewriteResult
 
 
@@ -171,7 +171,7 @@ async def test_hybrid_mode(
     rerank_kwargs = mock_reranker.rerank.await_args.kwargs
     assert rerank_kwargs["query"] == "test query"
     assert rerank_kwargs["query_vector"] == [0.4, 0.5, 0.6]
-    assert rerank_kwargs["top_n"] == 3
+    assert rerank_kwargs["top_n"] == 5  # 默认 rerank_top_n=5
 
     import asyncio
 
@@ -208,7 +208,7 @@ async def test_vector_only_mode(
     assert len(received_chunks) == 3
     assert [h.chunk_id for h in received_chunks] == [h.chunk_id for h in vec_hits]
 
-    assert len(result) == 2
+    assert len(result.hits) == 3  # rerank_top_n=5, 全部 3 条保留
 
 
 @pytest.mark.asyncio
@@ -241,7 +241,7 @@ async def test_bm25_only_mode(
     assert len(received_chunks) == 3
     assert [h.chunk_id for h in received_chunks] == [h.chunk_id for h in kw_hits]
 
-    assert len(result) == 2
+    assert len(result.hits) == 3  # rerank_top_n=5, 全部 3 条保留
 
 
 @pytest.mark.asyncio
@@ -272,7 +272,7 @@ async def test_keyword_fallback(
     received_chunks = mock_reranker.rerank.await_args.kwargs["chunks"]
     assert len(received_chunks) == 3
 
-    assert len(result) == 2
+    assert len(result.hits) == 3  # rerank_top_n=5, 全部 3 条保留
 
 
 @pytest.mark.asyncio
@@ -294,4 +294,4 @@ async def test_keyword_search_only_fallback(
     result = await use_case.execute(query="test query", kb_ids=["kb1"], top_k=2)
 
     # 验证：无崩溃，返回空列表
-    assert result == []
+    assert result.hits == []

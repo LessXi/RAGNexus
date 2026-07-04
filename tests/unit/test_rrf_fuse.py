@@ -10,7 +10,11 @@ import pytest
 from ragnexus.domain.models import SearchHit
 
 
-def _make_hit(chunk_id: str, score: float = 0.9) -> SearchHit:
+def _make_hit(
+    chunk_id: str,
+    score: float = 0.9,
+    metadata: dict | None = None,
+) -> SearchHit:
     """创建测试用 SearchHit 的工厂函数。"""
     return SearchHit(
         chunk_id=chunk_id,
@@ -18,7 +22,7 @@ def _make_hit(chunk_id: str, score: float = 0.9) -> SearchHit:
         doc_id=f"doc_{chunk_id}",
         score=score,
         text=f"content of {chunk_id}",
-        metadata={},
+        metadata=metadata if metadata is not None else {},
     )
 
 
@@ -330,3 +334,99 @@ class TestRRFFuseEdgeCases:
         # 输出是新对象，score 已重算
         assert result[0] is not original
         assert result[0].score != 0.95
+
+
+class TestRRFFuseMetadataMerging:
+    """元数据合并 — 验证 _merge_metadata 两路分数保留行为。"""
+
+    def test_vector_only_hit_preserves_metadata(
+        self,
+    ) -> None:
+        """仅出现在向量路的结果保留原始 metadata（含 _vector_score）。"""
+        from ragnexus.domain.retrieval.fusion import rrf_fuse
+
+        vector_hits = [
+            _make_hit("chunk_a", metadata={"_vector_score": 0.95, "heading": "简介"})
+        ]
+        kw_hits: list = []
+
+        result = rrf_fuse(vector_hits, kw_hits, k=60)
+
+        assert len(result) == 1
+        assert result[0].metadata["_vector_score"] == 0.95
+        assert result[0].metadata["heading"] == "简介"
+        # 不应出现 _bm25_score（keyword 路无此 chunk）
+        assert "_bm25_score" not in result[0].metadata
+
+    def test_keyword_only_hit_preserves_metadata(
+        self,
+    ) -> None:
+        """仅出现在关键词路的结果保留原始 metadata（含 _bm25_score）。"""
+        from ragnexus.domain.retrieval.fusion import rrf_fuse
+
+        vector_hits: list = []
+        kw_hits = [
+            _make_hit("chunk_x", metadata={"_bm25_score": 12.5, "source": "title"})
+        ]
+
+        result = rrf_fuse(vector_hits, kw_hits, k=60)
+
+        assert len(result) == 1
+        assert result[0].metadata["_bm25_score"] == 12.5
+        assert result[0].metadata["source"] == "title"
+        # 不应出现 _vector_score（vector 路无此 chunk）
+        assert "_vector_score" not in result[0].metadata
+
+    def test_shared_chunk_merges_both_scores(
+        self,
+    ) -> None:
+        """共享 chunk 合并 metadata，同时保留 _vector_score 和 _bm25_score。"""
+        from ragnexus.domain.retrieval.fusion import rrf_fuse
+
+        vector_hits = [
+            _make_hit(
+                "chunk_shared", metadata={"_vector_score": 0.93, "heading": "概述"}
+            )
+        ]
+        kw_hits = [
+            _make_hit("chunk_shared", metadata={"_bm25_score": 8.2, "heading": "摘要"})
+        ]
+
+        result = rrf_fuse(vector_hits, kw_hits, k=60)
+
+        assert len(result) == 1
+        meta = result[0].metadata
+        # 两路分数均应保留
+        assert meta["_vector_score"] == 0.93
+        assert meta["_bm25_score"] == 8.2
+        # 向量路的非下划线字段应覆盖关键词路
+        assert meta["heading"] == "概述"
+
+    def test_vector_non_underscore_fields_override_keyword(
+        self,
+    ) -> None:
+        """向量路的非下划线字段优先级高于关键词路。"""
+        from ragnexus.domain.retrieval.fusion import rrf_fuse
+
+        vector_hits = [
+            _make_hit(
+                "chunk_m",
+                metadata={"_vector_score": 0.99, "filename": "doc_a.pdf", "page": 3},
+            )
+        ]
+        kw_hits = [
+            _make_hit(
+                "chunk_m",
+                metadata={"_bm25_score": 15.0, "filename": "doc_b.pdf", "page": 5},
+            )
+        ]
+
+        result = rrf_fuse(vector_hits, kw_hits, k=60)
+
+        assert len(result) == 1
+        meta = result[0].metadata
+        assert meta["_vector_score"] == 0.99
+        assert meta["_bm25_score"] == 15.0
+        # 向量路非下划线字段覆盖关键词路
+        assert meta["filename"] == "doc_a.pdf"
+        assert meta["page"] == 3

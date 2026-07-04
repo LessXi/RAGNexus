@@ -34,6 +34,7 @@ class TestCreate:
             "id": "kb_abc123",
             "name": "My KB",
             "created_at": now,
+            "tenant_id": "test",
         }
 
         result = await repo.create(name="My KB", name_key="my kb")
@@ -47,7 +48,9 @@ class TestCreate:
     @pytest.mark.asyncio
     async def test_create_duplicate_name(self, repo, mock_pool):
         """create() should raise ConflictError when name_key violates UNIQUE."""
-        mock_pool.fetchrow.side_effect = asyncpg.UniqueViolationError("duplicate key value")
+        mock_pool.fetchrow.side_effect = asyncpg.UniqueViolationError(
+            "duplicate key value"
+        )
 
         with pytest.raises(AppError) as exc_info:
             await repo.create(name="Dup", name_key="dup")

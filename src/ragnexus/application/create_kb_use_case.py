@@ -12,7 +12,7 @@ class CreateKnowledgeBaseUseCase:
     def __init__(self, kb_repo: KnowledgeBasePort) -> None:
         self._kb_repo = kb_repo
 
-    async def execute(self, name: str) -> KnowledgeBase:
+    async def execute(self, name: str, tenant_id: str = "") -> KnowledgeBase:
         name = name.strip()
         if not (1 <= len(name) <= 64):
             raise AppError(
@@ -20,8 +20,20 @@ class CreateKnowledgeBaseUseCase:
                 "name 长度必须在 1-64 之间",
                 errors=[{"field": "name", "reason": "长度必须在 1-64"}],
             )
+
+        # 校验 tenant_id：1-64 字符，不能为空或纯空白
+        tenant_id = tenant_id.strip()
+        if not tenant_id or not (1 <= len(tenant_id) <= 64):
+            raise AppError(
+                ErrorCode.PARAM_ERROR,
+                "tenant_id 长度必须在 1-64 之间",
+                errors=[{"field": "tenant_id", "reason": "长度必须在 1-64"}],
+            )
+
         name_key = name.lower()
-        result = await self._kb_repo.create(name=name, name_key=name_key)
+        result = await self._kb_repo.create(
+            name=name, name_key=name_key, tenant_id=tenant_id
+        )
 
         # BIZ_EVENT: 知识库创建成功（状态转换）
         logger.info(
@@ -31,6 +43,7 @@ class CreateKnowledgeBaseUseCase:
                 "event": "knowledge_base_created",
                 "kb_id": result.id,
                 "kb_name": result.name,
+                "tenant_id": result.tenant_id,
             },
         )
 

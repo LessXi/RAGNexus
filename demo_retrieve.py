@@ -74,14 +74,18 @@ async def demo():
     async with app.router.lifespan_context(app):
         cfg = get_settings()
         print(f"\n[启动] PG_DSN={cfg.PG_DSN}")
-        print(f"  RERANK_ENABLED={cfg.RERANK_ENABLED} REWRITE_ENABLED={cfg.REWRITE_ENABLED}")
+        print(
+            f"  RERANK_ENABLED={cfg.RERANK_ENABLED} REWRITE_ENABLED={cfg.REWRITE_ENABLED}"
+        )
 
         wrapped = app.state.upload_doc_uc
         kb_repo = wrapped._inner._kb_repo
 
         # --- KB + 文档 ---
         print_separator("创建 KB 并上传文档")
-        kb = await CreateKnowledgeBaseUseCase(kb_repo=kb_repo).execute(name=f"演示KB-{ts % 100000}")
+        kb = await CreateKnowledgeBaseUseCase(kb_repo=kb_repo).execute(
+            name=f"演示KB-{ts % 100000}", tenant_id="default"
+        )
         kb_id = kb.id
         print(f"  KB: {kb_id}")
 
@@ -168,7 +172,9 @@ async def demo():
         # --- 对比 ---
         print_separator("对比")
         changed = any(
-            i < len(hits_bl) and i < len(hits_en) and hits_bl[i].chunk_id != hits_en[i].chunk_id
+            i < len(hits_bl)
+            and i < len(hits_en)
+            and hits_bl[i].chunk_id != hits_en[i].chunk_id
             for i in range(min(len(hits_bl), len(hits_en)))
         )
         if changed:

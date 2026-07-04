@@ -476,8 +476,6 @@ class TestRerankLLMWiring:
         assert isinstance(retrieve_uc._reranker, NoopRerankProvider), (
             f"禁用重排时应为 NoopRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
         )
-        assert retrieve_uc._candidate_multiplier == 1, "禁用重排时 candidate_multiplier 应为 1"
-        assert retrieve_uc._min_candidates == 0, "禁用重排时 min_candidates 应为 0"
 
     def test_rerank_enabled_uses_llm_reranker(self):
         """RERANK_ENABLED=True 时，retrieve_uc 的 reranker 为 LLMRerankProvider 实例。"""
@@ -488,8 +486,6 @@ class TestRerankLLMWiring:
         assert isinstance(retrieve_uc._reranker, LLMRerankProvider), (
             f"启用重排时应为 LLMRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
         )
-        assert retrieve_uc._candidate_multiplier == 3, "启用重排时 candidate_multiplier 应为配置值"
-        assert retrieve_uc._min_candidates == 10, "启用重排时 min_candidates 应为配置值"
 
     def test_upload_doc_is_wrapped_with_cache_invalidator(self):
         """upload_doc_uc 被 CacheInvalidatingUploadUseCase 包装。"""

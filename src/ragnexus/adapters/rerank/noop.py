@@ -13,6 +13,11 @@ class NoopRerankProvider:
     clear_cache 空实现（无缓存可清）。
     """
 
+    @property
+    def model_name(self) -> None:
+        """空重排提供者无模型，返回 None。"""
+        return None
+
     async def rerank(
         self,
         *,

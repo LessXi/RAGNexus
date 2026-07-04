@@ -62,28 +62,37 @@ class TestCreateKB:
             id="kb_test123",
             name="Test KB",
             created_at=datetime(2026, 6, 22, 10, 0, 0),
+            tenant_id="default",
         )
-        resp = client.post("/v1/knowledge-bases:create", json={"name": "Test KB"})
+        resp = client.post(
+            "/v1/knowledge-bases:create",
+            json={"name": "Test KB", "tenant_id": "default"},
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 0
         assert data["data"]["kb_id"] == "kb_test123"
         assert data["data"]["name"] == "Test KB"
+        assert data["data"]["tenant_id"] == "default"
         assert data["data"]["created_at"] == "2026-06-22T10:00:00"
         assert data["message"] == "ok"
 
     def test_validation(self, client, mock_kb_uc):
         """name too short / too long / missing → 422"""
         # empty → pydantic min_length=1
-        resp = client.post("/v1/knowledge-bases:create", json={"name": ""})
+        resp = client.post(
+            "/v1/knowledge-bases:create", json={"name": "", "tenant_id": "test"}
+        )
         assert resp.status_code == 422
 
         # too long → pydantic max_length=64
-        resp = client.post("/v1/knowledge-bases:create", json={"name": "A" * 65})
+        resp = client.post(
+            "/v1/knowledge-bases:create", json={"name": "A" * 65, "tenant_id": "test"}
+        )
         assert resp.status_code == 422
 
         # missing name field
-        resp = client.post("/v1/knowledge-bases:create", json={})
+        resp = client.post("/v1/knowledge-bases:create", json={"tenant_id": "test"})
         assert resp.status_code == 422
 
 
@@ -136,16 +145,29 @@ class TestRetrieve:
     """POST /v1/rag:retrieve"""
 
     def test_success(self, client, mock_retrieve_uc):
-        mock_retrieve_uc.execute.return_value = [
-            SearchHit(
-                chunk_id="doc_hash:0",
-                kb_id="kb_test123",
-                doc_id="doc_hash",
-                score=0.823456,
-                text="chunk content",
-                metadata={},
-            )
-        ]
+        from ragnexus.domain.models import RetrieveResult
+
+        mock_retrieve_uc.execute.return_value = RetrieveResult(
+            hits=[
+                SearchHit(
+                    chunk_id="doc_hash:0",
+                    kb_id="kb_test123",
+                    doc_id="doc_hash",
+                    score=0.823456,
+                    text="chunk content",
+                    metadata={},
+                )
+            ],
+            total=1,
+            latency_ms=42,
+            mode="hybrid",
+            vector_count=0,
+            bm25_count=0,
+            fused_count=1,
+            rerank_model=None,
+            degraded=False,
+            degraded_reason=None,
+        )
         resp = client.post(
             "/v1/rag:retrieve",
             json={
@@ -157,7 +179,7 @@ class TestRetrieve:
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 0
-        assert data["data"]["total"] == 1
+        assert data["data"]["meta"]["total"] == 1
         assert data["data"]["hits"][0]["chunk_id"] == "doc_hash:0"
         assert data["data"]["hits"][0]["score"] == 0.823456
         assert data["message"] == "ok"
@@ -187,7 +209,9 @@ class TestErrorHandler:
             "测试错误",
             errors=[{"field": "test", "reason": "测试"}],
         )
-        resp = client.post("/v1/knowledge-bases:create", json={"name": "Test"})
+        resp = client.post(
+            "/v1/knowledge-bases:create", json={"name": "Test", "tenant_id": "test"}
+        )
         assert resp.status_code == 500
         data = resp.json()
         assert data["code"] == ErrorCode.SERVER_ERROR.code
@@ -199,7 +223,7 @@ class TestErrorHandler:
         """Pydantic validation error → unified error envelope with 422."""
         resp = client.post(
             "/v1/knowledge-bases:create",
-            json={"name": ""},  # min_length=1
+            json={"name": "", "tenant_id": "test"},  # min_length=1 on name
         )
         assert resp.status_code == 422
         data = resp.json()
@@ -221,7 +245,9 @@ class TestCatchAllHandler:
         """Generic Exception (not AppError) → 500 with SERVER_ERROR code."""
         mock_kb_uc.execute.side_effect = Exception("boom!")
 
-        resp = client.post("/v1/knowledge-bases:create", json={"name": "Test"})
+        resp = client.post(
+            "/v1/knowledge-bases:create", json={"name": "Test", "tenant_id": "test"}
+        )
 
         assert resp.status_code == 500
         data = resp.json()
@@ -236,7 +262,9 @@ class TestCatchAllHandler:
             "知识库不存在",
         )
 
-        resp = client.post("/v1/knowledge-bases:create", json={"name": "Test"})
+        resp = client.post(
+            "/v1/knowledge-bases:create", json={"name": "Test", "tenant_id": "test"}
+        )
 
         # AppError handler returns the code from the AppError, not SERVER_ERROR
         assert resp.status_code == 404
@@ -264,13 +292,19 @@ class TestCatchAllHandler:
         rag_logger.addHandler(handler)
 
         try:
-            client.post("/v1/knowledge-bases:create", json={"name": "Test"})
+            client.post(
+                "/v1/knowledge-bases:create", json={"name": "Test", "tenant_id": "test"}
+            )
 
             # 应该至少有 1 条 ERROR 日志，其中包含 SYSTEM_ERROR
-            system_errors = [r for r in records if getattr(r, "event_type", "") == "SYSTEM_ERROR"]
+            system_errors = [
+                r for r in records if getattr(r, "event_type", "") == "SYSTEM_ERROR"
+            ]
             assert len(system_errors) >= 1
             assert getattr(system_errors[0], "error_type", "") == "ValueError"
-            assert "something broke" in str(getattr(system_errors[0], "error_message", ""))
+            assert "something broke" in str(
+                getattr(system_errors[0], "error_message", "")
+            )
             assert hasattr(system_errors[0], "traceback")
         finally:
             rag_logger.removeHandler(handler)

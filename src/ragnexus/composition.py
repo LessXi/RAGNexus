@@ -15,10 +15,12 @@ import asyncpg
 from fastapi import FastAPI
 
 from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
-from ragnexus.adapters.keyword_search.elasticsearch import ESKeywordSearchProvider
 from ragnexus.adapters.http.create_kb_router import create_router as create_kb_router
 from ragnexus.adapters.http.error_handlers import register_error_handlers
 from ragnexus.adapters.http.health_router import create_router as create_health_router
+from ragnexus.adapters.http.kb_tree_router import (
+    create_kb_tree_router,
+)
 from ragnexus.adapters.http.middleware import LoggingMiddleware
 from ragnexus.adapters.http.retrieve_router import (
     create_router as create_retrieve_router,
@@ -26,6 +28,7 @@ from ragnexus.adapters.http.retrieve_router import (
 from ragnexus.adapters.http.upload_doc_router import (
     create_router as create_upload_doc_router,
 )
+from ragnexus.adapters.keyword_search.elasticsearch import ESKeywordSearchProvider
 from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
 from ragnexus.adapters.llm.openai_compatible import OpenAICompatibleLLMProvider
 from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
@@ -36,6 +39,7 @@ from ragnexus.adapters.rewrite.llm import LLMRewriteProvider
 from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
 from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
+from ragnexus.application.kb_tree_use_case import GetKnowledgeBaseTreeUseCase
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
 from ragnexus.config import get_settings
@@ -323,11 +327,13 @@ async def lifespan(app: FastAPI):
             candidate_k=cfg.CANDIDATE_K,
             retrieval_mode=cfg.RETRIEVAL_MODE,
         )
+        kb_tree_uc = GetKnowledgeBaseTreeUseCase(kb_repo=kb_repo)
         # --- 6. Routers -------------------------------------------------------
         app.include_router(create_kb_router(create_kb_uc))
         app.include_router(create_upload_doc_router(upload_doc_uc_wrapped))
         app.include_router(create_retrieve_router(retrieve_uc))
         app.include_router(create_health_router(lambda: store))
+        app.include_router(create_kb_tree_router(kb_tree_uc))
 
         # Stash references for teardown
         app.state.store = store

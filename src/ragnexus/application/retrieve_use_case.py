@@ -5,7 +5,7 @@ import time
 
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import logger
-from ragnexus.domain.models import SearchHit
+from ragnexus.domain.models import RetrieveResult, SearchHit
 from ragnexus.domain.ports import (
     EmbedderPort,
     KeywordSearchPort,
@@ -45,8 +45,43 @@ class RetrieveUseCase:
         self._background_tasks: set[asyncio.Task] = set()
 
     async def execute(
-        self, query: str, kb_ids: list[str], top_k: int = 5
-    ) -> list[SearchHit]:
+        self,
+        query: str,
+        kb_ids: list[str],
+        top_k: int = 5,
+        mode: str | None = None,
+        vector_top_k: int | None = None,
+        bm25_top_k: int | None = None,
+        rrf_k: int = 60,
+        rerank_enabled: bool | None = None,
+        rerank_top_n: int = 5,
+    ) -> RetrieveResult:
+        """执行检索：校验 → 改写 → 双路召回 → RRF 融合 → 重排 → 返回 RetrieveResult。
+
+        参数:
+            query: 用户查询字符串
+            kb_ids: 目标知识库 ID 列表
+            top_k: 最终返回的 chunk 数量（传给 reranker.rerank top_n 参数）
+            mode: 检索模式 ("hybrid"|"vector"|"bm25")，None 用 self._retrieval_mode
+            vector_top_k: 向量召回候选数，None 用 self._candidate_k
+            bm25_top_k: BM25 召回候选数，None 用 self._candidate_k
+            rrf_k: RRF 融合参数 k
+            rerank_enabled: 是否启用重排，None 根据 self._reranker 类型自动判断
+            rerank_top_n: 重排后保留数（传入 reranker.rerank top_n 参数）
+
+        返回:
+            RetrieveResult，包含 hits、计数统计、延迟和降级标记
+        """
+        # --- 解析默认值 ---
+        _mode = self._retrieval_mode if mode is None else mode
+        _vector_top_k = self._candidate_k if vector_top_k is None else vector_top_k
+        _bm25_top_k = self._candidate_k if bm25_top_k is None else bm25_top_k
+        _rerank_enabled = (
+            getattr(self._reranker, "model_name", None) is not None
+            if rerank_enabled is None
+            else rerank_enabled
+        )
+
         # 1. Validate inputs（统一使用 stripped query，避免空格进入向量和日志）
         query = query.strip()
         if not query or len(query) > 2000:
@@ -61,15 +96,23 @@ class RetrieveUseCase:
             if not await self._kb_repo.exists(kb_id):
                 raise AppError(ErrorCode.NOT_FOUND, f"知识库不存在: {kb_id}")
 
+        # --- 退化检测：ES 不可用 + hybrid 模式 → 降级为纯向量 ---
+        degraded = False
+        degraded_reason: str | None = None
+        if self._keyword_store is None and _mode == "hybrid":
+            degraded = True
+            degraded_reason = "ES 不可用，降级为纯向量检索"
+            _mode = "vector"
+
         # 3. Retrieve — 查询改写 → 双 embedding → 并行召回 → RRF 融合 → 重排
         original_query = query  # 保存原始 query，用于 rerank（相关性判断）和日志
         t0 = time.perf_counter()
         hits: list[SearchHit] = []
         kw_hits: list[SearchHit] = []
+        vec_hits_raw: list[SearchHit] = []
         vector_latency_ms = 0
         keyword_latency_ms = 0
         rrf_pool_size = 0
-        mode = self._retrieval_mode  # finally 块可能在 embed 前就触发，提前初始化
         try:
             # 3a. 查询改写（在 embed 之前，优化口语化/模糊 query）
             rewrite_result = await self._rewriter.rewrite(query=query, kb_ids=kb_ids)
@@ -80,22 +123,20 @@ class RetrieveUseCase:
             search_vector = vectors[0]  # embed(改写后) → 向量搜索
             original_vector = vectors[1]  # embed(原始) → rerank 缓存匹配
 
-            use_vector = mode in ("hybrid", "vector")
-            use_bm25 = mode in ("hybrid", "bm25") and self._keyword_store is not None
+            use_vector = _mode in ("hybrid", "vector")
+            use_bm25 = _mode in ("hybrid", "bm25") and self._keyword_store is not None
 
             # 3c. 并行召回：向量 + BM25 双路
             t_vec = time.perf_counter()
             tasks = []
             if use_vector:
                 tasks.append(
-                    self._store.search_by_vector(
-                        search_vector, self._candidate_k, kb_ids
-                    )
+                    self._store.search_by_vector(search_vector, _vector_top_k, kb_ids)
                 )
-            if use_bm25 and self._keyword_store is not None:
+            if use_bm25:
                 tasks.append(
-                    self._keyword_store.search_by_keyword(
-                        kb_ids[0], original_query, self._candidate_k
+                    self._keyword_store.search_by_keyword(  # type: ignore[union-attr]
+                        kb_ids[0], original_query, _bm25_top_k
                     )
                 )
 
@@ -107,23 +148,29 @@ class RetrieveUseCase:
             idx = 0
             if use_vector:
                 vec_result = results[idx]
-                hits = [] if isinstance(vec_result, Exception) else vec_result
+                vec_hits_raw = [] if isinstance(vec_result, Exception) else vec_result
+                # 分数标记：向量分写入 metadata
+                for hit in vec_hits_raw:
+                    hit.metadata["_vector_score"] = hit.score
                 idx += 1
             if use_bm25:
                 kw_result = results[idx]
                 kw_hits = [] if isinstance(kw_result, Exception) else kw_result
-
+                # 分数标记：BM25 分写入 metadata
+                for kw_hit in kw_hits:
+                    kw_hit.metadata["_bm25_score"] = kw_hit.score
             # BIZ_EVENT: 关键词检索日志
             if use_bm25:
                 try:
+                    kw_failed = isinstance(kw_result, Exception)
                     logger.info(
                         "",
                         extra={
                             "event_type": "BIZ_EVENT",
                             "event": (
-                                "keyword_search_done"
-                                if not isinstance(kw_result, Exception)
-                                else "keyword_search_fail"
+                                "keyword_search_fail"
+                                if kw_failed
+                                else "keyword_search_done"
                             ),
                             "kb_ids": kb_ids,
                             "query": original_query[:200],
@@ -135,31 +182,50 @@ class RetrieveUseCase:
                     pass
 
             # 3d. RRF 融合
-            hits = rrf_fuse(hits, kw_hits, k=60)
+            hits = rrf_fuse(vec_hits_raw, kw_hits, k=rrf_k)
             rrf_pool_size = len(hits)  # 融合后去重数
 
             # 3e. 重排：用原始 query + 原始 query embedding（对齐 BM25 和缓存）
-            hits = await self._reranker.rerank(
-                query=original_query,
-                query_vector=original_vector,
-                kb_ids=kb_ids,
-                chunks=hits,
-                top_n=top_k,
-            )
+            reranker_model: str | None = None
+            if _rerank_enabled:
+                hits = await self._reranker.rerank(
+                    query=original_query,
+                    query_vector=original_vector,
+                    kb_ids=kb_ids,
+                    chunks=hits,
+                    top_n=rerank_top_n,
+                )
+                reranker_model = getattr(self._reranker, "model_name", None)
+            else:
+                hits = hits[:rerank_top_n]
 
-            return hits
-        finally:
+            # --- 计时：return 前计算 latency_ms ---
             latency_ms = int((time.perf_counter() - t0) * 1000)
-            hit_count = len(hits)
+
+            return RetrieveResult(
+                hits=hits,
+                total=len(hits),
+                latency_ms=latency_ms,
+                mode=_mode,
+                vector_count=len(vec_hits_raw),
+                bm25_count=len(kw_hits),
+                fused_count=rrf_pool_size,
+                rerank_model=reranker_model,
+                degraded=degraded,
+                degraded_reason=degraded_reason,
+            )
+        finally:
+            # --- 仅保留资源清理：fire-and-forget 日志 ---
+            final_latency_ms = int((time.perf_counter() - t0) * 1000)
             task = asyncio.create_task(
                 self._safe_log(
                     query=query,
                     kb_ids=kb_ids,
                     top_k=top_k,
-                    hit_count=hit_count,
-                    latency_ms=latency_ms,
-                    retrieval_mode=mode,
-                    vector_hit_count=len(hits) if hits else 0,
+                    hit_count=len(hits),
+                    latency_ms=final_latency_ms,
+                    retrieval_mode=_mode,
+                    vector_hit_count=len(vec_hits_raw),
                     keyword_hit_count=len(kw_hits),
                     rrf_pool_size=rrf_pool_size,
                     vector_latency_ms=vector_latency_ms,

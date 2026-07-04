@@ -1,9 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { getKBs } from '@/utils/storage';
+import { createKB, fetchTree } from '@/services/api';
 import { preFilterFiles } from '@/utils/file-filter';
 import { uploadQueue } from '@/utils/upload-queue';
-import type { CachedKB, UploadResultEntry, SkippedFile } from '@/types/api';
+import type { KBItem, UploadResultEntry, SkippedFile } from '@/types/api';
+
+/** KB 下拉选项（扁平化后的条目） */
+interface KBOption {
+ kb_id: string;
+ name: string;
+ tenant_id: string;
+}
 
 /** 检测浏览器是否支持文件夹选择 */
 function supportsWebkitDirectory(): boolean {
@@ -14,8 +21,19 @@ export default function UploadDocPage() {
  const location = useLocation();
  const preselectedKbId = (location.state as { kbId?: string } | null)?.kbId;
 
+ // --- KB 下拉 ---
  const [kbId, setKbId] = useState(preselectedKbId || '');
  const [manualKbId, setManualKbId] = useState('');
+ const [kbOptions, setKbOptions] = useState<KBOption[]>([]);
+
+ // --- 创建 KB 表单 ---
+ const [createCardExpanded, setCreateCardExpanded] = useState(true);
+ const [createTenantId, setCreateTenantId] = useState('');
+ const [createName, setCreateName] = useState('');
+ const [creating, setCreating] = useState(false);
+ const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+ // --- 上传 ---
  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
  const [skippedFiles, setSkippedFiles] = useState<SkippedFile[]>([]);
  const [results, setResults] = useState<UploadResultEntry[] | null>(null);
@@ -23,12 +41,57 @@ export default function UploadDocPage() {
  const [progress, setProgress] = useState<string>('');
  const [progressBar, setProgressBar] = useState(0);
 
- const kbList = getKBs();
  const canWebkitDir = supportsWebkitDirectory();
  const fileInputRef = useRef<HTMLInputElement>(null);
  const folderInputRef = useRef<HTMLInputElement>(null);
 
- // beforeunload 保护
+ // --- 加载 KB 列表 ---
+ const loadKBs = useCallback(async () => {
+  try {
+   const trees = await fetchTree();
+   const options: KBOption[] = [];
+   for (const t of trees) {
+    for (const kb of t.knowledge_bases) {
+     options.push({ kb_id: kb.kb_id, name: kb.name, tenant_id: t.tenant_id });
+    }
+   }
+   setKbOptions(options);
+  } catch {
+   // 静默失败，下拉开空
+   setKbOptions([]);
+  }
+ }, []);
+
+ useEffect(() => {
+  loadKBs();
+ }, [loadKBs]);
+
+ // --- 自动隐藏 toast ---
+ useEffect(() => {
+  if (!toast) return;
+  const timer = setTimeout(() => setToast(null), 3000);
+  return () => clearTimeout(timer);
+ }, [toast]);
+
+ // --- 创建知识库 ---
+ const handleCreateKB = async () => {
+  if (!createTenantId.trim() || !createName.trim()) return;
+
+  setCreating(true);
+  try {
+   await createKB({ name: createName.trim(), tenant_id: createTenantId.trim() });
+   setToast({ message: `知识库「${createName.trim()}」创建成功`, type: 'success' });
+   setCreateName('');
+   setCreateTenantId('');
+   await loadKBs();
+  } catch {
+   setToast({ message: '创建失败，请检查输入或稍后重试', type: 'error' });
+  } finally {
+   setCreating(false);
+  }
+ };
+
+ // --- beforeunload 保护 ---
  useEffect(() => {
   if (!uploading) return;
   const handler = (e: BeforeUnloadEvent) => {
@@ -95,6 +158,76 @@ export default function UploadDocPage() {
     向已有知识库上传 Markdown (.md) 或纯文本 (.txt) 文档。支持单文件选择和文件夹批量上传。
    </p>
 
+   {/* Toast 通知 */}
+   {toast && (
+    <div
+     className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${toast.type === 'success'
+       ? 'bg-green-600/90 text-white'
+       : 'bg-red-600/90 text-white'
+      }`}
+    >
+     {toast.message}
+    </div>
+   )}
+
+   {/* 创建知识库 Card */}
+   <details
+    open={createCardExpanded}
+    className="bg-slate-800 border border-slate-700 rounded-lg mb-4 group"
+    onToggle={(e) => setCreateCardExpanded((e.target as HTMLDetailsElement).open)}
+   >
+    <summary className="px-5 py-3 cursor-pointer select-none flex items-center gap-2 text-base font-semibold list-none">
+     <span className="text-slate-400 text-xs transition-transform group-open:rotate-90">
+      ▶
+     </span>
+     🆕 创建知识库
+    </summary>
+    <div className="px-5 pb-5 pt-1">
+     <p className="text-slate-400 text-xs mb-4">
+      新建一个知识库，需要提供所属租户 ID 和知识库名称。
+     </p>
+     <div className="grid grid-cols-2 gap-4 mb-4">
+      <div>
+       <label className="block text-sm text-slate-400 mb-1">
+        租户 ID <span className="text-red-400">*</span>
+       </label>
+       <input
+        value={createTenantId}
+        onChange={(e) => setCreateTenantId(e.target.value)}
+        placeholder="例如：tenant_demo"
+        maxLength={64}
+        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-md text-sm
+                           text-slate-200 font-mono outline-none focus:border-indigo-500
+                           placeholder:text-slate-600"
+       />
+      </div>
+      <div>
+       <label className="block text-sm text-slate-400 mb-1">
+        知识库名称 <span className="text-red-400">*</span>
+       </label>
+       <input
+        value={createName}
+        onChange={(e) => setCreateName(e.target.value)}
+        placeholder="例如：产品文档库"
+        maxLength={64}
+        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-md text-sm
+                           text-slate-200 outline-none focus:border-indigo-500
+                           placeholder:text-slate-600"
+       />
+      </div>
+     </div>
+     <button
+      onClick={handleCreateKB}
+      disabled={creating || !createTenantId.trim() || !createName.trim()}
+      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500
+                       disabled:opacity-50 disabled:cursor-not-allowed
+                       rounded-md text-sm font-medium transition-colors"
+     >
+      {creating ? '创建中...' : '✨ 创建'}
+     </button>
+    </div>
+   </details>
+
    {/* 步骤 1: 选择 KB */}
    <div className="bg-slate-800 border border-slate-700 rounded-lg p-5 mb-4">
     <h2 className="text-base font-semibold mb-3">① 选择目标知识库</h2>
@@ -107,7 +240,7 @@ export default function UploadDocPage() {
                        text-slate-200 outline-none focus:border-indigo-500"
      >
       <option value="">-- 请选择知识库 --</option>
-      {kbList.map((kb: CachedKB) => (
+      {kbOptions.map((kb) => (
        <option key={kb.kb_id} value={kb.kb_id}>
         {kb.name} ({kb.kb_id})
        </option>
@@ -296,8 +429,8 @@ export default function UploadDocPage() {
          <td className="py-2.5 px-3">
           <span
            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${r.status === 'success'
-            ? 'bg-green-600/20 text-green-400'
-            : 'bg-red-600/20 text-red-400'
+             ? 'bg-green-600/20 text-green-400'
+             : 'bg-red-600/20 text-red-400'
             }`}
           >
            {r.status === 'success' ? '✅ 成功' : '❌ 失败'}
