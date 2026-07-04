@@ -44,3 +44,12 @@ async def pg_pool(_apply_schema) -> AsyncIterator[asyncpg.Pool]:
     )
     yield pool
     await pool.close()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def ensure_default_tenant(pg_pool):
+    """确保 default 租户存在，避免 FK 约束违规。"""
+    await pg_pool.execute(
+        "INSERT INTO tenants (id, name, status) VALUES ('default', '默认租户', 'active') "
+        "ON CONFLICT (id) DO NOTHING"
+    )

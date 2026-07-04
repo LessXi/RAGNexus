@@ -23,7 +23,7 @@ class TestPgKbRepoCreate:
     async def test_create_and_get(self, pg_pool):
         repo = PgKnowledgeBaseRepository(pg_pool)
         name = _unique_name()
-        kb = await repo.create(name=name, name_key=name)
+        kb = await repo.create(name=name, name_key=name, tenant_id="default")
 
         assert isinstance(kb, KnowledgeBase)
         assert kb.id.startswith("kb_")
@@ -42,7 +42,7 @@ class TestPgKbRepoCreate:
     async def test_exists_true(self, pg_pool):
         repo = PgKnowledgeBaseRepository(pg_pool)
         name = _unique_name("exists")
-        kb = await repo.create(name=name, name_key=name)
+        kb = await repo.create(name=name, name_key=name, tenant_id="default")
         assert await repo.exists(kb.id) is True
 
     async def test_exists_false(self, pg_pool):
@@ -53,9 +53,9 @@ class TestPgKbRepoCreate:
         """Same name_key (lowercased) should raise ConflictError."""
         repo = PgKnowledgeBaseRepository(pg_pool)
         name = _unique_name("dup")
-        await repo.create(name=name, name_key=name)
+        await repo.create(name=name, name_key=name, tenant_id="default")
         with pytest.raises(AppError) as exc_info:
-            await repo.create(name=name, name_key=name)
+            await repo.create(name=name, name_key=name, tenant_id="default")
         assert exc_info.value.code == ErrorCode.RESOURCE_CONFLICT.code
         assert exc_info.value.http_status == 409
 
@@ -66,7 +66,7 @@ class TestPgKbRepoDocExists:
     async def test_doc_exists_true(self, pg_pool):
         repo = PgKnowledgeBaseRepository(pg_pool)
         name = _unique_name("docexists")
-        kb = await repo.create(name=name, name_key=name)
+        kb = await repo.create(name=name, name_key=name, tenant_id="default")
         doc_id = f"doc_{name}"
 
         # Insert document directly (documents table)
