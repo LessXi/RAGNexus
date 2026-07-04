@@ -2,11 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryProvider } from '@/components/provider/query-provider';
 import Layout from '@/pages/layout';
 import UploadDocPage from '@/pages/upload-doc';
-
-/** 知识库列表页 placeholder（待 Task 9 替换） */
-const KnowledgeFileTreePage = () => (
-  <div className="p-8">知识库列表页（施工中）</div>
-);
+import KnowledgeFileTreePage from '@/pages/knowledge-file-tree';
 
 /** 检索调试页 placeholder（待 Task 10 替换） */
 const RetrievePage = () => (
