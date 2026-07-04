@@ -354,7 +354,7 @@ class TestE2EDegradation:
 
             async def _check_db():
                 conn = await asyncpg.connect(
-                    "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test",
+                    "postgresql://ragnexus:ragnexus@localhost:15433/ragnexus_test",
                     timeout=2,
                 )
                 await conn.close()
@@ -367,7 +367,7 @@ class TestE2EDegradation:
 
         # Point fresh app at test DB
         os.environ["PG_DSN"] = (
-            "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+            "postgresql://ragnexus:ragnexus@localhost:15433/ragnexus_test"
         )
         os.environ["PG_POOL_MIN"] = "1"
         os.environ["PG_POOL_MAX"] = "3"

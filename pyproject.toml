@@ -73,6 +73,7 @@ dev = [
     "pytest-cov>=6.0",
     "coverage>=7.6",
     "psycopg2-binary>=2.9.12",
+    "pytest-asyncio>=1.4.0",
 ]
 
 [tool.coverage.run]

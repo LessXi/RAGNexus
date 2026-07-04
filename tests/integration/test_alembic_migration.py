@@ -17,7 +17,7 @@ import asyncpg
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:15433/ragnexus_test"
 
 # FK 逆序排列，确保 DROP TABLE CASCADE 顺序正确
 ALL_TABLES = [

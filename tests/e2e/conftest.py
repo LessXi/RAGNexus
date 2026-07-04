@@ -13,7 +13,7 @@ from pytest_httpx import HTTPXMock
 from ragnexus.composition import build_app
 from ragnexus.config import get_settings
 
-TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:15433/ragnexus_test"
 
 pytestmark = [
     pytest.mark.e2e,

@@ -14,7 +14,7 @@ from ragnexus.domain.models import Chunk, SearchHit
 pytestmark = [pytest.mark.integration]
 
 TEST_DIM = 1024
-TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:15433/ragnexus_test"
 
 
 def _make_vec(*seed_vals: float) -> list[float]:

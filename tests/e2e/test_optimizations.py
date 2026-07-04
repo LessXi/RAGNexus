@@ -29,7 +29,7 @@ def _db_available() -> bool:
 
         async def _check():
             # 始终用测试 DSN（Docker Compose test-db on port 5433）
-            test_dsn = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+            test_dsn = "postgresql://ragnexus:ragnexus@localhost:15433/ragnexus_test"
             conn = await asyncpg.connect(test_dsn, timeout=3)
             await conn.close()
             return True
@@ -290,7 +290,7 @@ class TestE2ERewriteAndRerank:
         os.environ.setdefault("EMBED_API_KEY", "sk-test")
         # 指向测试数据库（与 conftest 一致）
         os.environ["PG_DSN"] = (
-            "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+            "postgresql://ragnexus:ragnexus@localhost:15433/ragnexus_test"
         )
         os.environ["PG_POOL_MIN"] = "1"
         os.environ["PG_POOL_MAX"] = "3"

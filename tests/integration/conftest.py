@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 import asyncpg
 import pytest_asyncio
 
-TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:15433/ragnexus_test"
 
 
 async def _wait_for_db(dsn: str, timeout: int = 30) -> None:

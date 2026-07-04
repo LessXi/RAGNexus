@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 
 COMPOSE_FILE = Path(__file__).parent.parent / "docker-compose.test.yml"
-TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:5433/ragnexus_test"
+TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:15433/ragnexus_test"
 
 _compose_started = False
 
