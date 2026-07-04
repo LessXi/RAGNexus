@@ -3,7 +3,13 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from ragnexus.domain.models import Chunk, KnowledgeBase, ParsedDocument, SearchHit
+from ragnexus.domain.models import (
+    Chunk,
+    KnowledgeBase,
+    ParsedDocument,
+    SearchHit,
+    TenantKBTree,
+)
 
 
 class VectorStorePort(Protocol):
@@ -31,6 +37,12 @@ class KnowledgeBasePort(Protocol):
     async def exists(self, kb_id: str) -> bool: ...
 
     async def doc_exists(self, doc_id: str) -> bool: ...
+
+    async def list_with_documents(
+        self, keyword: str | None = None
+    ) -> list[TenantKBTree]:
+        """获取租户→KB→文档三级树，keyword 模糊匹配 tenant_id。"""
+        ...
 
 
 class EmbedderPort(Protocol):
