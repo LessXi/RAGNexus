@@ -16,7 +16,9 @@ class PgKnowledgeBaseRepository:
     def __init__(self, pool: asyncpg.Pool):
         self.pool = pool
 
-    async def create(self, name: str, name_key: str) -> KnowledgeBase:
+    async def create(
+        self, name: str, name_key: str, tenant_id: str = ""
+    ) -> KnowledgeBase:
         """创建知识库。自动重试 nanoid 碰撞，只捕获 name_key 约束冲突。
 
         Raises:
@@ -27,14 +29,18 @@ class PgKnowledgeBaseRepository:
             kb_id = "kb_" + nanoid_generate(size=8)
             try:
                 row = await self.pool.fetchrow(
-                    "INSERT INTO knowledge_bases (id, name, name_key) VALUES ($1, $2, $3) "
-                    "RETURNING id, name, created_at",
+                    "INSERT INTO knowledge_bases (id, name, name_key, tenant_id) VALUES ($1, $2, $3, $4) "
+                    "RETURNING id, name, created_at, tenant_id",
                     kb_id,
                     name,
                     name_key,
+                    tenant_id,
                 )
                 return KnowledgeBase(
-                    id=row["id"], name=row["name"], created_at=row["created_at"]
+                    id=row["id"],
+                    name=row["name"],
+                    created_at=row["created_at"],
+                    tenant_id=row["tenant_id"],
                 )
             except asyncpg.UniqueViolationError as e:
                 # 检查冲突的约束名，区分 name_key 唯一冲突 vs kb_id 碰撞

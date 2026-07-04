@@ -26,18 +26,22 @@ def sample_kb():
     """A KnowledgeBase instance for test assertions."""
     from datetime import datetime
 
-    return KnowledgeBase(id="kb_test123", name="Test KB", created_at=datetime.now())
+    return KnowledgeBase(
+        id="kb_test123", name="Test KB", created_at=datetime.now(), tenant_id="test"
+    )
 
 
 @pytest.mark.asyncio
 async def test_create_kb_success(use_case, mock_kb_repo, sample_kb):
-    """Valid name should create a KB via the repo and return the domain model."""
+    """Valid name and tenant_id should create a KB via the repo and return the domain model."""
     mock_kb_repo.create.return_value = sample_kb
 
-    result = await use_case.execute("  Test KB  ")
+    result = await use_case.execute("  Test KB  ", tenant_id="  default  ")
 
     assert result is sample_kb
-    mock_kb_repo.create.assert_awaited_once_with(name="Test KB", name_key="test kb")
+    mock_kb_repo.create.assert_awaited_once_with(
+        name="Test KB", name_key="test kb", tenant_id="default"
+    )
 
 
 @pytest.mark.asyncio
@@ -46,7 +50,7 @@ async def test_create_kb_logs_biz_event(use_case, mock_kb_repo, sample_kb):
     mock_kb_repo.create.return_value = sample_kb
 
     with patch("ragnexus.core.logger.logger.info") as mock_info:
-        await use_case.execute("Test KB")
+        await use_case.execute("Test KB", tenant_id="test")
 
         # 找到 BIZ_EVENT 调用
         biz_calls = [
@@ -59,6 +63,7 @@ async def test_create_kb_logs_biz_event(use_case, mock_kb_repo, sample_kb):
         assert extra["event"] == "knowledge_base_created"
         assert extra["kb_id"] == sample_kb.id
         assert extra["kb_name"] == sample_kb.name
+        assert extra["tenant_id"] == sample_kb.tenant_id
 
 
 @pytest.mark.asyncio
@@ -66,7 +71,7 @@ async def test_name_too_short(use_case, mock_kb_repo):
     """Empty or whitespace-only name after strip should raise ValidationError."""
     for bad_name in ("", "  "):
         with pytest.raises(AppError) as exc_info:
-            await use_case.execute(bad_name)
+            await use_case.execute(bad_name, tenant_id="test")
         assert exc_info.value.errors[0]["field"] == "name"
     mock_kb_repo.create.assert_not_called()
 
@@ -76,7 +81,7 @@ async def test_name_too_long(use_case, mock_kb_repo):
     """Name longer than 64 chars after strip should raise ValidationError."""
     long_name = "A" * 65
     with pytest.raises(AppError) as exc_info:
-        await use_case.execute(long_name)
+        await use_case.execute(long_name, tenant_id="test")
     assert exc_info.value.errors[0]["field"] == "name"
     mock_kb_repo.create.assert_not_called()
 
@@ -89,4 +94,24 @@ async def test_duplicate_name(use_case, mock_kb_repo):
     )
 
     with pytest.raises(AppError):
-        await use_case.execute("Duplicate KB")
+        await use_case.execute("Duplicate KB", tenant_id="test")
+
+
+@pytest.mark.asyncio
+async def test_tenant_id_empty_or_whitespace(use_case, mock_kb_repo):
+    """Empty or whitespace-only tenant_id after strip should raise ValidationError."""
+    for bad_id in ("", "  "):
+        with pytest.raises(AppError) as exc_info:
+            await use_case.execute("Valid Name", tenant_id=bad_id)
+        assert exc_info.value.errors[0]["field"] == "tenant_id"
+    mock_kb_repo.create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tenant_id_too_long(use_case, mock_kb_repo):
+    """tenant_id longer than 64 chars after strip should raise ValidationError."""
+    long_id = "A" * 65
+    with pytest.raises(AppError) as exc_info:
+        await use_case.execute("Valid Name", tenant_id=long_id)
+    assert exc_info.value.errors[0]["field"] == "tenant_id"
+    mock_kb_repo.create.assert_not_called()

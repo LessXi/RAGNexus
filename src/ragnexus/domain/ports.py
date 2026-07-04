@@ -22,7 +22,9 @@ class VectorStorePort(Protocol):
 class KnowledgeBasePort(Protocol):
     """KB 元数据 CRUD。骨架实现: PgKnowledgeBaseRepository。"""
 
-    async def create(self, name: str, name_key: str) -> KnowledgeBase: ...
+    async def create(
+        self, name: str, name_key: str, tenant_id: str = ""
+    ) -> KnowledgeBase: ...
 
     async def get(self, kb_id: str) -> KnowledgeBase | None: ...
 
