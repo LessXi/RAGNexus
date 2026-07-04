@@ -16,6 +16,7 @@ from ragnexus.adapters.http.upload_doc_router import (
     create_router as create_upload_router,
 )
 from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.core.auth import TenantContext
 from ragnexus.domain.models import KnowledgeBase, SearchHit, UploadResult
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
@@ -38,8 +39,16 @@ def mock_retrieve_uc():
 
 @pytest.fixture
 def app(mock_kb_uc, mock_upload_uc, mock_retrieve_uc):
+    async def mock_get_current_tenant():
+        return TenantContext(
+            tenant_id="default",
+            tenant_name="默认租户",
+            key_id="test",
+            key_prefix="test",
+        )
+
     app = FastAPI()
-    app.include_router(create_kb_router(mock_kb_uc))
+    app.include_router(create_kb_router(mock_kb_uc, mock_get_current_tenant))
     app.include_router(create_upload_router(mock_upload_uc))
     app.include_router(create_retrieve_router(mock_retrieve_uc))
     register_error_handlers(app)

@@ -12,7 +12,7 @@ class CreateKnowledgeBaseUseCase:
     def __init__(self, kb_repo: KnowledgeBasePort) -> None:
         self._kb_repo = kb_repo
 
-    async def execute(self, name: str, tenant_id: str = "") -> KnowledgeBase:
+    async def execute(self, name: str, tenant_id: str) -> KnowledgeBase:
         name = name.strip()
         if not (1 <= len(name) <= 64):
             raise AppError(
