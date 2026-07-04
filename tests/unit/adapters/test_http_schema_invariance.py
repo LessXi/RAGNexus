@@ -1,10 +1,11 @@
-"""HTTP schema 不变性验证 — 确保请求/响应格式与第一期一致。
+"""HTTP schema 不变性验证 — 确保请求/响应格式符合第二期升级规范。
 
 断言:
-- 请求体只有 query/kb_ids/top_k 字段
-- 响应格式为 {code, data: {total, hits}, message}
+- 请求体含 query, kb_ids, top_k, mode, vector_top_k, bm25_top_k, rrf_k, rerank 字段
+- 响应格式为 {code, data: {hits, meta}, message}
 - SearchHit score 是 float（向量原始分）
-- 响应无 rerank_score/rewritten_query 等新增字段
+- hit 序列化含 title 和可选评分字段（vector_score/bm25_score/rerank_score）
+- meta 块含 total, latency_ms, mode, vector_count, bm25_count, fused_count, rerank_model, degraded, degraded_reason
 """
 
 import inspect
@@ -23,13 +24,18 @@ class TestRequestSchemaInvariance:
     """请求体 Pydantic model 只有 query/kb_ids/top_k 三个字段。"""
 
     def test_request_only_allowed_fields(self):
-        """_RetrieveRequest 的 model_fields 只含 query, kb_ids, top_k。"""
+        """_RetrieveRequest 的 model_fields 含 query, kb_ids, top_k, mode, vector_top_k, bm25_top_k, rrf_k, rerank。"""
         fields = set(_RetrieveRequest.model_fields.keys())
         assert fields == {
             "query",
             "kb_ids",
             "top_k",
-        }, f"请求 model_fields 必须是 {{query, kb_ids, top_k}}，实际: {fields}"
+            "mode",
+            "vector_top_k",
+            "bm25_top_k",
+            "rrf_k",
+            "rerank",
+        }, f"请求 model_fields 必须含全部新字段，实际: {fields}"
 
     def test_request_forbids_extra_fields(self):
         """model_config 设 extra='forbid'，拒绝未知字段。"""
@@ -148,23 +154,37 @@ class TestRouterResponseFormat:
         assert hasattr(rmod, "create_router")
 
     def test_request_model_dump_keys(self):
-        """_RetrieveRequest.model_dump() 只有三个字段。"""
+        """_RetrieveRequest.model_dump() 含全部 8 个字段。"""
         req = _RetrieveRequest(query="test", kb_ids=["kb1"], top_k=5)
         d = req.model_dump()
-        assert set(d.keys()) == {"query", "kb_ids", "top_k"}
+        assert set(d.keys()) == {
+            "query",
+            "kb_ids",
+            "top_k",
+            "mode",
+            "vector_top_k",
+            "bm25_top_k",
+            "rrf_k",
+            "rerank",
+        }
 
     def test_hit_serialization_in_router(self):
-        """路由器中 SearchHit 序列化仅含 6 个字段，score round 到 6 位。"""
+        """路由器中 SearchHit 序列化含 7+ 字段，含 title 和可选评分字段。"""
         hit = SearchHit(
             chunk_id="kb_x:0",
             kb_id="kb_x",
             doc_id="doc_1",
             score=0.95123456789,
             text="sample text",
-            metadata={"page": 1},
+            metadata={
+                "_vector_score": 0.92,
+                "_bm25_score": 0.88,
+                "filename": "doc.pdf",
+                "page": 1,
+            },
         )
 
-        # 模拟 router 中的序列化（与 retrieve_router.py L37-43 一致）
+        # 模拟 router 中的 _serialize_hit（与 retrieve_router.py 一致）
         serialized = {
             "chunk_id": hit.chunk_id,
             "kb_id": hit.kb_id,
@@ -172,28 +192,30 @@ class TestRouterResponseFormat:
             "score": round(hit.score, 6),
             "text": hit.text,
             "metadata": hit.metadata,
+            "title": hit.metadata.get("filename", ""),
         }
+        if "_vector_score" in hit.metadata:
+            serialized["vector_score"] = hit.metadata["_vector_score"]
+        if "_bm25_score" in hit.metadata:
+            serialized["bm25_score"] = hit.metadata["_bm25_score"]
+        if "_rerank_score" in hit.metadata:
+            serialized["rerank_score"] = hit.metadata["_rerank_score"]
 
-        expected_keys = {
-            "chunk_id",
-            "kb_id",
-            "doc_id",
-            "score",
-            "text",
-            "metadata",
-        }
-        assert set(serialized.keys()) == expected_keys
         assert serialized["score"] == 0.951235  # round(…, 6)
-        assert "rerank_score" not in serialized
-        assert "rewritten_query" not in serialized
+        assert serialized["title"] == "doc.pdf"
+        assert serialized["vector_score"] == 0.92
+        assert serialized["bm25_score"] == 0.88
+        assert "rerank_score" not in serialized  # metadata 中无 _rerank_score
+        # metadata 保持完整（含 _ 前缀字段）
+        assert serialized["metadata"]["_vector_score"] == 0.92
 
     def test_response_wrapper_structure(self):
-        """响应包装格式 code/data/message 从源码验证。"""
+        """响应包装格式 code/data/meta/message 从源码验证。"""
         source = inspect.getsource(create_router)
         assert '"code": 0' in source or "'code': 0" in source, "响应 code 必须为 0"
         assert (
             '"message": "ok"' in source or "'message': 'ok'" in source
         ), "响应 message 必须为 'ok'"
         assert '"data":' in source or "'data':" in source, "响应必须包含 data 字段"
-        assert '"total"' in source or "'total'" in source, "data 必须包含 total"
         assert '"hits"' in source or "'hits'" in source, "data 必须包含 hits"
+        assert '"meta"' in source or "'meta'" in source, "data 必须包含 meta 块"

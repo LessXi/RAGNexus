@@ -226,12 +226,21 @@ class TestE2EOptimizationIsolation:
         assert "rewritten_query" not in d
         assert "original_query" not in d
 
-    def test_request_model_still_three_fields(self):
-        """无论优化是否启用，请求 model 只有三个字段。"""
+    def test_request_model_has_required_fields(self):
+        """请求 model 含全部必要字段（含多路召回 + 重排参数）。"""
         from ragnexus.adapters.http.retrieve_router import _RetrieveRequest
 
         fields = set(_RetrieveRequest.model_fields.keys())
-        assert fields == {"query", "kb_ids", "top_k"}
+        assert fields == {
+            "query",
+            "kb_ids",
+            "top_k",
+            "mode",
+            "vector_top_k",
+            "bm25_top_k",
+            "rrf_k",
+            "rerank",
+        }
 
     def test_extra_forbid_still_enforced(self):
         """extra='forbid' 在优化启用时仍然生效。"""

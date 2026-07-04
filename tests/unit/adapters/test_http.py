@@ -145,16 +145,29 @@ class TestRetrieve:
     """POST /v1/rag:retrieve"""
 
     def test_success(self, client, mock_retrieve_uc):
-        mock_retrieve_uc.execute.return_value = [
-            SearchHit(
-                chunk_id="doc_hash:0",
-                kb_id="kb_test123",
-                doc_id="doc_hash",
-                score=0.823456,
-                text="chunk content",
-                metadata={},
-            )
-        ]
+        from ragnexus.domain.models import RetrieveResult
+
+        mock_retrieve_uc.execute.return_value = RetrieveResult(
+            hits=[
+                SearchHit(
+                    chunk_id="doc_hash:0",
+                    kb_id="kb_test123",
+                    doc_id="doc_hash",
+                    score=0.823456,
+                    text="chunk content",
+                    metadata={},
+                )
+            ],
+            total=1,
+            latency_ms=42,
+            mode="hybrid",
+            vector_count=0,
+            bm25_count=0,
+            fused_count=1,
+            rerank_model=None,
+            degraded=False,
+            degraded_reason=None,
+        )
         resp = client.post(
             "/v1/rag:retrieve",
             json={
@@ -166,7 +179,7 @@ class TestRetrieve:
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 0
-        assert data["data"]["total"] == 1
+        assert data["data"]["meta"]["total"] == 1
         assert data["data"]["hits"][0]["chunk_id"] == "doc_hash:0"
         assert data["data"]["hits"][0]["score"] == 0.823456
         assert data["message"] == "ok"
