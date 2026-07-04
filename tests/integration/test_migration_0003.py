@@ -13,6 +13,7 @@ from pathlib import Path
 
 import asyncpg
 import pytest
+import pytest_asyncio
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 TEST_DSN = "postgresql://ragnexus:ragnexus@localhost:15433/ragnexus_test"
@@ -167,3 +168,54 @@ async def test_migration_0003_upgrade_downgrade(alembic_env):
 
     version = await _get_alembic_version()
     assert version == "0003", f"幂等 upgrade 后版本号应为 '0003'，实际为 '{version}'"
+
+
+# ─────────────────────────────────────────────────────────────────
+# FK 约束验证：knowledge_bases.tenant_id → tenants.id
+# ─────────────────────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture
+async def migrated_db(alembic_env, ensure_test_db):
+    """确保迁移 0003 已完全应用，返回 asyncpg pool 用于 FK 测试。"""
+    await _drop_all_tables()
+    result = _run_alembic("upgrade", "head")
+    assert result.returncode == 0, f"FK 测试前 upgrade 失败:\n{result.stderr}"
+    pool = await asyncpg.create_pool(
+        TEST_DSN, min_size=1, max_size=3, command_timeout=15
+    )
+    yield pool
+    await pool.close()
+
+
+async def test_fk_exists(migrated_db):
+    """验证 knowledge_bases.tenant_id → tenants.id FK 存在。"""
+    async with migrated_db.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT 1 FROM information_schema.table_constraints "
+            "WHERE constraint_name = 'fk_knowledge_bases_tenant' "
+            "AND constraint_type = 'FOREIGN KEY'"
+        )
+    assert row is not None, "FK fk_knowledge_bases_tenant 应存在"
+
+
+async def test_fk_restrict_delete(migrated_db):
+    """验证 ON DELETE RESTRICT：有 knowledge_bases 引用时删租户被拒绝。"""
+    async with migrated_db.acquire() as conn:
+        # 创建测试租户
+        await conn.execute(
+            "INSERT INTO tenants (id, name) VALUES ('fk_test_t', 'FK测试') "
+            "ON CONFLICT (id) DO NOTHING"
+        )
+        # 创建 KB 引用该租户
+        await conn.execute(
+            "INSERT INTO knowledge_bases (id, name, name_key, tenant_id) "
+            "VALUES ('fk_test_kb', 'FK测试KB', 'fk_test_kb_key', 'fk_test_t') "
+            "ON CONFLICT (id) DO NOTHING"
+        )
+        # 尝试删除租户 → 应被 RESTRICT 拒绝
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await conn.execute("DELETE FROM tenants WHERE id = 'fk_test_t'")
+        # 清理：先删 KB 再删租户
+        await conn.execute("DELETE FROM knowledge_bases WHERE id = 'fk_test_kb'")
+        await conn.execute("DELETE FROM tenants WHERE id = 'fk_test_t'")
