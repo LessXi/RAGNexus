@@ -103,3 +103,27 @@ class TenantKBTree:
 
     tenant_id: str
     knowledge_bases: list[KBNode]
+
+
+@dataclass
+class Tenant:
+    """租户——多租户体系的顶层实体，代表一个独立的使用方。"""
+
+    id: str
+    name: str
+    status: str = "active"  # active | disabled
+    created_at: datetime | None = None
+
+
+@dataclass
+class ApiKey:
+    """API 密钥——属于某个租户，用于鉴权。密钥原文不存储，只存 SHA-256 哈希。"""
+
+    id: str  # UUID
+    tenant_id: str
+    key_hash: str
+    key_prefix: str  # "rk_xxxx"
+    name: str
+    status: str = "active"  # active | revoked
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
