@@ -1,4 +1,4 @@
-import type { CreateKBRequest, CreateKBResponse, TreeItem, TreeResponse, UploadDocResponse } from '@/types/api';
+import type { CreateKBRequest, CreateKBResponse, TreeItem, TreeResponse, UploadDocResponse, RetrieveRequest, RetrieveResponse } from '@/types/api';
 import api from '@/lib/axios';
 
 /** 创建知识库 */
@@ -30,6 +30,15 @@ export async function uploadDoc(
   const { data } = await api.post<UploadDocResponse>(
     '/v1/documents:upload',
     form,
+  );
+  return data;
+}
+
+/** 执行检索 */
+export async function retrieve(params: RetrieveRequest): Promise<RetrieveResponse> {
+  const { data } = await api.post<RetrieveResponse>(
+    '/v1/rag:retrieve',
+    params,
   );
   return data;
 }
