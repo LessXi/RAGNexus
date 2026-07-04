@@ -156,3 +156,37 @@ ragnexus/
 ├── pyproject.toml       # 项目配置
 └── .env.example         # 环境变量模板
 ```
+
+
+## 管理端前端（admin/）
+
+基于 React + TypeScript + Vite 的管理 SPA，需先启动后端再使用。
+
+```bash
+cd admin
+npm install
+npm run dev
+```
+
+管理端将在 `http://localhost:5173` 启动。
+
+### API Key 配置（多租户鉴权）
+
+1. 使用运维脚本生成 Key：
+   ```bash
+   uv run python scripts/create_tenant.py --id my_tenant --name "我的租户"
+   uv run python scripts/create_api_key.py --tenant-id my_tenant --name "管理端"
+   ```
+2. 将输出的 `rk_live_<64hex>` 写入 `admin/.env`：
+   ```
+   API_KEY=rk_live_xxxxxxxx...
+   ```
+3. 重启前端即可自动在请求头中携带 `Authorization: Bearer <key>`
+
+### 本地免 Key 调试
+
+开发调试时可跳过鉴权：
+- 后端：在 `.env` 中设置 `AUTH_ENABLED=false`，所有请求使用占位租户 `default`
+- 前端：`admin/.env` 中 `API_KEY` 留空或不设置
+
+> **安全提醒**：`API_KEY` 经 Vite 打包会内联到 JS bundle，当前仅适用于内网管理 SPA。生产环境建议改用 session token 方案。
