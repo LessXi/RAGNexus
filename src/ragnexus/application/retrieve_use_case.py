@@ -48,6 +48,7 @@ class RetrieveUseCase:
         self,
         query: str,
         kb_ids: list[str],
+        tenant_id: str,
         top_k: int = 5,
         mode: str | None = None,
         vector_top_k: int | None = None,
@@ -95,6 +96,9 @@ class RetrieveUseCase:
         for kb_id in kb_ids:
             if not await self._kb_repo.exists(kb_id):
                 raise AppError(ErrorCode.NOT_FOUND, f"知识库不存在: {kb_id}")
+
+        # 3. Validate all KBs belong to current tenant
+        await self.validate_kb_ownership(kb_ids, tenant_id)
 
         # --- 退化检测：ES 不可用 + hybrid 模式 → 降级为纯向量 ---
         degraded = False
@@ -282,3 +286,19 @@ class RetrieveUseCase:
             )
         except Exception:
             logger.debug("BIZ_EVENT 日志写入失败", exc_info=True)
+
+    async def validate_kb_ownership(self, kb_ids: list[str], tenant_id: str) -> None:
+        """校验 kb_ids 是否全部属于指定租户，不匹配则抛出 FORBIDDEN。"""
+        unique_ids = set(kb_ids)
+        if not unique_ids:
+            return
+        count = await self._kb_repo.pool.fetchval(
+            "SELECT COUNT(*) FROM knowledge_bases WHERE id = ANY($1) AND tenant_id = $2",
+            list(unique_ids),
+            tenant_id,
+        )
+        if count != len(unique_ids):
+            raise AppError(
+                ErrorCode.FORBIDDEN,
+                f"部分知识库不属于当前租户（请求 {len(unique_ids)} 个，归属 {count} 个）",
+            )

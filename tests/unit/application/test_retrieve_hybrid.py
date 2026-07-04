@@ -34,6 +34,8 @@ def _make_hit(
 def mock_kb_repo():
     repo = AsyncMock()
     repo.exists.return_value = True
+    repo.pool = AsyncMock()
+    repo.pool.fetchval.return_value = 1
     return repo
 
 
@@ -147,7 +149,9 @@ async def test_hybrid_mode(
 
     mock_reranker.rerank.side_effect = _capture
 
-    result = await use_case.execute(query="test query", kb_ids=["kb1"], top_k=3)
+    result = await use_case.execute(
+        tenant_id="test-tenant", query="test query", kb_ids=["kb1"], top_k=3
+    )
 
     # 验证：embedder 被调用两次文本（改写后 query + 原始 query）
     mock_embedder.embed.assert_awaited_once()
@@ -197,7 +201,9 @@ async def test_vector_only_mode(
     vec_hits = [_make_hit("c1"), _make_hit("c2"), _make_hit("c3")]
     mock_store.search_by_vector.return_value = vec_hits
 
-    result = await use_case.execute(query="test query", kb_ids=["kb1"], top_k=2)
+    result = await use_case.execute(
+        tenant_id="test-tenant", query="test query", kb_ids=["kb1"], top_k=2
+    )
 
     # 验证：仅调用向量搜索
     mock_store.search_by_vector.assert_awaited_once()
@@ -228,7 +234,9 @@ async def test_bm25_only_mode(
     kw_hits = [_make_hit("c1"), _make_hit("c2"), _make_hit("c3")]
     mock_keyword_store.search_by_keyword.return_value = kw_hits
 
-    result = await use_case.execute(query="test query", kb_ids=["kb1"], top_k=2)
+    result = await use_case.execute(
+        tenant_id="test-tenant", query="test query", kb_ids=["kb1"], top_k=2
+    )
 
     # 验证：仅调用 keyword search
     mock_store.search_by_vector.assert_not_called()
@@ -262,7 +270,9 @@ async def test_keyword_fallback(
     # BM25 抛出异常
     mock_keyword_store.search_by_keyword.side_effect = RuntimeError("ES 挂了")
 
-    result = await use_case.execute(query="test query", kb_ids=["kb1"], top_k=2)
+    result = await use_case.execute(
+        tenant_id="test-tenant", query="test query", kb_ids=["kb1"], top_k=2
+    )
 
     # 验证：向量搜索正常完成
     mock_store.search_by_vector.assert_awaited_once()
@@ -291,7 +301,9 @@ async def test_keyword_search_only_fallback(
 
     mock_keyword_store.search_by_keyword.side_effect = RuntimeError("ES 挂了")
 
-    result = await use_case.execute(query="test query", kb_ids=["kb1"], top_k=2)
+    result = await use_case.execute(
+        tenant_id="test-tenant", query="test query", kb_ids=["kb1"], top_k=2
+    )
 
     # 验证：无崩溃，返回空列表
     assert result.hits == []

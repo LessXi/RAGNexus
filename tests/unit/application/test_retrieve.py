@@ -14,7 +14,10 @@ from ragnexus.domain.ports import RewriteResult
 
 @pytest.fixture
 def mock_kb_repo():
-    return AsyncMock()
+    mock = AsyncMock()
+    mock.pool = AsyncMock()
+    mock.pool.fetchval.return_value = 1
+    return mock
 
 
 @pytest.fixture
@@ -123,7 +126,9 @@ async def test_retrieve_success(
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = sample_hits
 
-    result = await use_case.execute(query="test query", kb_ids=kb_ids, top_k=top_k)
+    result = await use_case.execute(
+        tenant_id="test-tenant", query="test query", kb_ids=kb_ids, top_k=top_k
+    )
 
     assert isinstance(result, RetrieveResult)
     assert result.hits == sample_hits
@@ -170,7 +175,9 @@ async def test_retrieve_logs_biz_event(
     mock_reranker.rerank.return_value = sample_hits
 
     with patch("ragnexus.core.logger.logger.info") as mock_info:
-        await use_case.execute(query="test query", kb_ids=["kb_test"], top_k=5)
+        await use_case.execute(
+            tenant_id="test-tenant", query="test query", kb_ids=["kb_test"], top_k=5
+        )
         await asyncio.sleep(0.01)  # yield to let the fire-and-forget task run
 
         # 找到 BIZ_EVENT 调用（hybrid 模式下有 keyword_search_done + retrieve_completed 两个）
@@ -199,7 +206,9 @@ async def test_query_empty(
     """Empty or whitespace-only query should raise ValidationError."""
     for bad_query in ("", "  "):
         with pytest.raises(AppError):
-            await use_case.execute(query=bad_query, kb_ids=["kb_test"], top_k=5)
+            await use_case.execute(
+                tenant_id="test-tenant", query=bad_query, kb_ids=["kb_test"], top_k=5
+            )
     mock_kb_repo.exists.assert_not_called()
     mock_embedder.embed.assert_not_called()
     mock_store.search_by_vector.assert_not_called()
@@ -212,7 +221,9 @@ async def test_query_too_long(
     """Query longer than 2000 chars should raise ValidationError."""
     long_query = "A" * 2001
     with pytest.raises(AppError):
-        await use_case.execute(query=long_query, kb_ids=["kb_test"], top_k=5)
+        await use_case.execute(
+            tenant_id="test-tenant", query=long_query, kb_ids=["kb_test"], top_k=5
+        )
     mock_kb_repo.exists.assert_not_called()
     mock_embedder.embed.assert_not_called()
     mock_store.search_by_vector.assert_not_called()
@@ -224,7 +235,9 @@ async def test_kb_ids_empty(
 ):
     """Empty kb_ids list should raise ValidationError."""
     with pytest.raises(AppError):
-        await use_case.execute(query="test query", kb_ids=[], top_k=5)
+        await use_case.execute(
+            tenant_id="test-tenant", query="test query", kb_ids=[], top_k=5
+        )
     mock_kb_repo.exists.assert_not_called()
     mock_embedder.embed.assert_not_called()
     mock_store.search_by_vector.assert_not_called()
@@ -237,7 +250,10 @@ async def test_kb_ids_too_many(
     """More than 5 kb_ids should raise ValidationError."""
     with pytest.raises(AppError):
         await use_case.execute(
-            query="test query", kb_ids=["a", "b", "c", "d", "e", "f"], top_k=5
+            tenant_id="test-tenant",
+            query="test query",
+            kb_ids=["a", "b", "c", "d", "e", "f"],
+            top_k=5,
         )
     mock_kb_repo.exists.assert_not_called()
     mock_embedder.embed.assert_not_called()
@@ -252,7 +268,10 @@ async def test_top_k_oob(
     for bad_top_k in (0, 51):
         with pytest.raises(AppError):
             await use_case.execute(
-                query="test query", kb_ids=["kb_test"], top_k=bad_top_k
+                tenant_id="test-tenant",
+                query="test query",
+                kb_ids=["kb_test"],
+                top_k=bad_top_k,
             )
     mock_kb_repo.exists.assert_not_called()
     mock_embedder.embed.assert_not_called()
@@ -267,7 +286,9 @@ async def test_kb_not_found(
     mock_kb_repo.exists.return_value = False
 
     with pytest.raises(AppError) as exc_info:
-        await use_case.execute(query="test query", kb_ids=["kb_missing"], top_k=5)
+        await use_case.execute(
+            tenant_id="test-tenant", query="test query", kb_ids=["kb_missing"], top_k=5
+        )
 
     assert "kb_missing" in str(exc_info.value)
     mock_kb_repo.exists.assert_awaited_once_with("kb_missing")
@@ -289,6 +310,7 @@ async def test_multiple_kb_not_found(
 
     with pytest.raises(AppError) as exc_info:
         await use_case.execute(
+            tenant_id="test-tenant",
             query="test query",
             kb_ids=["kb_good", "kb_bad"],
             top_k=5,
@@ -315,7 +337,9 @@ async def test_retrieve_log_fire_and_forget(
     mock_log_port.log.side_effect = RuntimeError("log failure")
 
     # Should not propagate the log error
-    result = await use_case.execute(query="test query", kb_ids=["kb_test"], top_k=5)
+    result = await use_case.execute(
+        tenant_id="test-tenant", query="test query", kb_ids=["kb_test"], top_k=5
+    )
 
     assert result.hits == sample_hits
     mock_reranker.rerank.assert_awaited_once()
@@ -358,7 +382,7 @@ async def test_candidate_k_passed_to_vector_search(
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = sample_hits[:2]
 
-    await uc.execute(query="q", kb_ids=["kb_test"], top_k=5)
+    await uc.execute(tenant_id="test-tenant", query="q", kb_ids=["kb_test"], top_k=5)
 
     mock_store.search_by_vector.assert_awaited_once_with(
         [0.1, 0.2, 0.3], 15, ["kb_test"]
@@ -393,7 +417,7 @@ async def test_candidate_k_passed_to_keyword_search(
     mock_keyword_store.search_by_keyword.return_value = []
     mock_reranker.rerank.return_value = sample_hits[:2]
 
-    await uc.execute(query="q", kb_ids=["kb_test"], top_k=5)
+    await uc.execute(tenant_id="test-tenant", query="q", kb_ids=["kb_test"], top_k=5)
 
     mock_keyword_store.search_by_keyword.assert_awaited_once_with("kb_test", "q", 25)
 
@@ -423,11 +447,12 @@ async def test_rerank_called_with_correct_kwargs(
     query = "什么是 RAG？"
     kb_ids = ["kb_a", "kb_b"]
     mock_kb_repo.exists.return_value = True
+    mock_kb_repo.pool.fetchval.return_value = len(kb_ids)
     mock_embedder.embed.return_value = [[0.5, 0.6], [0.7, 0.8]]
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = sample_hits[:1]
 
-    await uc.execute(query=query, kb_ids=kb_ids, top_k=top_k)
+    await uc.execute(tenant_id="test-tenant", query=query, kb_ids=kb_ids, top_k=top_k)
 
     mock_reranker.rerank.assert_awaited_once()
     rerank_kwargs = mock_reranker.rerank.await_args.kwargs
@@ -468,7 +493,9 @@ async def test_rerank_result_is_returned(
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = reranked
 
-    result = await uc.execute(query="q", kb_ids=["kb_test"], top_k=5)
+    result = await uc.execute(
+        tenant_id="test-tenant", query="q", kb_ids=["kb_test"], top_k=5
+    )
 
     assert result.hits == reranked
     assert result.hits != sample_hits  # 证明返回的是 rerank 结果
@@ -499,7 +526,9 @@ async def test_noop_rerank_integration(
     mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
     mock_store.search_by_vector.return_value = sample_hits  # 2 条
 
-    result = await uc.execute(query="q", kb_ids=["kb_test"], top_k=top_k)
+    result = await uc.execute(
+        tenant_id="test-tenant", query="q", kb_ids=["kb_test"], top_k=top_k
+    )
 
     assert len(result.hits) == 2  # rerank_top_n=5, Noop 保留全部 2 条
     assert result.hits[0].chunk_id == sample_hits[0].chunk_id
@@ -523,7 +552,9 @@ async def test_rewriter_called_before_embed(
     mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
     mock_store.search_by_vector.return_value = []
 
-    await use_case.execute(query="test query", kb_ids=["kb1"], top_k=3)
+    await use_case.execute(
+        tenant_id="test-tenant", query="test query", kb_ids=["kb1"], top_k=3
+    )
 
     mock_rewriter.rewrite.assert_awaited_once_with(query="test query", kb_ids=["kb1"])
 
@@ -550,7 +581,9 @@ async def test_rewritten_query_used_for_embed(
         reason="优化查询",
     )
 
-    await use_case.execute(query="hello world", kb_ids=["kb1"], top_k=3)
+    await use_case.execute(
+        tenant_id="test-tenant", query="hello world", kb_ids=["kb1"], top_k=3
+    )
 
     # embed 用改写后的 query（第一个）+ 原始 query（第二个）
     mock_embedder.embed.assert_awaited_once_with(
@@ -585,7 +618,9 @@ async def test_rerank_uses_original_query_rewritten_vector(
         reason="扩展缩写",
     )
 
-    await use_case.execute(query="what is RAG", kb_ids=["kb1"], top_k=5)
+    await use_case.execute(
+        tenant_id="test-tenant", query="what is RAG", kb_ids=["kb1"], top_k=5
+    )
 
     # rerank 的 query 参数用原始 query（相关性判断）
     mock_reranker.rerank.assert_awaited_once()
@@ -623,7 +658,9 @@ async def test_noop_rewrite_integration(
     mock_store.search_by_vector.return_value = sample_hits
     mock_reranker.rerank.return_value = sample_hits[:top_k]
 
-    result = await uc.execute(query=query, kb_ids=kb_ids, top_k=top_k)
+    result = await uc.execute(
+        tenant_id="test-tenant", query=query, kb_ids=kb_ids, top_k=top_k
+    )
 
     # NoopRewriteProvider 直通：embed 用原始 query（两次，改写后和原始相同）
     mock_embedder.embed.assert_awaited_once_with([query, query])

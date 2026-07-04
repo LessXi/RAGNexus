@@ -1,8 +1,9 @@
 """工厂函数: retrieve_router — POST /v1/rag:retrieve。"""
 
 from typing import Literal
+from ragnexus.core.auth import TenantContext
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from ragnexus.domain.models import SearchHit
@@ -54,7 +55,7 @@ def _serialize_hit(h: SearchHit) -> dict:
     return serialized
 
 
-def create_router(uc) -> APIRouter:
+def create_router(uc, get_current_tenant) -> APIRouter:
     """返回含单个 POST 端点的 APIRouter。
 
     ``uc`` 必须提供 ``async def execute(
@@ -71,7 +72,10 @@ def create_router(uc) -> APIRouter:
     router = APIRouter()
 
     @router.post("/v1/rag:retrieve")
-    async def retrieve(req: _RetrieveRequest):
+    async def retrieve(
+        req: _RetrieveRequest,
+        current_tenant: TenantContext = Depends(get_current_tenant),
+    ):
         # 解析 rerank 选项
         rerank_enabled = req.rerank.enabled if req.rerank else None
         rerank_top_n = req.rerank.top_n if req.rerank else 5
@@ -79,6 +83,7 @@ def create_router(uc) -> APIRouter:
         result = await uc.execute(
             query=req.query,
             kb_ids=req.kb_ids,
+            tenant_id=current_tenant.tenant_id,
             top_k=req.top_k,
             mode=req.mode,
             vector_top_k=req.vector_top_k,
