@@ -38,6 +38,10 @@ from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
 from ragnexus.adapters.rewrite.llm import LLMRewriteProvider
 from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
 from ragnexus.adapters.vector_store.pgvector import PgVectorStore
+from ragnexus.adapters.http.auth_router import create_auth_router
+from ragnexus.adapters.http.deps import make_get_current_tenant
+from ragnexus.adapters.tenant.pg import PgApiKeyRepository, PgTenantRepository
+
 from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
 from ragnexus.application.kb_tree_use_case import GetKnowledgeBaseTreeUseCase
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
@@ -237,6 +241,10 @@ async def lifespan(app: FastAPI):
         else:
             rewriter = NoopRewriteProvider()
         kb_repo = PgKnowledgeBaseRepository(pool=cast(Any, repo_pool))
+
+        # --- Tenant & API Key Repositories ---
+        tenant_repo = PgTenantRepository(pool=cast(Any, repo_pool))
+        api_key_repo = PgApiKeyRepository(pool=cast(Any, repo_pool))
         log_repo = PgRetrieveLogRepository(pool=cast(Any, repo_pool))
 
         # --- 4b. 启动时清理过期检索日志 -----------------------------------------
@@ -328,12 +336,20 @@ async def lifespan(app: FastAPI):
             retrieval_mode=cfg.RETRIEVAL_MODE,
         )
         kb_tree_uc = GetKnowledgeBaseTreeUseCase(kb_repo=kb_repo)
+
+        # --- Auth Dependency ---
+        get_current_tenant = make_get_current_tenant(
+            tenant_repo, api_key_repo, cfg.AUTH_ENABLED
+        )
         # --- 6. Routers -------------------------------------------------------
-        app.include_router(create_kb_router(create_kb_uc))
-        app.include_router(create_upload_doc_router(upload_doc_uc_wrapped))
-        app.include_router(create_retrieve_router(retrieve_uc))
+        app.include_router(create_kb_router(create_kb_uc, get_current_tenant))
+        app.include_router(
+            create_upload_doc_router(upload_doc_uc_wrapped, get_current_tenant)
+        )
+        app.include_router(create_retrieve_router(retrieve_uc, get_current_tenant))
         app.include_router(create_health_router(lambda: store))
-        app.include_router(create_kb_tree_router(kb_tree_uc))
+        app.include_router(create_kb_tree_router(kb_tree_uc, get_current_tenant))
+        app.include_router(create_auth_router(get_current_tenant))
 
         # Stash references for teardown
         app.state.store = store
