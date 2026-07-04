@@ -6,6 +6,11 @@ Depends 工厂函数见同文件后续追加（Task 1.5b）。
 
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime, timezone
+
+from fastapi import Depends, Header
+
+from ragnexus.core.errors import AppError, ErrorCode
 
 
 @dataclass
@@ -43,3 +48,94 @@ def extract_token(header: str | None) -> str | None:
     if len(parts) != 2 or parts[0].lower() != "bearer":
         return None
     return parts[1]
+
+
+# 降级占位租户
+_FALLBACK_TENANT = TenantContext(
+    tenant_id="default",
+    tenant_name="默认租户",
+    key_id="fallback",
+    key_prefix="none",
+)
+
+
+def make_get_current_tenant(
+    tenant_repo,  # PgTenantRepository
+    api_key_repo,  # PgApiKeyRepository
+    auth_enabled: bool,
+):
+    """创建 FastAPI Depends 工厂——闭包注入仓库和配置。
+
+    校验流程：
+    1. AUTH_ENABLED=false → 返回占位 TenantContext
+    2. Authorization Header 缺失 → 401 UNAUTHORIZED
+    3. Bearer 格式错误 → 401 UNAUTHORIZED
+    4. Key 不存在 → 401 UNAUTHORIZED
+    5. Key 已吊销 → 401 UNAUTHORIZED
+    6. Key 已过期 → 401 UNAUTHORIZED
+    7. 租户已禁用 → 401 UNAUTHORIZED
+    8. 正常 → 返回 TenantContext
+    """
+
+    async def get_current_tenant(
+        authorization: str | None = Header(None),
+    ) -> TenantContext:
+        # 1. 降级模式
+        if not auth_enabled:
+            return _FALLBACK_TENANT
+
+        # 2. Header 缺失
+        if authorization is None:
+            raise AppError(
+                ErrorCode.UNAUTHORIZED,
+                "缺少 Authorization 请求头",
+            )
+
+        # 3. Bearer 格式校验
+        token = extract_token(authorization)
+        if token is None:
+            raise AppError(
+                ErrorCode.UNAUTHORIZED,
+                "Authorization 格式错误，应为 Bearer <api_key>",
+            )
+
+        # 4. Key 哈希查询
+        key_hash = hash_key(token)
+        key_record = await api_key_repo.get_by_hash(key_hash)
+        if key_record is None:
+            raise AppError(
+                ErrorCode.UNAUTHORIZED,
+                "API Key 无效",
+            )
+
+        # 5. Key 已吊销
+        if key_record["key_status"] == "revoked":
+            raise AppError(
+                ErrorCode.UNAUTHORIZED,
+                "API Key 已被吊销",
+            )
+
+        # 6. Key 已过期
+        expires_at = key_record.get("expires_at")
+        if expires_at is not None and expires_at < datetime.now(timezone.utc):
+            raise AppError(
+                ErrorCode.UNAUTHORIZED,
+                "API Key 已过期",
+            )
+
+        # 7. 租户已禁用
+        if key_record["tenant_status"] == "disabled":
+            raise AppError(
+                ErrorCode.UNAUTHORIZED,
+                "租户已被禁用",
+            )
+
+        # 8. 正常返回
+        return TenantContext(
+            tenant_id=key_record["tenant_id"],
+            tenant_name=key_record["tenant_name"],
+            key_id=key_record["key_id"],
+            key_prefix=key_record["key_prefix"],
+        )
+
+    return get_current_tenant
