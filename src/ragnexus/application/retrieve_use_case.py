@@ -159,20 +159,18 @@ class RetrieveUseCase:
                 # 分数标记：BM25 分写入 metadata
                 for kw_hit in kw_hits:
                     kw_hit.metadata["_bm25_score"] = kw_hit.score
-
             # BIZ_EVENT: 关键词检索日志
             if use_bm25:
                 try:
+                    kw_failed = isinstance(kw_result, Exception)
                     logger.info(
                         "",
                         extra={
                             "event_type": "BIZ_EVENT",
                             "event": (
-                                "keyword_search_done"
-                                if not isinstance(
-                                    kw_hits if use_bm25 else None, Exception
-                                )
-                                else "keyword_search_fail"
+                                "keyword_search_fail"
+                                if kw_failed
+                                else "keyword_search_done"
                             ),
                             "kb_ids": kb_ids,
                             "query": original_query[:200],
@@ -198,6 +196,8 @@ class RetrieveUseCase:
                     top_n=rerank_top_n,
                 )
                 reranker_model = getattr(self._reranker, "model_name", None)
+            else:
+                hits = hits[:rerank_top_n]
 
             # --- 计时：return 前计算 latency_ms ---
             latency_ms = int((time.perf_counter() - t0) * 1000)
