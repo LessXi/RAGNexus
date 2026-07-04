@@ -21,7 +21,7 @@ export async function fetchTree(keyword?: string): Promise<TreeItem[]> {
 
 /** 获取当前租户信息 */
 export async function fetchAuthMe(): Promise<{ tenant_id: string; tenant_name: string }> {
-  const { data } = await api.get<{ tenant_id: string; tenant_name: string }>('/auth/me');
+  const { data } = await api.get<{ tenant_id: string; tenant_name: string }>('/v1/auth/me');
   return data;
 }
 
