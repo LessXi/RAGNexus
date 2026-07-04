@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     # 混合检索配置
     RETRIEVAL_MODE: str = "hybrid"  # hybrid | vector | bm25
     ES_ENABLED: bool = False
+
+    # Auth
+    AUTH_ENABLED: bool = True  # false 时跳过 API Key 校验，使用占位租户 default
     ELASTICSEARCH_URL: str = "http://localhost:9200"
     ELASTICSEARCH_INDEX: str = "ragnexus_chunks"
     ELASTICSEARCH_REQUEST_TIMEOUT: float = 10.0

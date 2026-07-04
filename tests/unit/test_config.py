@@ -14,6 +14,7 @@ def test_defaults(monkeypatch):
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("RERANK_ENABLED", raising=False)
     monkeypatch.delenv("REWRITE_ENABLED", raising=False)
+    monkeypatch.delenv("AUTH_ENABLED", raising=False)
     s = Settings(_env_file=None)  # type: ignore[call-arg]  # 跳过 .env，仅测试默认值
 
     # ---- 现有字段 ----
@@ -46,6 +47,7 @@ def test_defaults(monkeypatch):
     assert s.LLM_CONNECT_TIMEOUT == 5.0
     assert s.LLM_MAX_CONCURRENCY == 5
     assert s.LLM_MAX_RETRIES == 3
+
     assert s.LLM_RETRY_BACKOFF_BASE == 2.0
 
     # ---- Rerank 配置 ----
@@ -64,9 +66,18 @@ def test_defaults(monkeypatch):
     assert s.REWRITE_CACHE_MAX_ENTRIES == 100
     assert s.REWRITE_CACHE_SIMILARITY_THRESHOLD == 0.95
 
+    # ---- Auth ----
+    assert s.AUTH_ENABLED is True
+
 
 def test_get_settings_is_singleton():
     """get_settings() returns the same instance (@cache)."""
     s1 = get_settings()
     s2 = get_settings()
     assert s1 is s2
+
+
+def test_auth_enabled_default():
+    """AUTH_ENABLED 默认值为 True。"""
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.AUTH_ENABLED is True
