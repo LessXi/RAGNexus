@@ -8,7 +8,7 @@ from ragnexus.adapters.rerank.noop import NoopRerankProvider
 from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.core.errors import AppError
-from ragnexus.domain.models import SearchHit
+from ragnexus.domain.models import RetrieveResult, SearchHit
 from ragnexus.domain.ports import RewriteResult
 
 
@@ -125,10 +125,10 @@ async def test_retrieve_success(
 
     result = await use_case.execute(query="test query", kb_ids=kb_ids, top_k=top_k)
 
-    assert result == sample_hits
-    assert all(isinstance(h, SearchHit) for h in result)
-    assert all(isinstance(h.score, float) for h in result)
-
+    assert isinstance(result, RetrieveResult)
+    assert result.hits == sample_hits
+    assert all(isinstance(h, SearchHit) for h in result.hits)
+    assert all(isinstance(h.score, float) for h in result.hits)
     mock_embedder.embed.assert_awaited_once_with(["test query", "test query"])
     # 默认 candidate_k=20
     mock_store.search_by_vector.assert_awaited_once_with([0.1, 0.2, 0.3], 20, kb_ids)
@@ -317,7 +317,7 @@ async def test_retrieve_log_fire_and_forget(
     # Should not propagate the log error
     result = await use_case.execute(query="test query", kb_ids=["kb_test"], top_k=5)
 
-    assert result == sample_hits
+    assert result.hits == sample_hits
     mock_reranker.rerank.assert_awaited_once()
     # Give the fire-and-forget task a chance to run/be swallowed
     import asyncio
@@ -437,7 +437,7 @@ async def test_rerank_called_with_correct_kwargs(
     assert [h.chunk_id for h in rerank_kwargs["chunks"]] == [
         h.chunk_id for h in sample_hits
     ]
-    assert rerank_kwargs["top_n"] == top_k
+    assert rerank_kwargs["top_n"] == 5  # 默认 rerank_top_n=5
 
 
 @pytest.mark.asyncio
@@ -470,8 +470,8 @@ async def test_rerank_result_is_returned(
 
     result = await uc.execute(query="q", kb_ids=["kb_test"], top_k=5)
 
-    assert result == reranked
-    assert result != sample_hits  # 证明返回的是 rerank 结果
+    assert result.hits == reranked
+    assert result.hits != sample_hits  # 证明返回的是 rerank 结果
     mock_reranker.rerank.assert_awaited_once()
 
 
@@ -501,9 +501,8 @@ async def test_noop_rerank_integration(
 
     result = await uc.execute(query="q", kb_ids=["kb_test"], top_k=top_k)
 
-    # NoopRerankProvider 返回 chunks[:top_n]，即只保留前 top_k 条
-    assert len(result) == 1
-    assert result[0].chunk_id == sample_hits[0].chunk_id
+    assert len(result.hits) == 2  # rerank_top_n=5, Noop 保留全部 2 条
+    assert result.hits[0].chunk_id == sample_hits[0].chunk_id
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -631,4 +630,4 @@ async def test_noop_rewrite_integration(
     # 其他行为不变
     mock_reranker.rerank.assert_awaited_once()
     mock_store.search_by_vector.assert_awaited_once()
-    assert len(result) == top_k
+    assert len(result.hits) == top_k

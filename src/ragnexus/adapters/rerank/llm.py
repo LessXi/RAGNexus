@@ -254,6 +254,11 @@ class LLMRerankProvider:
         self._cache: dict[frozenset[str], list[CacheEntry]] = {}
         self._lock = asyncio.Lock()
 
+    @property
+    def model_name(self) -> str:
+        """返回当前 LLM 模型名称，用于 RetrieveResult.rerank_model。"""
+        return self.llm.model
+
     # ========================================================================
     # rerank — 主入口
     # ========================================================================
@@ -556,6 +561,10 @@ class LLMRerankProvider:
                 chunk_scores[cid] = llm_rankings[cid]
             else:
                 chunk_scores[cid] = 0.0
+
+        # 写入 _rerank_score 到 metadata（供上游 RetrieveResult 使用）
+        for chunk in chunks:
+            chunk.metadata["_rerank_score"] = chunk_scores.get(chunk.chunk_id, 0.0)
 
         sorted_chunks = sorted(
             chunks, key=lambda c: chunk_scores.get(c.chunk_id, 0.0), reverse=True
