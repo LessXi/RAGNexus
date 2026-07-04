@@ -107,7 +107,6 @@ describe('UploadDocPage', () => {
       renderPage();
       await waitFor(() => {
         expect(screen.getByText('🆕 创建知识库')).toBeInTheDocument();
-        expect(screen.getByPlaceholderText('例如：tenant_demo')).toBeInTheDocument();
         expect(screen.getByPlaceholderText('例如：产品文档库')).toBeInTheDocument();
         expect(screen.getByText('✨ 创建')).toBeInTheDocument();
       });
@@ -123,12 +122,8 @@ describe('UploadDocPage', () => {
 
     it('填写表单后创建按钮应启用', async () => {
       renderPage();
-      await waitFor(() => {
-        expect(screen.getByPlaceholderText('例如：tenant_demo')).toBeInTheDocument();
-      });
 
       const user = userEvent.setup();
-      await user.type(screen.getByPlaceholderText('例如：tenant_demo'), 't1');
       await user.type(screen.getByPlaceholderText('例如：产品文档库'), '我的库');
 
       const btn = screen.getByText('✨ 创建') as HTMLButtonElement;
@@ -156,17 +151,12 @@ describe('UploadDocPage', () => {
       renderPage();
       const user = userEvent.setup();
 
-      await waitFor(() => {
-        expect(screen.getByPlaceholderText('例如：tenant_demo')).toBeInTheDocument();
-      });
 
-      await user.type(screen.getByPlaceholderText('例如：tenant_demo'), 't1');
       await user.type(screen.getByPlaceholderText('例如：产品文档库'), '我的库');
       await user.click(screen.getByText('✨ 创建'));
 
       await waitFor(() => {
         // 表单清空
-        expect((screen.getByPlaceholderText('例如：tenant_demo') as HTMLInputElement).value).toBe('');
         expect((screen.getByPlaceholderText('例如：产品文档库') as HTMLInputElement).value).toBe('');
         // toast 出现
         expect(screen.getByText('知识库「我的库」创建成功')).toBeInTheDocument();
@@ -185,11 +175,7 @@ describe('UploadDocPage', () => {
     renderPage();
     const user = userEvent.setup();
 
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText('例如：tenant_demo')).toBeInTheDocument();
-    });
 
-    await user.type(screen.getByPlaceholderText('例如：tenant_demo'), 't1');
     await user.type(screen.getByPlaceholderText('例如：产品文档库'), 'x');
     await user.click(screen.getByText('✨ 创建'));
 

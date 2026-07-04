@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Switch } from '@base-ui/react/switch';
 import { fetchTree, retrieve } from '@/services/api';
 import type { TreeItem, KBItem, RetrieveResponse } from '@/types/api';
-import { Search, Loader2, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Search, Loader2, ChevronDown, ChevronRight, AlertTriangle, Info } from 'lucide-react';
 
 /* ── 类型 ── */
 
@@ -46,7 +46,6 @@ export default function RetrievePage() {
   const [treeError, setTreeError] = useState<string | null>(null);
 
   /* ── 表单 ── */
-  const [selectedTenantId, setSelectedTenantId] = useState('');
   const [selectedKbId, setSelectedKbId] = useState('');
   const [query, setQuery] = useState('');
   const [topK, setTopK] = useState(5);
@@ -77,10 +76,7 @@ export default function RetrievePage() {
       setKbOptions(opts);
 
       // URL 预填
-      const tenantId = searchParams.get('tenant_id') ?? '';
       const kbId = searchParams.get('kb_id') ?? '';
-
-      if (tenantId) setSelectedTenantId(tenantId);
       if (kbId) setSelectedKbId(kbId);
     } catch (err) {
       setTreeError(err instanceof Error ? err.message : '加载知识库列表失败');
@@ -130,9 +126,6 @@ export default function RetrievePage() {
 
   /* ── 派生状态 ── */
   const canRetrieve = query.trim().length > 0 && selectedKbId.length > 0;
-  const filteredKbOptions = selectedTenantId
-    ? kbOptions.filter((o) => o.tenant_id === selectedTenantId)
-    : kbOptions;
   const hits = results?.data?.hits ?? [];
   const meta = results?.data?.meta ?? null;
 
@@ -172,52 +165,34 @@ export default function RetrievePage() {
               </div>
             )}
 
-            {/* 租户 & KB 选择 */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="tenant-select" className="mb-1 block text-sm font-medium text-foreground">
-                  租户
-                </label>
-                <select
-                  id="tenant-select"
-                  value={selectedTenantId}
-                  onChange={(e) => {
-                    setSelectedTenantId(e.target.value);
-                    setSelectedKbId('');
-                  }}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
-                  aria-label="租户"
-                >
-                  <option value="">全部租户</option>
-                  {tree.map((t) => (
-                    <option key={t.tenant_id} value={t.tenant_id}>
-                      {t.tenant_id}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label
-                  htmlFor="kb-select"
-                  className="mb-1 block text-sm font-medium text-foreground"
-                >
-                  知识库 <span className="text-red-500">*</span>
-                </label>
-                <select
-                  id="kb-select"
-                  value={selectedKbId}
-                  onChange={(e) => setSelectedKbId(e.target.value)}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
-                  aria-label="知识库"
-                >
-                  <option value="">请选择知识库</option>
-                  {filteredKbOptions.map((o) => (
-                    <option key={o.kb_id} value={o.kb_id}>
-                      {o.name} ({o.tenant_id})
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* 知识库选择 */}
+            <div>
+              <label
+                htmlFor="kb-select"
+                className="mb-1 inline-flex items-center gap-1.5 text-sm font-medium text-foreground"
+              >
+                知识库 <span className="text-red-500">*</span>
+                <span className="group relative inline-flex items-center">
+                  <Info className="size-4 cursor-help text-muted-foreground hover:text-foreground transition-colors" />
+                  <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+                    通过 API Key 自动识别租户，无需手动选择
+                  </span>
+                </span>
+              </label>
+              <select
+                id="kb-select"
+                value={selectedKbId}
+                onChange={(e) => setSelectedKbId(e.target.value)}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
+                aria-label="知识库"
+              >
+                <option value="">请选择知识库</option>
+                {kbOptions.map((o) => (
+                  <option key={o.kb_id} value={o.kb_id}>
+                    {o.name} ({o.tenant_id})
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* top_k */}

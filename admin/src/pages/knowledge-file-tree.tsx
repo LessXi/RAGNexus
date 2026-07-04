@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchTree } from '@/services/api';
-import type { TreeItem, KBItem, DocItem } from '@/types/api';
+import { fetchTree, fetchAuthMe } from '@/services/api';
+import type { KBItem, DocItem } from '@/types/api';
+import { Badge } from '@/components/ui/badge';
 import {
   ChevronRight,
   ChevronDown,
@@ -10,73 +11,14 @@ import {
   Search,
   FileText,
   FolderOpen,
-  Building2,
 } from 'lucide-react';
-
-/** 租户行组件 */
-function TenantRow({
-  tenant,
-  defaultExpanded,
-}: {
-  tenant: TreeItem;
-  defaultExpanded: boolean;
-}) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const navigate = useNavigate();
-
-  const toggle = () => setExpanded((v) => !v);
-
-  return (
-    <div>
-      {/* L1: 租户名 */}
-      <div
-        className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 transition-colors hover:bg-slate-50"
-        onClick={toggle}
-        data-testid={`tenant-${tenant.tenant_id}`}
-      >
-        {expanded ? (
-          <ChevronDown className="h-4 w-4 flex-shrink-0 text-slate-400" />
-        ) : (
-          <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-400" />
-        )}
-        <Building2 className="h-4 w-4 flex-shrink-0 text-slate-500" />
-        <span className="text-sm font-semibold text-slate-800">
-          {tenant.tenant_id}
-        </span>
-        <span className="ml-auto text-xs text-slate-400">
-          {tenant.knowledge_bases.length} KB
-        </span>
-      </div>
-
-      {/* L2: KB 列表 */}
-      {expanded && (
-        <div className="ml-6 border-l-2 border-slate-100 pl-4">
-          {tenant.knowledge_bases.length === 0 ? (
-            <p className="py-2 text-xs text-slate-400">暂无知识库</p>
-          ) : (
-            tenant.knowledge_bases.map((kb) => (
-              <KbRow
-                key={kb.kb_id}
-                kb={kb}
-                tenantId={tenant.tenant_id}
-                navigate={navigate}
-              />
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 /** KB 行组件 */
 function KbRow({
   kb,
-  tenantId,
   navigate,
 }: {
   kb: KBItem;
-  tenantId: string;
   navigate: ReturnType<typeof useNavigate>;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -102,7 +44,7 @@ function KbRow({
 
   const handleRetrieve = (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigate(`/retrieve?tenant_id=${tenantId}&kb_id=${kb.kb_id}`);
+    navigate(`/retrieve?kb_id=${kb.kb_id}`);
   };
 
   return (
@@ -170,7 +112,7 @@ function KbRow({
         </div>
       </div>
 
-      {/* L3: 文档列表 */}
+      {/* 文档列表 */}
       {expanded && kb.documents.length > 0 && (
         <div className="ml-6 border-l-2 border-slate-100 pl-4">
           {kb.documents.map((doc) => (
@@ -206,10 +148,11 @@ function DocRow({ doc }: { doc: DocItem }) {
 
 /** 知识库列表页 */
 export default function KnowledgeFileTreePage() {
-  const [treeItems, setTreeItems] = useState<TreeItem[] | null>(null);
+  const [treeItems, setTreeItems] = useState<KBItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
+  const [tenantInfo, setTenantInfo] = useState<{ tenant_id: string; tenant_name: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
 
@@ -218,7 +161,9 @@ export default function KnowledgeFileTreePage() {
     setError(null);
     try {
       const data = await fetchTree(kw || undefined);
-      setTreeItems(data);
+      // 后端改为单租户响应：取 data[0].knowledge_bases
+      const tenantTree = data[0];
+      setTreeItems(tenantTree?.knowledge_bases ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败');
       setTreeItems(null);
@@ -232,10 +177,19 @@ export default function KnowledgeFileTreePage() {
     loadTree();
   }, [loadTree]);
 
+  // 加载租户信息
+  useEffect(() => {
+    fetchAuthMe()
+      .then((data) => setTenantInfo(data))
+      .catch(() => {
+        // 静默失败：不影响页面主功能
+      });
+  }, []);
+
   // 搜索防抖
   const handleKeywordChange = (value: string) => {
     setKeyword(value);
-    if (timerRef.current) clearTimeout(timerRef.current);
+    clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       loadTree(value || undefined);
     }, 350);
@@ -244,7 +198,7 @@ export default function KnowledgeFileTreePage() {
   // 组件卸载时清理 timer
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      clearTimeout(timerRef.current);
     };
   }, []);
 
@@ -254,8 +208,15 @@ export default function KnowledgeFileTreePage() {
     <div className="mx-auto max-w-4xl">
       {/* 标题 */}
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-slate-900">知识库列表</h1>
-        <p className="mt-1 text-sm text-slate-500">浏览和管理所有租户下的知识库与文档</p>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold text-slate-900">知识库列表</h1>
+          {tenantInfo && (
+            <Badge>
+              {tenantInfo.tenant_name} ({tenantInfo.tenant_id})
+            </Badge>
+          )}
+        </div>
+        <p className="mt-1 text-sm text-slate-500">浏览和管理当前租户下的知识库与文档</p>
       </div>
 
       {/* 搜索框 */}
@@ -265,7 +226,7 @@ export default function KnowledgeFileTreePage() {
           type="text"
           value={keyword}
           onChange={(e) => handleKeywordChange(e.target.value)}
-          placeholder="搜索租户..."
+          placeholder="搜索知识库名称..."
           className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-100"
         />
       </div>
@@ -308,11 +269,11 @@ export default function KnowledgeFileTreePage() {
           </div>
         )}
 
-        {/* 树 */}
+        {/* KB 列表 */}
         {!loading && !error && treeItems !== null && treeItems.length > 0 && (
           <div className="space-y-0.5">
-            {treeItems.map((tenant) => (
-              <TenantRow key={tenant.tenant_id} tenant={tenant} defaultExpanded={false} />
+            {treeItems.map((kb) => (
+              <KbRow key={kb.kb_id} kb={kb} navigate={navigate} />
             ))}
           </div>
         )}

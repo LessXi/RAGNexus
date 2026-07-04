@@ -3,7 +3,7 @@
 /** 创建知识库请求 */
 export interface CreateKBRequest {
   name: string;
-  tenant_id?: string;
+  description?: string;
 }
 
 /** 创建知识库响应 */
@@ -16,6 +16,12 @@ export interface CreateKBResponse {
     created_at: string;
   };
   message: string;
+}
+
+/** 上传文档请求 */
+export interface UploadDocRequest {
+  kb_id: string;
+  file: File;
 }
 
 /** 上传文档响应 */
@@ -113,6 +119,8 @@ export interface RetrieveRequest {
     enabled: boolean;
     top_n?: number;
   };
+  /** 禁止显式传入 tenant_id */
+  tenant_id?: never;
 }
 
 /** 检索命中条目 */
@@ -149,4 +157,12 @@ export interface RetrieveResponse {
     hits: RetrieveHit[];
     meta: RetrieveMeta;
   };
+}
+
+/** /auth/me 响应 */
+export interface AuthMeData {
+  tenant_id: string;
+  tenant_name: string;
+  key_id: string;
+  key_prefix: string;
 }

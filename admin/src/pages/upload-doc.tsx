@@ -9,7 +9,6 @@ import type { KBItem, UploadResultEntry, SkippedFile } from '@/types/api';
 interface KBOption {
  kb_id: string;
  name: string;
- tenant_id: string;
 }
 
 /** 检测浏览器是否支持文件夹选择 */
@@ -28,7 +27,7 @@ export default function UploadDocPage() {
 
  // --- 创建 KB 表单 ---
  const [createCardExpanded, setCreateCardExpanded] = useState(true);
- const [createTenantId, setCreateTenantId] = useState('');
+
  const [createName, setCreateName] = useState('');
  const [creating, setCreating] = useState(false);
  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -50,14 +49,15 @@ export default function UploadDocPage() {
   try {
    const trees = await fetchTree();
    const options: KBOption[] = [];
-   for (const t of trees) {
-    for (const kb of t.knowledge_bases) {
-     options.push({ kb_id: kb.kb_id, name: kb.name, tenant_id: t.tenant_id });
+   // 后端已改为单租户响应：data[0].knowledge_bases
+   const tenantTree = trees[0];
+   if (tenantTree) {
+    for (const kb of tenantTree.knowledge_bases) {
+     options.push({ kb_id: kb.kb_id, name: kb.name });
     }
    }
    setKbOptions(options);
   } catch {
-   // 静默失败，下拉开空
    setKbOptions([]);
   }
  }, []);
@@ -75,14 +75,13 @@ export default function UploadDocPage() {
 
  // --- 创建知识库 ---
  const handleCreateKB = async () => {
-  if (!createTenantId.trim() || !createName.trim()) return;
+  if (!createName.trim()) return;
 
   setCreating(true);
   try {
-   await createKB({ name: createName.trim(), tenant_id: createTenantId.trim() });
+   await createKB({ name: createName.trim() });
    setToast({ message: `知识库「${createName.trim()}」创建成功`, type: 'success' });
    setCreateName('');
-   setCreateTenantId('');
    await loadKBs();
   } catch {
    setToast({ message: '创建失败，请检查输入或稍后重试', type: 'error' });
@@ -162,8 +161,8 @@ export default function UploadDocPage() {
    {toast && (
     <div
      className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${toast.type === 'success'
-       ? 'bg-green-600/90 text-white'
-       : 'bg-red-600/90 text-white'
+      ? 'bg-green-600/90 text-white'
+      : 'bg-red-600/90 text-white'
       }`}
     >
      {toast.message}
@@ -184,41 +183,25 @@ export default function UploadDocPage() {
     </summary>
     <div className="px-5 pb-5 pt-1">
      <p className="text-slate-400 text-xs mb-4">
-      新建一个知识库，需要提供所属租户 ID 和知识库名称。
+      新建一个知识库，需要提供知识库名称。
      </p>
-     <div className="grid grid-cols-2 gap-4 mb-4">
-      <div>
-       <label className="block text-sm text-slate-400 mb-1">
-        租户 ID <span className="text-red-400">*</span>
-       </label>
-       <input
-        value={createTenantId}
-        onChange={(e) => setCreateTenantId(e.target.value)}
-        placeholder="例如：tenant_demo"
-        maxLength={64}
-        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-md text-sm
-                           text-slate-200 font-mono outline-none focus:border-indigo-500
-                           placeholder:text-slate-600"
-       />
-      </div>
-      <div>
-       <label className="block text-sm text-slate-400 mb-1">
-        知识库名称 <span className="text-red-400">*</span>
-       </label>
-       <input
-        value={createName}
-        onChange={(e) => setCreateName(e.target.value)}
-        placeholder="例如：产品文档库"
-        maxLength={64}
-        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-md text-sm
-                           text-slate-200 outline-none focus:border-indigo-500
-                           placeholder:text-slate-600"
-       />
-      </div>
+     <div className="mb-4">
+      <label className="block text-sm text-slate-400 mb-1">
+       知识库名称 <span className="text-red-400">*</span>
+      </label>
+      <input
+       value={createName}
+       onChange={(e) => setCreateName(e.target.value)}
+       placeholder="例如：产品文档库"
+       maxLength={64}
+       className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-md text-sm
+                          text-slate-200 outline-none focus:border-indigo-500
+                          placeholder:text-slate-600"
+      />
      </div>
      <button
       onClick={handleCreateKB}
-      disabled={creating || !createTenantId.trim() || !createName.trim()}
+      disabled={creating || !createName.trim()}
       className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500
                        disabled:opacity-50 disabled:cursor-not-allowed
                        rounded-md text-sm font-medium transition-colors"
@@ -429,8 +412,8 @@ export default function UploadDocPage() {
          <td className="py-2.5 px-3">
           <span
            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${r.status === 'success'
-             ? 'bg-green-600/20 text-green-400'
-             : 'bg-red-600/20 text-red-400'
+            ? 'bg-green-600/20 text-green-400'
+            : 'bg-red-600/20 text-red-400'
             }`}
           >
            {r.status === 'success' ? '✅ 成功' : '❌ 失败'}
