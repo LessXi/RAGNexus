@@ -46,6 +46,23 @@ def upgrade() -> None:
         ),
     )
 
+    # 默认租户：确保至少有一个租户存在，避免 FK 约束失败
+    op.execute(
+        "INSERT INTO tenants (id, name, status) VALUES ('default', '默认租户', 'active') ON CONFLICT (id) DO NOTHING"
+    )
+
+    # 存量数据迁移：确保 knowledge_bases 中所有 tenant_id 都在 tenants 表中
+    op.execute(
+        """
+        INSERT INTO tenants (id, name, status)
+        SELECT DISTINCT kb.tenant_id, kb.tenant_id, 'active'
+        FROM knowledge_bases kb
+        WHERE kb.tenant_id IS NOT NULL
+          AND kb.tenant_id != ''
+          AND NOT EXISTS (SELECT 1 FROM tenants t WHERE t.id = kb.tenant_id)
+        """
+    )
+
     # API 密钥表
     op.create_table(
         "api_keys",
@@ -82,9 +99,22 @@ def upgrade() -> None:
     )
     op.create_index("idx_api_keys_tenant", "api_keys", ["tenant_id"])
 
+    # 加 FK 约束：knowledge_bases.tenant_id → tenants.id，禁级联删除
+    op.create_foreign_key(
+        "fk_knowledge_bases_tenant",
+        "knowledge_bases",
+        "tenants",
+        ["tenant_id"],
+        ["id"],
+        ondelete="RESTRICT",
+    )
+
 
 def downgrade() -> None:
     # 逆序删除
     op.drop_index("idx_api_keys_tenant", table_name="api_keys")
     op.drop_table("api_keys")
+    op.drop_constraint(
+        "fk_knowledge_bases_tenant", "knowledge_bases", type_="foreignkey"
+    )
     op.drop_table("tenants")
