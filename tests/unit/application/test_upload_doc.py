@@ -12,8 +12,9 @@ from ragnexus.domain.models import ParsedDocument, Section, UploadResult
 
 @pytest.fixture
 def mock_kb_repo():
+    """返回知识库存在且属于当前租户的 mock。"""
     repo = MagicMock()
-    repo.exists = AsyncMock(return_value=True)
+    repo.get = AsyncMock(return_value=MagicMock(tenant_id="test_tenant"))
     repo.doc_exists = AsyncMock(return_value=False)
     return repo
 
@@ -69,6 +70,7 @@ class TestUploadDocument:
         file_bytes = b"# Hello\n\nThis is a test document."
         result = await use_case.execute(
             kb_id="kb_test123",
+            tenant_id="test_tenant",
             file_content=file_bytes,
             filename="test.md",
             content_type="text/markdown",
@@ -112,6 +114,7 @@ class TestUploadDocument:
         with patch("ragnexus.core.logger.logger.info") as mock_info:
             await use_case.execute(
                 kb_id="kb_test123",
+                tenant_id="test_tenant",
                 file_content=file_bytes,
                 filename="test.md",
                 content_type="text/markdown",
@@ -137,6 +140,7 @@ class TestUploadDocument:
         with pytest.raises(AppError) as exc:
             await use_case.execute(
                 kb_id="kb_test123",
+                tenant_id="test_tenant",
                 file_content=file_bytes,
                 filename="test.md",
                 content_type="text/markdown",
@@ -150,6 +154,7 @@ class TestUploadDocument:
             with pytest.raises(AppError) as exc:
                 await use_case.execute(
                     kb_id="kb_test123",
+                    tenant_id="test_tenant",
                     file_content=b"some content",
                     filename=bad_name,
                     content_type="application/octet-stream",
@@ -163,7 +168,7 @@ class TestUploadDocument:
         """Non-existent kb_id raises NotFoundError."""
         from ragnexus.domain.chunking import heading_aware_split
 
-        mock_kb_repo.exists.return_value = False
+        mock_kb_repo.get.return_value = None
         uc = UploadDocumentUseCase(
             kb_repo=mock_kb_repo,
             parser=mock_parser,
@@ -174,11 +179,38 @@ class TestUploadDocument:
         with pytest.raises(AppError) as exc:
             await uc.execute(
                 kb_id="kb_nonexistent",
+                tenant_id="test_tenant",
                 file_content=b"content",
                 filename="test.md",
                 content_type="text/markdown",
             )
         assert exc.value.code == ErrorCode.NOT_FOUND.code
+
+    @pytest.mark.asyncio
+    async def test_kb_wrong_tenant(
+        self, mock_kb_repo, mock_embedder, mock_parser, mock_store
+    ):
+        """kb_id 属于其他租户时抛出 FORBIDDEN。"""
+        from ragnexus.domain.chunking import heading_aware_split
+
+        # 知识库存在但 tenant_id 不匹配
+        mock_kb_repo.get.return_value = MagicMock(tenant_id="other_tenant")
+        uc = UploadDocumentUseCase(
+            kb_repo=mock_kb_repo,
+            parser=mock_parser,
+            embedder=mock_embedder,
+            chunker=heading_aware_split,
+            store=mock_store,
+        )
+        with pytest.raises(AppError) as exc:
+            await uc.execute(
+                kb_id="kb_test123",
+                tenant_id="test_tenant",
+                file_content=b"content",
+                filename="test.md",
+                content_type="text/markdown",
+            )
+        assert exc.value.code == ErrorCode.FORBIDDEN.code
 
     @pytest.mark.asyncio
     async def test_duplicate_doc(
@@ -198,6 +230,7 @@ class TestUploadDocument:
         with pytest.raises(AppError) as exc:
             await uc.execute(
                 kb_id="kb_test123",
+                tenant_id="test_tenant",
                 file_content=b"some content",
                 filename="test.md",
                 content_type="text/markdown",
@@ -229,6 +262,7 @@ class TestUploadDocument:
         with pytest.raises(AppError) as exc:
             await uc.execute(
                 kb_id="kb_test123",
+                tenant_id="test_tenant",
                 file_content=b"",
                 filename="test.md",
                 content_type="text/markdown",

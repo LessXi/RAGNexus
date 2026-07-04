@@ -67,6 +67,7 @@ class UploadDocumentUseCase:
     async def execute(
         self,
         kb_id: str,
+        tenant_id: str,
         file_content: bytes,
         filename: str,
         content_type: str,
@@ -79,6 +80,7 @@ class UploadDocumentUseCase:
             AppError(ErrorCode.FILE_TOO_LARGE): 文件超过大小限制。
             AppError(ErrorCode.UNSUPPORTED_FORMAT): 不支持的文件扩展名。
             AppError(ErrorCode.NOT_FOUND): kb_id 不存在。
+            AppError(ErrorCode.FORBIDDEN): kb_id 不属于当前租户。
             AppError(ErrorCode.RESOURCE_EXISTS): doc_id 已存在（解析前检测）。
             AppError(ErrorCode.FILE_EMPTY): 文件无可解析内容。
         """
@@ -109,12 +111,18 @@ class UploadDocumentUseCase:
                 ],
             )
 
-        # 3. KB existence check
-        if not await self._kb_repo.exists(kb_id):
+        # 3. KB existence + tenant ownership check
+        kb = await self._kb_repo.get(kb_id)
+        if kb is None:
             raise AppError(
                 ErrorCode.NOT_FOUND,
                 "知识库不存在",
                 errors=[{"field": "kb_id", "reason": f"{kb_id} 不存在"}],
+            )
+        if kb.tenant_id != tenant_id:
+            raise AppError(
+                ErrorCode.FORBIDDEN,
+                f"知识库 {kb_id} 不属于当前租户",
             )
 
         # 4. Compute doc_id + file_hash

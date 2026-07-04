@@ -157,15 +157,25 @@ def _patched_lifespan(cfg_overrides: dict[str, Any] | None = None):
         patch("ragnexus.composition.get_settings", return_value=cfg),
         patch("ragnexus.composition.setup_logging", return_value=log_listener),
         patch("ragnexus.composition.OpenAICompatEmbedder", return_value=mock_embedder),
-        patch("ragnexus.composition.OpenAICompatibleLLMProvider", return_value=mock_llm),
-        patch("ragnexus.composition.PgKnowledgeBaseRepository", return_value=mock_kb_repo),
-        patch("ragnexus.composition.PgRetrieveLogRepository", return_value=mock_log_repo),
-        patch("ragnexus.composition.asyncio.create_task", side_effect=_fake_create_task),
+        patch(
+            "ragnexus.composition.OpenAICompatibleLLMProvider", return_value=mock_llm
+        ),
+        patch(
+            "ragnexus.composition.PgKnowledgeBaseRepository", return_value=mock_kb_repo
+        ),
+        patch(
+            "ragnexus.composition.PgRetrieveLogRepository", return_value=mock_log_repo
+        ),
+        patch(
+            "ragnexus.composition.asyncio.create_task", side_effect=_fake_create_task
+        ),
     ):
         yield cfg
 
 
-def _run_lifespan_state(state_attr: str, cfg_overrides: dict[str, Any] | None = None) -> Any:
+def _run_lifespan_state(
+    state_attr: str, cfg_overrides: dict[str, Any] | None = None
+) -> Any:
     """运行 lifespan 并返回 app.state.<state_attr>，或 None（如果未设置）。"""
     from fastapi import FastAPI
 
@@ -203,7 +213,9 @@ class TestLoggingMiddleware:
         return []
 
     @pytest.fixture
-    def handler(self, captured: list[logging.LogRecord]) -> Generator[_ListHandler, None, None]:
+    def handler(
+        self, captured: list[logging.LogRecord]
+    ) -> Generator[_ListHandler, None, None]:
         h = _add_capture_handler(captured)
         yield h
         _remove_capture_handler(h)
@@ -246,7 +258,9 @@ class TestLoggingMiddleware:
         resp = client.post("/echo", json={"msg": "hello"})
         assert resp.status_code == 200
 
-        req_logs = [r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"]
+        req_logs = [
+            r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"
+        ]
         assert len(req_logs) >= 1, "应该至少记录一条 API_REQUEST"
         req_id = getattr(req_logs[0], "req_id", None)
         assert req_id is not None, "req_id 不应为 None"
@@ -266,7 +280,9 @@ class TestLoggingMiddleware:
         )
         assert resp.status_code == 200
 
-        req_logs = [r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"]
+        req_logs = [
+            r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"
+        ]
         assert len(req_logs) >= 1
         assert getattr(req_logs[0], "req_id", None) == "my-custom-id"
 
@@ -284,7 +300,9 @@ class TestLoggingMiddleware:
         assert "API_REQUEST" in event_types, "应记录 API_REQUEST"
         assert "API_RESPONSE" in event_types, "应记录 API_RESPONSE"
 
-        resp_logs = [r for r in captured if getattr(r, "event_type", None) == "API_RESPONSE"]
+        resp_logs = [
+            r for r in captured if getattr(r, "event_type", None) == "API_RESPONSE"
+        ]
         assert len(resp_logs) >= 1
         assert getattr(resp_logs[0], "status", 0) == 200
 
@@ -299,7 +317,9 @@ class TestLoggingMiddleware:
         assert resp.status_code == 200
         assert resp.json() == {"msg": "hello"}
 
-        req_logs = [r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"]
+        req_logs = [
+            r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"
+        ]
         assert len(req_logs) >= 1
         body_present = getattr(req_logs[0], "body_present", False)
         body_length = getattr(req_logs[0], "body_length", 0)
@@ -319,7 +339,9 @@ class TestLoggingMiddleware:
         )
         assert resp.status_code == 200
 
-        req_logs = [r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"]
+        req_logs = [
+            r for r in captured if getattr(r, "event_type", None) == "API_REQUEST"
+        ]
         assert len(req_logs) >= 1
         body_present = getattr(req_logs[0], "body_present", True)
         assert body_present is False, "multipart 不应读取 body"
@@ -366,7 +388,12 @@ class TestLogModelCallOnEmbedder:
             inputs = body["input"]
             return httpx.Response(
                 200,
-                json={"data": [{"index": i, "embedding": [0.1] * dim} for i in range(len(inputs))]},
+                json={
+                    "data": [
+                        {"index": i, "embedding": [0.1] * dim}
+                        for i in range(len(inputs))
+                    ]
+                },
             )
 
         transport = httpx.MockTransport(handler)
@@ -396,14 +423,16 @@ class TestLogModelCallOnEmbedder:
             assert len(result[0]) == 1024
 
             event_types = {getattr(r, "event_type", None) for r in records}
-            assert "MODEL_REQUEST" in event_types, (
-                "未检测到 MODEL_REQUEST — @log_model_call 可能尚未添加到 embed()"
-            )
-            assert "MODEL_RESPONSE" in event_types, (
-                "未检测到 MODEL_RESPONSE — @log_model_call 可能尚未添加到 embed()"
-            )
+            assert (
+                "MODEL_REQUEST" in event_types
+            ), "未检测到 MODEL_REQUEST — @log_model_call 可能尚未添加到 embed()"
+            assert (
+                "MODEL_RESPONSE" in event_types
+            ), "未检测到 MODEL_RESPONSE — @log_model_call 可能尚未添加到 embed()"
 
-            resp_logs = [r for r in records if getattr(r, "event_type", None) == "MODEL_RESPONSE"]
+            resp_logs = [
+                r for r in records if getattr(r, "event_type", None) == "MODEL_RESPONSE"
+            ]
             assert len(resp_logs) >= 1
             assert getattr(resp_logs[0], "model", None) == "text-embedding-v3"
         finally:
@@ -426,8 +455,12 @@ class TestLogModelCallOnEmbedder:
             with pytest.raises(AppError):
                 asyncio.run(emb.embed(["test"]))
 
-            err_logs = [r for r in records if getattr(r, "event_type", None) == "MODEL_RESPONSE"]
-            assert len(err_logs) >= 1, "未检测到失败时的 MODEL_RESPONSE — @log_model_call 未生效"
+            err_logs = [
+                r for r in records if getattr(r, "event_type", None) == "MODEL_RESPONSE"
+            ]
+            assert (
+                len(err_logs) >= 1
+            ), "未检测到失败时的 MODEL_RESPONSE — @log_model_call 未生效"
             error_val = getattr(err_logs[0], "error", None)
             assert error_val is not None
         finally:
@@ -450,9 +483,9 @@ class TestLoggedPoolWiring:
         """lifespan 启动后，app.state.repo_pool 应为 LoggedPool 实例。"""
         repo_pool = _run_lifespan_state("repo_pool")
         assert repo_pool is not None, "lifespan 应设置 app.state.repo_pool"
-        assert isinstance(repo_pool, LoggedPool), (
-            f"repo_pool 应为 LoggedPool 实例，实际类型为 {type(repo_pool).__name__}"
-        )
+        assert isinstance(
+            repo_pool, LoggedPool
+        ), f"repo_pool 应为 LoggedPool 实例，实际类型为 {type(repo_pool).__name__}"
 
 
 # ============================================================================
@@ -473,9 +506,9 @@ class TestRerankLLMWiring:
 
         retrieve_uc = _run_lifespan_state("retrieve_uc", {"RERANK_ENABLED": False})
         assert retrieve_uc is not None, "lifespan 应设置 app.state.retrieve_uc"
-        assert isinstance(retrieve_uc._reranker, NoopRerankProvider), (
-            f"禁用重排时应为 NoopRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
-        )
+        assert isinstance(
+            retrieve_uc._reranker, NoopRerankProvider
+        ), f"禁用重排时应为 NoopRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
 
     def test_rerank_enabled_uses_llm_reranker(self):
         """RERANK_ENABLED=True 时，retrieve_uc 的 reranker 为 LLMRerankProvider 实例。"""
@@ -483,9 +516,9 @@ class TestRerankLLMWiring:
 
         retrieve_uc = _run_lifespan_state("retrieve_uc", {"RERANK_ENABLED": True})
         assert retrieve_uc is not None, "lifespan 应设置 app.state.retrieve_uc"
-        assert isinstance(retrieve_uc._reranker, LLMRerankProvider), (
-            f"启用重排时应为 LLMRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
-        )
+        assert isinstance(
+            retrieve_uc._reranker, LLMRerankProvider
+        ), f"启用重排时应为 LLMRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
 
     def test_upload_doc_is_wrapped_with_cache_invalidator(self):
         """upload_doc_uc 被 CacheInvalidatingUploadUseCase 包装。"""
@@ -493,9 +526,9 @@ class TestRerankLLMWiring:
 
         upload_doc_uc = _run_lifespan_state("upload_doc_uc", {"RERANK_ENABLED": False})
         assert upload_doc_uc is not None, "lifespan 应设置 app.state.upload_doc_uc"
-        assert isinstance(upload_doc_uc, CacheInvalidatingUploadUseCase), (
-            f"上传用例应被包装，实际类型: {type(upload_doc_uc).__name__}"
-        )
+        assert isinstance(
+            upload_doc_uc, CacheInvalidatingUploadUseCase
+        ), f"上传用例应被包装，实际类型: {type(upload_doc_uc).__name__}"
 
 
 # ============================================================================
@@ -528,6 +561,7 @@ class TestCacheInvalidatingUploadUseCase:
         asyncio.run(
             uc.execute(
                 kb_id="kb-1",
+                tenant_id="test-tenant",
                 file_content=b"hello",
                 filename="f.txt",
                 content_type="text/plain",
@@ -536,6 +570,7 @@ class TestCacheInvalidatingUploadUseCase:
 
         inner.execute.assert_awaited_once_with(
             kb_id="kb-1",
+            tenant_id="test-tenant",
             file_content=b"hello",
             filename="f.txt",
             content_type="text/plain",
@@ -557,6 +592,7 @@ class TestCacheInvalidatingUploadUseCase:
             asyncio.run(
                 uc.execute(
                     kb_id="kb-1",
+                    tenant_id="test-tenant",
                     file_content=b"x",
                     filename="f.txt",
                     content_type="text/plain",

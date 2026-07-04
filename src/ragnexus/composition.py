@@ -72,11 +72,17 @@ class CacheInvalidatingUploadUseCase:
         self._rewriter = rewriter
 
     async def execute(
-        self, kb_id: str, file_content: bytes, filename: str, content_type: str
+        self,
+        kb_id: str,
+        tenant_id: str,
+        file_content: bytes,
+        filename: str,
+        content_type: str,
     ) -> UploadResult:
         """执行上传并清空双缓存。"""
         result = await self._inner.execute(
             kb_id=kb_id,
+            tenant_id=tenant_id,
             file_content=file_content,
             filename=filename,
             content_type=content_type,

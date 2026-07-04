@@ -1,13 +1,16 @@
 """工厂函数: upload_doc_router — POST /v1/documents:upload（multipart）。"""
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
+
+from ragnexus.core.auth import TenantContext
 
 
-def create_router(uc) -> APIRouter:
+def create_router(uc, get_current_tenant) -> APIRouter:
     """返回含单个 multipart POST 端点的 APIRouter。
 
     ``uc`` 必须提供 ``async def execute(
         *, kb_id: str, file_content: bytes, filename: str, content_type: str,
+        tenant_id: str,
     ) -> UploadResult``。
     """
 
@@ -17,6 +20,7 @@ def create_router(uc) -> APIRouter:
     async def upload_doc(
         kb_id: str = Form(...),
         file: UploadFile = File(...),  # noqa: B008
+        current_tenant: TenantContext = Depends(get_current_tenant),  # noqa: B008
     ):
         content = await file.read()
         result = await uc.execute(
@@ -24,6 +28,7 @@ def create_router(uc) -> APIRouter:
             file_content=content,
             filename=file.filename or "unknown",
             content_type=file.content_type or "application/octet-stream",
+            tenant_id=current_tenant.tenant_id,
         )
         return {
             "code": 0,

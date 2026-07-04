@@ -49,7 +49,7 @@ def app(mock_kb_uc, mock_upload_uc, mock_retrieve_uc):
 
     app = FastAPI()
     app.include_router(create_kb_router(mock_kb_uc, mock_get_current_tenant))
-    app.include_router(create_upload_router(mock_upload_uc))
+    app.include_router(create_upload_router(mock_upload_uc, mock_get_current_tenant))
     app.include_router(create_retrieve_router(mock_retrieve_uc))
     register_error_handlers(app)
     return app

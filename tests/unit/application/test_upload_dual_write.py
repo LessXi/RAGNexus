@@ -24,7 +24,7 @@ from ragnexus.domain.models import UploadResult
 @pytest.fixture
 def mock_kb_repo():
     repo = MagicMock()
-    repo.exists = AsyncMock(return_value=True)
+    repo.get = AsyncMock(return_value=MagicMock(tenant_id="test_tenant"))
     repo.doc_exists = AsyncMock(return_value=False)
     return repo
 
@@ -153,6 +153,7 @@ class TestUploadDualWrite:
 
         result = await uc.execute(
             kb_id="kb_test123",
+            tenant_id="test_tenant",
             file_content=test_file_bytes,
             filename="test.md",
             content_type="text/markdown",
@@ -212,6 +213,7 @@ class TestUploadDualWrite:
         with pytest.raises(RuntimeError):
             await uc.execute(
                 kb_id="kb_test123",
+                tenant_id="test_tenant",
                 file_content=test_file_bytes,
                 filename="test.md",
                 content_type="text/markdown",
@@ -253,6 +255,7 @@ class TestUploadDualWrite:
         with pytest.raises(RuntimeError, match="ES down"):
             await uc.execute(
                 kb_id="kb_test123",
+                tenant_id="test_tenant",
                 file_content=test_file_bytes,
                 filename="test.md",
                 content_type="text/markdown",
@@ -297,6 +300,7 @@ class TestUploadDualWrite:
         with pytest.raises(RuntimeError, match="PG constraint violation"):
             await uc.execute(
                 kb_id="kb_test123",
+                tenant_id="test_tenant",
                 file_content=test_file_bytes,
                 filename="test.md",
                 content_type="text/markdown",
@@ -364,6 +368,7 @@ class TestUploadBackwardCompat:
 
         result = await uc.execute(
             kb_id="kb_test123",
+            tenant_id="test_tenant",
             file_content=test_file_bytes,
             filename="test.md",
             content_type="text/markdown",
