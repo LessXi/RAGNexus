@@ -92,22 +92,24 @@ class PgKnowledgeBaseRepository:
         )
 
     async def list_with_documents(
-        self, keyword: str | None = None
+        self, tenant_id: str, keyword: str | None = None
     ) -> list[TenantKBTree]:
-        """获取租户→KB→文档三级树。
+        """获取单租户→KB→文档三级树。
 
-        LEFT JOIN knowledge_bases + documents，Python 层组装为 list[TenantKBTree]。
+        LEFT JOIN knowledge_bases + documents，按 tenant_id 过滤，keyword 模糊匹配 KB 名称。
         """
         from collections import defaultdict
 
+        kw_pattern = f"%{keyword}%" if keyword else "%%"
         rows = await self.pool.fetch(
             "SELECT kb.tenant_id, kb.id AS kb_id, kb.name, kb.created_at, "
             "d.doc_id, d.filename, d.uploaded_at, d.chunk_count "
             "FROM knowledge_bases kb "
             "LEFT JOIN documents d ON d.kb_id = kb.id "
-            "WHERE ($1::text IS NULL OR kb.tenant_id ILIKE '%' || $1 || '%') "
+            "WHERE kb.tenant_id = $1 AND kb.name ILIKE $2 "
             "ORDER BY kb.tenant_id, kb.created_at DESC, d.uploaded_at DESC",
-            keyword,
+            tenant_id,
+            kw_pattern,
         )
 
         # 组装: 三层嵌套 group by (tenant_id, kb_id)

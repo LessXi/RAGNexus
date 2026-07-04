@@ -59,10 +59,12 @@ async def test_execute_delegates_to_repo(use_case, mock_kb_repo):
     expected = _sample_tree()
     mock_kb_repo.list_with_documents.return_value = expected
 
-    result = await use_case.execute()
+    result = await use_case.execute(tenant_id="tenant_a")
 
     assert result is expected
-    mock_kb_repo.list_with_documents.assert_awaited_once_with(None)
+    mock_kb_repo.list_with_documents.assert_awaited_once_with(
+        tenant_id="tenant_a", keyword=None
+    )
 
 
 @pytest.mark.asyncio
@@ -71,10 +73,12 @@ async def test_execute_passes_keyword(use_case, mock_kb_repo):
     expected: list[TenantKBTree] = []
     mock_kb_repo.list_with_documents.return_value = expected
 
-    result = await use_case.execute(keyword="tenant_x")
+    result = await use_case.execute(tenant_id="t1", keyword="产品")
 
     assert result is expected
-    mock_kb_repo.list_with_documents.assert_awaited_once_with("tenant_x")
+    mock_kb_repo.list_with_documents.assert_awaited_once_with(
+        tenant_id="t1", keyword="产品"
+    )
 
 
 @pytest.mark.asyncio
@@ -82,7 +86,9 @@ async def test_execute_empty_result(use_case, mock_kb_repo):
     """无匹配数据时返回空列表。"""
     mock_kb_repo.list_with_documents.return_value = []
 
-    result = await use_case.execute()
+    result = await use_case.execute(tenant_id="t1")
 
     assert result == []
-    mock_kb_repo.list_with_documents.assert_awaited_once_with(None)
+    mock_kb_repo.list_with_documents.assert_awaited_once_with(
+        tenant_id="t1", keyword=None
+    )

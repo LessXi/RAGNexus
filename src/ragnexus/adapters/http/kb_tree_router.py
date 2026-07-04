@@ -1,24 +1,31 @@
-"""工厂函数: create_kb_tree_router — GET /v1/knowledge-bases/tree。"""
+"""工厂函数: create_kb_tree_router — GET /v1/knowledge-bases/tree（按租户过滤）。"""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from ragnexus.application.kb_tree_use_case import GetKnowledgeBaseTreeUseCase
+from ragnexus.core.auth import TenantContext
 
 
-def create_kb_tree_router(use_case: GetKnowledgeBaseTreeUseCase) -> APIRouter:
+def create_kb_tree_router(
+    use_case: GetKnowledgeBaseTreeUseCase, get_current_tenant
+) -> APIRouter:
     """返回含 GET /v1/knowledge-bases/tree 端点的 APIRouter。
 
-    use_case 必须提供 ``async def execute(keyword: str | None = None) -> list[TenantKBTree]``。
+    use_case 必须提供 ``async def execute(tenant_id: str, keyword: str | None = None) -> list[TenantKBTree]``。
+    get_current_tenant 是 make_get_current_tenant 返回的 Depends 可调用对象。
     """
 
     router = APIRouter()
 
     @router.get("/v1/knowledge-bases/tree")
     async def get_tree(
-        keyword: str | None = Query(None, description="模糊匹配 tenant_id"),
+        current_tenant: TenantContext = Depends(get_current_tenant),
+        keyword: str | None = Query(None, description="模糊匹配 KB 名称"),
     ):
-        """获取租户→知识库→文档的三级树结构。"""
-        trees = await use_case.execute(keyword=keyword)
+        """获取当前租户的知识库→文档三级树结构。"""
+        trees = await use_case.execute(
+            tenant_id=current_tenant.tenant_id, keyword=keyword
+        )
         return {
             "code": 0,
             "data": [_tree_to_dict(t) for t in trees],

@@ -39,9 +39,9 @@ class KnowledgeBasePort(Protocol):
     async def doc_exists(self, doc_id: str) -> bool: ...
 
     async def list_with_documents(
-        self, keyword: str | None = None
+        self, tenant_id: str, keyword: str | None = None
     ) -> list[TenantKBTree]:
-        """获取租户→KB→文档三级树，keyword 模糊匹配 tenant_id。"""
+        """获取单租户→KB→文档三级树，keyword 模糊匹配 KB 名称。"""
         ...
 
 
