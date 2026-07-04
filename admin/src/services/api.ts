@@ -5,7 +5,7 @@ import api from '@/lib/axios';
 export async function createKB(params: CreateKBRequest): Promise<CreateKBResponse> {
   const { data } = await api.post<CreateKBResponse>(
     '/v1/knowledge-bases:create',
-    { name: params.name, tenant_id: params.tenant_id },
+    { name: params.name },
   );
   return data;
 }

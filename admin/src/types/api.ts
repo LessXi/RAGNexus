@@ -3,7 +3,7 @@
 /** 创建知识库请求 */
 export interface CreateKBRequest {
   name: string;
-  tenant_id: string;
+  tenant_id?: string;
 }
 
 /** 创建知识库响应 */
