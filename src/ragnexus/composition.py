@@ -152,11 +152,11 @@ class SynonymSyncUploadUseCase:
             if self._store is not None and self._store.pool is not None:
                 try:
                     rows = await self._store.pool.fetch(
-                        "SELECT content FROM chunks WHERE kb_id=$1 LIMIT 10",
+                        "SELECT text FROM chunks WHERE kb_id=$1 LIMIT 10",
                         kb_id,
                     )
                     chunks_text = "\n".join(
-                        r["content"][:300] for r in rows if r.get("content")
+                        r["text"][:300] for r in rows if r.get("text")
                     )
                 except Exception:
                     pass
