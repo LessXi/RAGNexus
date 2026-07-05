@@ -520,14 +520,14 @@ class TestRerankLLMWiring:
             retrieve_uc._reranker, LLMRerankProvider
         ), f"启用重排时应为 LLMRerankProvider，实际: {type(retrieve_uc._reranker).__name__}"
 
-    def test_upload_doc_is_wrapped_with_cache_invalidator(self):
-        """upload_doc_uc 被 CacheInvalidatingUploadUseCase 包装。"""
-        from ragnexus.composition import CacheInvalidatingUploadUseCase
+    def test_upload_doc_is_wrapped_with_synonym_sync(self):
+        """upload_doc_uc 被 SynonymSyncUploadUseCase 包装（最外层）。"""
+        from ragnexus.composition import SynonymSyncUploadUseCase
 
         upload_doc_uc = _run_lifespan_state("upload_doc_uc", {"RERANK_ENABLED": False})
         assert upload_doc_uc is not None, "lifespan 应设置 app.state.upload_doc_uc"
         assert isinstance(
-            upload_doc_uc, CacheInvalidatingUploadUseCase
+            upload_doc_uc, SynonymSyncUploadUseCase
         ), f"上传用例应被包装，实际类型: {type(upload_doc_uc).__name__}"
 
 

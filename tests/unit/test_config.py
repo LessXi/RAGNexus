@@ -15,6 +15,7 @@ def test_defaults(monkeypatch):
     monkeypatch.delenv("RERANK_ENABLED", raising=False)
     monkeypatch.delenv("REWRITE_ENABLED", raising=False)
     monkeypatch.delenv("AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("EMBED_BATCH_SIZE", raising=False)
     s = Settings(_env_file=None)  # type: ignore[call-arg]  # 跳过 .env，仅测试默认值
 
     # ---- 现有字段 ----
@@ -28,7 +29,7 @@ def test_defaults(monkeypatch):
     assert s.EMBED_API_KEY == ""
     assert s.EMBED_MODEL == "text-embedding-v3"
     assert s.EMBED_DIM == 1024
-    assert s.EMBED_BATCH_SIZE == 50
+    assert s.EMBED_BATCH_SIZE == 50  # 代码默认值
     assert s.EMBED_MAX_CONCURRENCY == 5
     assert s.EMBED_MAX_RETRIES == 3
     assert s.CHUNK_MAX_CHARS == 1500
