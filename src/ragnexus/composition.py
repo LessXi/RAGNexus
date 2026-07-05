@@ -106,10 +106,12 @@ class SynonymSyncUploadUseCase:
         self,
         inner: "CacheInvalidatingUploadUseCase",
         kb_repo: "KnowledgeBasePort",
+        store: "PgVectorStore | None" = None,
         llm_provider: "OpenAICompatibleLLMProvider | None" = None,
     ) -> None:
         self._inner = inner
         self._kb_repo = kb_repo
+        self._store = store
         self._llm = llm_provider
 
     async def execute(
@@ -145,21 +147,31 @@ class SynonymSyncUploadUseCase:
             name = getattr(kb, "name", "")
             desc = getattr(kb, "description", "")
 
-            # 构建 LLM prompt
+            # 获取 KB 内文档片段（最多 10 个，每个 300 字）
+            chunks_text = ""
+            if self._store is not None and self._store.pool is not None:
+                try:
+                    rows = await self._store.pool.fetch(
+                        "SELECT content FROM chunks WHERE kb_id=$1 LIMIT 10",
+                        kb_id,
+                    )
+                    chunks_text = "\n".join(
+                        r["content"][:300] for r in rows if r.get("content")
+                    )
+                except Exception:
+                    pass
+
+            # 构建 LLM prompt（含文档内容）
+            context = f"知识库名称：{name}\n描述：{desc}"
+            if chunks_text:
+                context += f"\n\n文档片段：\n{chunks_text[:2000]}"
             prompt = (
-                f"知识库名称：{name}\n"
-                f"描述：{desc}\n\n"
-                "请从以上知识库描述中提取 2-5 组专业术语及其同义词/扩展词，"
+                f"{context}\n\n"
+                "请从以上内容中提取 2-5 组专业术语及其同义词/扩展词，"
                 "以 JSON 格式返回：\n"
                 '{"synonyms":[{"terms":["术语1","术语2"],"expand":["扩展词1","扩展词2"]}]}\n'
                 "只返回 JSON，不要解释。"
             )
-            response = await self._llm.chat_json(
-                system_prompt="你是术语提取专家。从知识库描述中提取专业术语并建议同义词。",
-                user_payload={"query": prompt},
-            )
-            draft = json.loads(response) if isinstance(response, str) else response
-            synonyms = draft.get("synonyms", [])
             if not synonyms:
                 return
 
@@ -440,14 +452,12 @@ async def lifespan(app: FastAPI):
             es_enabled=cfg.ES_ENABLED,
         )
 
-        # 包装 upload_doc_uc，成功后清空 rerank 和 rewrite 缓存
+        # 包装上传：缓存清理 → 词表同步
         upload_doc_uc_wrapped = CacheInvalidatingUploadUseCase(
             upload_doc_uc, reranker, rewriter
         )
-
-        # 再包装一层：上传成功后异步增量更新词表
         upload_doc_uc_wrapped = SynonymSyncUploadUseCase(
-            upload_doc_uc_wrapped, kb_repo, llm_provider
+            upload_doc_uc_wrapped, kb_repo, store, llm_provider
         )
         # --- Query Pipeline (改写 + 词表扩展) ---
         synonym_expander = SynonymExpander()
