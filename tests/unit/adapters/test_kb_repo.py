@@ -1,5 +1,6 @@
 """Tests for PgKnowledgeBaseRepository — TDD RED phase."""
 
+import json
 from datetime import datetime
 from unittest.mock import AsyncMock
 
@@ -35,6 +36,7 @@ class TestCreate:
             "name": "My KB",
             "created_at": now,
             "tenant_id": "test",
+            "settings": {},
         }
 
         result = await repo.create(name="My KB", name_key="my kb")
@@ -42,6 +44,7 @@ class TestCreate:
         assert isinstance(result, KnowledgeBase)
         assert result.name == "My KB"
         assert result.created_at == now
+        assert result.settings == {}
         assert result.id.startswith("kb_")
         mock_pool.fetchrow.assert_awaited_once()
 
@@ -144,3 +147,61 @@ class TestDocExists:
         result = await repo.doc_exists("doc_nonexistent")
 
         assert result is False
+
+
+class TestGetSettings:
+    """Tests for PgKnowledgeBaseRepository.get_settings()."""
+
+    @pytest.mark.asyncio
+    async def test_get_settings_found(self, repo, mock_pool):
+        """get_settings() 在 KB 存在时应返回 settings dict。"""
+        expected_settings = {"synonyms": {"foo": "bar"}}
+        mock_pool.fetchrow.return_value = {"settings": expected_settings}
+
+        result = await repo.get_settings("kb_abc")
+
+        assert result == expected_settings
+        mock_pool.fetchrow.assert_awaited_once_with(
+            "SELECT settings FROM knowledge_bases WHERE id = $1",
+            "kb_abc",
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_settings_not_found(self, repo, mock_pool):
+        """get_settings() 在 KB 不存在时应返回 {}。"""
+        mock_pool.fetchrow.return_value = None
+
+        result = await repo.get_settings("kb_nonexistent")
+
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_get_settings_null(self, repo, mock_pool):
+        """get_settings() 在 settings 列为 NULL 时应返回 {}。"""
+        mock_pool.fetchrow.return_value = {"settings": None}
+
+        result = await repo.get_settings("kb_abc")
+
+        assert result == {}
+
+
+class TestUpdateSettings:
+    """Tests for PgKnowledgeBaseRepository.update_settings()."""
+
+    @pytest.mark.asyncio
+    async def test_update_settings_calls_execute(self, repo, mock_pool):
+        """update_settings() 应序列化 settings 并用 jsonb 覆盖写入。"""
+        settings = {"synonyms": {"你好": "hello"}, "rewrite_hint": "test"}
+
+        result = await repo.update_settings("kb_abc", settings)
+
+        assert result is None
+        mock_pool.execute.assert_awaited_once()
+        # 验证 SQL 和参数
+        call_args = mock_pool.execute.call_args
+        assert (
+            "UPDATE knowledge_bases SET settings = $1::jsonb WHERE id = $2"
+            in call_args[0][0]
+        )
+        assert call_args[0][1] == json.dumps(settings, ensure_ascii=False)
+        assert call_args[0][2] == "kb_abc"

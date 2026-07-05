@@ -29,18 +29,21 @@ class PgKnowledgeBaseRepository:
             kb_id = "kb_" + nanoid_generate(size=8)
             try:
                 row = await self.pool.fetchrow(
-                    "INSERT INTO knowledge_bases (id, name, name_key, tenant_id) VALUES ($1, $2, $3, $4) "
-                    "RETURNING id, name, created_at, tenant_id",
+                    "INSERT INTO knowledge_bases (id, name, name_key, tenant_id, settings) "
+                    "VALUES ($1, $2, $3, $4, $5::jsonb) "
+                    "RETURNING id, name, created_at, tenant_id, settings",
                     kb_id,
                     name,
                     name_key,
                     tenant_id,
+                    "{}",
                 )
                 return KnowledgeBase(
                     id=row["id"],
                     name=row["name"],
                     created_at=row["created_at"],
                     tenant_id=row["tenant_id"],
+                    settings=row["settings"] or {},
                 )
             except asyncpg.UniqueViolationError as e:
                 # 检查冲突的约束名，区分 name_key 唯一冲突 vs kb_id 碰撞
@@ -72,6 +75,25 @@ class PgKnowledgeBaseRepository:
             kb_id,
         )
         return KnowledgeBase(**dict(row)) if row else None
+
+    async def get_settings(self, kb_id: str) -> dict:
+        """获取 KB 的 settings（JSONB 列）。不存在时返回 {}。"""
+        row = await self.pool.fetchrow(
+            "SELECT settings FROM knowledge_bases WHERE id = $1", kb_id
+        )
+        if row is None:
+            return {}
+        return row["settings"] or {}
+
+    async def update_settings(self, kb_id: str, settings: dict) -> None:
+        """更新（覆盖）KB 的 settings。"""
+        import json
+
+        await self.pool.execute(
+            "UPDATE knowledge_bases SET settings = $1::jsonb WHERE id = $2",
+            json.dumps(settings, ensure_ascii=False),
+            kb_id,
+        )
 
     async def exists(self, kb_id: str) -> bool:
         """检查知识库是否按 ID 存在。"""
