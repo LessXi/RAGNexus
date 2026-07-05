@@ -199,7 +199,7 @@ class PgKnowledgeBaseRepository:
         kw_pattern = f"%{keyword}%" if keyword else "%%"
         rows = await self.pool.fetch(
             "SELECT kb.tenant_id, kb.id AS kb_id, kb.name, kb.created_at, "
-            "d.doc_id, d.filename, d.uploaded_at, d.chunk_count "
+            "d.doc_id, d.filename, d.uploaded_at, d.chunk_count, d.status, d.error_message "
             "FROM knowledge_bases kb "
             "LEFT JOIN documents d ON d.kb_id = kb.id "
             "WHERE kb.tenant_id = $1 AND kb.name ILIKE $2 "
@@ -232,12 +232,14 @@ class PgKnowledgeBaseRepository:
             # 文档行可能为 NULL（LEFT JOIN 无匹配）
             if row["doc_id"] is not None:
                 kb_info = tenant_map[tid][kid]
+                _status_map = {1: "success", 2: "processing", 3: "failed"}
                 kb_info["documents"].append(
                     DocNode(
                         doc_id=row["doc_id"],
                         filename=row["filename"],
-                        status="completed",
+                        status=_status_map.get(row["status"], "processing"),
                         uploaded_at=row["uploaded_at"].isoformat(),
+                        error_message=row.get("error_message"),
                     )
                 )
                 kb_info["total_chunks"] += row["chunk_count"] or 0

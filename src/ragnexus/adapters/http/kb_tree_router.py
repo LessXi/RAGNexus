@@ -53,6 +53,7 @@ def _tree_to_dict(tree):
                         "filename": d.filename,
                         "status": d.status,
                         "uploaded_at": d.uploaded_at,
+                        "error_message": d.error_message,
                     }
                     for d in kb.documents
                 ],

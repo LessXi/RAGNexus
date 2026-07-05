@@ -15,7 +15,9 @@ import asyncpg
 from fastapi import FastAPI
 
 from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
-from ragnexus.adapters.http.create_kb_router import create_router as create_kb_router
+from ragnexus.adapters.http.create_kb_router import (
+    create_router as create_kb_create_router,
+)
 from ragnexus.adapters.http.error_handlers import register_error_handlers
 from ragnexus.adapters.http.health_router import create_router as create_health_router
 from ragnexus.adapters.http.kb_tree_router import (
@@ -44,11 +46,19 @@ from ragnexus.adapters.http.auth_router import create_auth_router
 from ragnexus.adapters.http.deps import make_get_current_tenant
 from ragnexus.adapters.document.pg import PgDocumentRepository
 from ragnexus.adapters.tenant.pg import PgApiKeyRepository, PgTenantRepository
+from ragnexus.adapters.http.document_router import create_document_router
+from ragnexus.adapters.http.kb_router import create_kb_router
 
 from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
 from ragnexus.application.kb_tree_use_case import GetKnowledgeBaseTreeUseCase
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
+from ragnexus.application.document_query_uc import DocumentQueryUseCase
+from ragnexus.application.document_delete_uc import DocumentDeleteUseCase
+from ragnexus.application.document_reindex_uc import DocumentReindexUseCase
+from ragnexus.application.kb_detail_uc import KnowledgeBaseDetailUseCase
+from ragnexus.application.kb_update_uc import KnowledgeBaseUpdateUseCase
+from ragnexus.application.kb_delete_uc import KnowledgeBaseDeleteUseCase
 from ragnexus.config import get_settings
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import LoggedPool, logger, setup_logging
@@ -494,18 +504,48 @@ async def lifespan(app: FastAPI):
         )
         kb_tree_uc = GetKnowledgeBaseTreeUseCase(kb_repo=kb_repo)
 
+        # --- 文档运维路由 use cases ---
+        doc_query_uc = DocumentQueryUseCase(doc_repo=document_repo, kb_repo=kb_repo)
+        doc_delete_uc = DocumentDeleteUseCase(
+            doc_repo=document_repo,
+            kb_repo=kb_repo,
+            store=cast(Any, store),
+            keyword_store=keyword_store,
+        )
+        doc_reindex_uc = DocumentReindexUseCase(doc_repo=document_repo, kb_repo=kb_repo)
+
+        # --- KB 运维路由 use cases ---
+        kb_detail_uc = KnowledgeBaseDetailUseCase(kb_repo=kb_repo)
+        kb_update_uc = KnowledgeBaseUpdateUseCase(kb_repo=kb_repo)
+        kb_delete_uc = KnowledgeBaseDeleteUseCase(
+            kb_repo=kb_repo,
+            doc_repo=document_repo,
+            store=cast(Any, store),
+            keyword_store=keyword_store,
+        )
+
         # --- Auth Dependency ---
         get_current_tenant = make_get_current_tenant(
             tenant_repo, api_key_repo, cfg.AUTH_ENABLED
         )
         # --- 6. Routers -------------------------------------------------------
-        app.include_router(create_kb_router(create_kb_uc, get_current_tenant))
+        app.include_router(create_kb_create_router(create_kb_uc, get_current_tenant))
         app.include_router(
             create_upload_doc_router(upload_doc_uc_wrapped, get_current_tenant)
         )
         app.include_router(create_retrieve_router(retrieve_uc, get_current_tenant))
         app.include_router(create_health_router(lambda: store))
         app.include_router(create_kb_tree_router(kb_tree_uc, get_current_tenant))
+        app.include_router(
+            create_document_router(
+                doc_query_uc, doc_delete_uc, doc_reindex_uc, get_current_tenant
+            )
+        )
+        app.include_router(
+            create_kb_router(
+                kb_detail_uc, kb_update_uc, kb_delete_uc, get_current_tenant
+            )
+        )
         app.include_router(create_auth_router(get_current_tenant))
 
         # Stash references for teardown
