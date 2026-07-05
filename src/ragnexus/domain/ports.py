@@ -5,6 +5,8 @@ from typing import Protocol
 
 from ragnexus.domain.models import (
     Chunk,
+    DocStatus,
+    Document,
     KnowledgeBase,
     ParsedDocument,
     SearchHit,
@@ -138,6 +140,41 @@ class KeywordSearchPort(Protocol):
     async def delete(self, kb_id: str, chunk_ids: list[str]) -> None:
         """从关键词索引删除指定 chunk。"""
         ...
+
+
+class DocumentPort(Protocol):
+    """文档 CRUD 端口 — 从 KnowledgeBasePort 独立出的文档操作。"""
+
+    async def get(self, doc_id: str) -> "Document | None": ...
+
+    async def create(
+        self,
+        *,
+        doc_id: str,
+        kb_id: str,
+        filename: str,
+        file_hash: str,
+        file_size: int,
+        content_type: str,
+        content: str,
+    ) -> "Document": ...
+
+    async def update_status(
+        self,
+        doc_id: str,
+        *,
+        status: "DocStatus",
+        error_message: str | None = None,
+        chunk_count: int | None = None,
+    ) -> None: ...
+
+    async def delete(self, doc_id: str) -> None: ...
+
+    async def delete_by_kb(self, kb_id: str) -> None: ...
+
+    async def has_processing(self, kb_id: str) -> bool: ...
+
+    async def get_by_kb(self, kb_id: str) -> "list[Document]": ...
 
 
 @dataclass
