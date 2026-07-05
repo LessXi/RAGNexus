@@ -30,6 +30,7 @@ export interface UploadDocResponse {
   data: {
     doc_id: string;
     kb_id: string;
+    status: string;
     chunk_count: number;
   };
   message: string;
@@ -54,7 +55,7 @@ export interface CachedKB {
 export interface UploadResultEntry {
   name: string;
   size: number;
-  status: 'success' | 'failed';
+  status: 'success' | 'failed' | 'processing';
   detail: string; // 成功时 chunk 数，失败时原因
 }
 
@@ -183,4 +184,51 @@ export interface AuthMeData {
   tenant_name: string;
   key_id: string;
   key_prefix: string;
+}
+
+/** 文档索引状态枚举 */
+export enum DocStatus {
+  SUCCESS = 'success',
+  PROCESSING = 'processing',
+  FAILED = 'failed',
+}
+
+/** 文档详情 */
+export interface DocumentDetail {
+  doc_id: string;
+  kb_id: string;
+  filename: string;
+  file_hash: string;
+  file_size: number;
+  content_type: string;
+  status: string;
+  chunk_count: number;
+  error_message?: string | null;
+  uploaded_at: string | null;
+  updated_at: string | null;
+}
+
+/** 更新知识库请求 */
+export interface UpdateKBRequest {
+  name?: string;
+  description?: string;
+  settings?: Record<string, unknown>;
+}
+
+/** 知识库详情 */
+export interface KBDetail {
+  id: string;
+  name: string;
+  description: string;
+  settings: Record<string, unknown>;
+  tenant_id: string;
+  created_at: string;
+}
+
+/** 上传结果（异步索引版） */
+export interface UploadResult {
+  doc_id: string;
+  kb_id: string;
+  status: string;
+  chunk_count: number;
 }

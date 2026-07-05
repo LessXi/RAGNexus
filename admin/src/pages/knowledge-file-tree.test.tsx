@@ -6,21 +6,36 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import KnowledgeFileTreePage from './knowledge-file-tree';
 
 const mockFetchTree = vi.fn();
+const mockFetchAuthMe = vi.fn();
 const mockNavigate = vi.fn();
 
 vi.mock('@/services/api', () => ({
   fetchTree: (...args: unknown[]) => mockFetchTree(...args),
+  fetchAuthMe: (...args: unknown[]) => mockFetchAuthMe(...args),
+}));
+
+// 静默 documentService 和 knowledgeBaseService 的导入（不需要 mock 其方法）
+vi.mock('@/services/documentService', () => ({
+  fetchDocument: vi.fn(),
+  deleteDocument: vi.fn(),
+  reindexDocument: vi.fn(),
+}));
+
+vi.mock('@/services/knowledgeBaseService', () => ({
+  fetchKBDetail: vi.fn(),
+  updateKB: vi.fn(),
+  deleteKB: vi.fn(),
 }));
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
-    ...actual,
+    ...(actual as object),
     useNavigate: () => mockNavigate,
   };
 });
 
-// navigator.clipboard mock — 必须 configurable:true，否则 userEvent 会冲突
+// navigator.clipboard mock
 const mockWriteText = vi.fn();
 Object.defineProperty(navigator, 'clipboard', {
   value: { writeText: mockWriteText },
@@ -34,7 +49,7 @@ function renderPage() {
   });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={['/knowledge-bases']}>
+      <MemoryRouter>
         <KnowledgeFileTreePage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -44,8 +59,10 @@ function renderPage() {
 describe('KnowledgeFileTreePage', () => {
   beforeEach(() => {
     mockFetchTree.mockReset();
+    mockFetchAuthMe.mockReset();
     mockNavigate.mockReset();
     mockWriteText.mockReset();
+    mockFetchAuthMe.mockResolvedValue({ tenant_id: 'test_tenant', tenant_name: 'Test' });
   });
 
   // --- 基础渲染 ---
@@ -54,13 +71,13 @@ describe('KnowledgeFileTreePage', () => {
     mockFetchTree.mockResolvedValue([]);
     renderPage();
     expect(screen.getByText('知识库列表')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('搜索租户...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('搜索知识库名称...')).toBeInTheDocument();
   });
 
   // --- 加载态 ---
 
   it('初始应显示加载态', () => {
-    mockFetchTree.mockReturnValue(new Promise(() => { })); // 永不 resolve
+    mockFetchTree.mockReturnValue(new Promise(() => { }));
     renderPage();
     expect(screen.getByText('加载中...')).toBeInTheDocument();
   });
@@ -78,7 +95,7 @@ describe('KnowledgeFileTreePage', () => {
 
   // --- 树渲染 ---
 
-  it('fetchTree 返回数据时应渲染三级树结构', async () => {
+  it('fetchTree 返回数据时应渲染 KB 和文档', async () => {
     mockFetchTree.mockResolvedValue([
       {
         tenant_id: 'tenant_a',
@@ -94,7 +111,7 @@ describe('KnowledgeFileTreePage', () => {
               {
                 doc_id: 'doc_1',
                 filename: 'readme.pdf',
-                status: 'active',
+                status: 'success',
                 uploaded_at: '2025-01-01T00:00:00Z',
               },
               {
@@ -120,19 +137,14 @@ describe('KnowledgeFileTreePage', () => {
 
     renderPage();
 
+    // KB 节点直接可见（2级树）
     await waitFor(() => {
-      expect(screen.getByText('tenant_a')).toBeInTheDocument();
+      expect(screen.getByText('My KB')).toBeInTheDocument();
     });
-
-    // 默认折叠，需先展开租户
-    await userEvent.click(screen.getByText('tenant_a'));
-
-    // L2: KB 节点
-    expect(screen.getByText('My KB')).toBeInTheDocument();
     expect(screen.getByText('kb_1')).toBeInTheDocument();
     expect(screen.getByText('Empty KB')).toBeInTheDocument();
 
-    // L3: 文档节点 — 需先展开 KB
+    // 文档节点 — 需先展开 KB
     const myKbRow = screen.getByText('My KB').closest('div')!;
     await userEvent.click(myKbRow);
     expect(screen.getByText('readme.pdf')).toBeInTheDocument();
@@ -143,50 +155,12 @@ describe('KnowledgeFileTreePage', () => {
     expect(screen.getByText(/150 chunks/)).toBeInTheDocument();
     expect(screen.getByText(/0 文档/)).toBeInTheDocument();
 
-    // status 标签
-    expect(screen.getByText('active')).toBeInTheDocument();
-    expect(screen.getByText('processing')).toBeInTheDocument();
+    // StatusBadge 渲染中文标签
+    expect(screen.getByText('已完成')).toBeInTheDocument();
+    expect(screen.getByText('索引中')).toBeInTheDocument();
   });
 
-  // --- 展开/折叠 L1 租户 ---
-
-  it('点击租户应展开/折叠其下的 KB 列表', async () => {
-    mockFetchTree.mockResolvedValue([
-      {
-        tenant_id: 'tenant_x',
-        knowledge_bases: [
-          {
-            kb_id: 'kb_a',
-            name: 'KB A',
-            description: '',
-            document_count: 1,
-            total_chunks: 10,
-            created_at: '2025-01-01T00:00:00Z',
-            documents: [],
-          },
-        ],
-      },
-    ]);
-
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByText('tenant_x')).toBeInTheDocument();
-    });
-
-    // 默认折叠：KB 不应可见
-    expect(screen.queryByText('KB A')).not.toBeInTheDocument();
-
-    // 点击展开
-    const tenantRow = screen.getByText('tenant_x').closest('div')!;
-    await userEvent.click(tenantRow);
-    expect(screen.getByText('KB A')).toBeInTheDocument();
-
-    // 再次点击折叠
-    await userEvent.click(tenantRow);
-    expect(screen.queryByText('KB A')).not.toBeInTheDocument();
-  });
-
-  // --- 展开/折叠 L2 KB ---
+  // --- 展开/折叠 KB ---
 
   it('点击 KB 应展开/折叠其下的文档列表', async () => {
     mockFetchTree.mockResolvedValue([
@@ -204,7 +178,7 @@ describe('KnowledgeFileTreePage', () => {
               {
                 doc_id: 'doc_1',
                 filename: 'secret.txt',
-                status: 'active',
+                status: 'success',
                 uploaded_at: '2025-01-01T00:00:00Z',
               },
             ],
@@ -215,12 +189,8 @@ describe('KnowledgeFileTreePage', () => {
 
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText('tenant_a')).toBeInTheDocument();
+      expect(screen.getByText('My KB')).toBeInTheDocument();
     });
-
-    // 先展开租户
-    await userEvent.click(screen.getByText('tenant_a'));
-    expect(screen.getByText('My KB')).toBeInTheDocument();
 
     // 默认文档折叠
     expect(screen.queryByText('secret.txt')).not.toBeInTheDocument();
@@ -245,14 +215,13 @@ describe('KnowledgeFileTreePage', () => {
       expect(mockFetchTree).toHaveBeenCalledWith(undefined);
     });
 
-    const input = screen.getByPlaceholderText('搜索租户...');
+    const input = screen.getByPlaceholderText('搜索知识库名称...');
     await userEvent.clear(input);
-    await userEvent.type(input, 'tenant_x');
+    await userEvent.type(input, 'MyKB');
 
-    // 等待防抖（约 350ms）
     await waitFor(
       () => {
-        expect(mockFetchTree).toHaveBeenCalledWith('tenant_x');
+        expect(mockFetchTree).toHaveBeenCalledWith('MyKB');
       },
       { timeout: 2000 },
     );
@@ -281,11 +250,9 @@ describe('KnowledgeFileTreePage', () => {
 
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText('t1')).toBeInTheDocument();
+      expect(screen.getByText('Test KB')).toBeInTheDocument();
     });
-    await userEvent.click(screen.getByText('t1'));
 
-    // 找到复制按钮（标题为「复制 KB ID」）
     const copyBtn = screen.getByTitle('复制 KB ID');
     await userEvent.click(copyBtn);
 
@@ -317,9 +284,8 @@ describe('KnowledgeFileTreePage', () => {
 
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText('t1')).toBeInTheDocument();
+      expect(screen.getByText('Upload KB')).toBeInTheDocument();
     });
-    await userEvent.click(screen.getByText('t1'));
 
     const uploadBtn = screen.getByTitle('上传文档');
     await userEvent.click(uploadBtn);
@@ -328,7 +294,7 @@ describe('KnowledgeFileTreePage', () => {
 
   // --- 跳转检索 ---
 
-  it('点击检索按钮应跳转到 /retrieve?tenant_id=xxx&kb_id=yyy', async () => {
+  it('点击检索按钮应跳转到 /retrieve?kb_id=yyy', async () => {
     mockFetchTree.mockResolvedValue([
       {
         tenant_id: 't_alpha',
@@ -348,15 +314,12 @@ describe('KnowledgeFileTreePage', () => {
 
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText('t_alpha')).toBeInTheDocument();
+      expect(screen.getByText('Retrieve KB')).toBeInTheDocument();
     });
-    await userEvent.click(screen.getByText('t_alpha'));
 
     const retrieveBtn = screen.getByTitle('检索');
     await userEvent.click(retrieveBtn);
-    expect(mockNavigate).toHaveBeenCalledWith(
-      '/retrieve?tenant_id=t_alpha&kb_id=kb_beta',
-    );
+    expect(mockNavigate).toHaveBeenCalledWith('/retrieve?kb_id=kb_beta');
   });
 
   // --- 错误态 ---

@@ -25,12 +25,22 @@ export async function uploadQueue(
       const res = await uploadDoc(kbId, file);
       if (res.code === 0) {
         successCount++;
-        results.push({
-          name: file.name,
-          size: file.size,
-          status: 'success',
-          detail: `${res.data.doc_id}, ${res.data.chunk_count} chunks`,
-        });
+        const docStatus = res.data.status;
+        if (docStatus === 'processing') {
+          results.push({
+            name: file.name,
+            size: file.size,
+            status: 'processing',
+            detail: '已提交，正在后台索引',
+          });
+        } else {
+          results.push({
+            name: file.name,
+            size: file.size,
+            status: 'success',
+            detail: `${res.data.doc_id}, ${res.data.chunk_count} chunks`,
+          });
+        }
       } else {
         failCount++;
         results.push({

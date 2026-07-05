@@ -1,8 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, type NavigateFunction } from 'react-router-dom';
 import { fetchTree, fetchAuthMe } from '@/services/api';
-import type { KBItem, DocItem } from '@/types/api';
+import { fetchDocument, deleteDocument, reindexDocument } from '@/services/documentService';
+import { fetchKBDetail, updateKB, deleteKB } from '@/services/knowledgeBaseService';
+import type { KBItem, DocItem, DocumentDetail, KBDetail } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/StatusBadge';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { EditKnowledgeBaseDialog } from '@/components/EditKnowledgeBaseDialog';
 import {
   ChevronRight,
   ChevronDown,
@@ -11,18 +16,27 @@ import {
   Search,
   FileText,
   FolderOpen,
+  Trash2,
+  RotateCw,
+  Pencil,
 } from 'lucide-react';
 
 /** KB 行组件 */
 function KbRow({
   kb,
   navigate,
+  onKbChanged,
 }: {
   kb: KBItem;
-  navigate: ReturnType<typeof useNavigate>;
+  navigate: NavigateFunction;
+  onKbChanged: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [kbDetail, setKbDetail] = useState<KBDetail | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const toggle = () => setExpanded((v) => !v);
 
@@ -45,6 +59,41 @@ function KbRow({
   const handleRetrieve = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigate(`/retrieve?kb_id=${kb.kb_id}`);
+  };
+
+  const handleEditKB = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const detail = await fetchKBDetail(kb.kb_id);
+      setKbDetail(detail);
+      setShowEditDialog(true);
+    } catch {
+      // 静默失败
+    }
+  };
+
+  const handleDeleteKB = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteKB = async () => {
+    setDeleting(true);
+    try {
+      await deleteKB(kb.kb_id);
+      setShowDeleteConfirm(false);
+      onKbChanged();
+    } catch {
+      // 静默失败
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleSaveKB = async (data: { name?: string; description?: string; settings?: Record<string, unknown> }) => {
+    await updateKB(kb.kb_id, data);
+    setShowEditDialog(false);
+    onKbChanged();
   };
 
   return (
@@ -109,6 +158,24 @@ function KbRow({
           >
             <Search className="h-3.5 w-3.5" />
           </button>
+
+          {/* 编辑 KB */}
+          <button
+            title="编辑知识库"
+            onClick={handleEditKB}
+            className="rounded p-1 text-slate-400 transition-colors hover:bg-amber-50 hover:text-amber-600"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+
+          {/* 删除 KB */}
+          <button
+            title="删除知识库"
+            onClick={handleDeleteKB}
+            className="rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
 
@@ -116,32 +183,155 @@ function KbRow({
       {expanded && kb.documents.length > 0 && (
         <div className="ml-6 border-l-2 border-slate-100 pl-4">
           {kb.documents.map((doc) => (
-            <DocRow key={doc.doc_id} doc={doc} />
+            <DocRow key={doc.doc_id} doc={doc} onDocChanged={onKbChanged} />
           ))}
         </div>
+      )}
+
+      {/* 编辑 KB 对话框 */}
+      {showEditDialog && kbDetail && (
+        <EditKnowledgeBaseDialog
+          kb={kbDetail}
+          onSave={handleSaveKB}
+          onClose={() => setShowEditDialog(false)}
+        />
+      )}
+
+      {/* 删除 KB 确认 */}
+      {showDeleteConfirm && (
+        <ConfirmDialog
+          title="删除知识库"
+          message={`确定要删除「${kb.name}」吗？该操作不可撤销，所有文档将被永久删除。`}
+          onConfirm={confirmDeleteKB}
+          onCancel={() => setShowDeleteConfirm(false)}
+          loading={deleting}
+          confirmLabel="删除"
+          variant="destructive"
+        />
       )}
     </div>
   );
 }
 
 /** 文档行组件 */
-function DocRow({ doc }: { doc: DocItem }) {
-  const statusColor: Record<string, string> = {
-    active: 'bg-green-100 text-green-700',
-    processing: 'bg-amber-100 text-amber-700',
-    failed: 'bg-red-100 text-red-700',
-    ready: 'bg-blue-100 text-blue-700',
+function DocRow({ doc, onDocChanged }: { doc: DocItem; onDocChanged: () => void }) {
+  const POLL_INTERVAL = 3000; // 3 秒轮询
+  const MAX_POLLS = 60; // 最多 3 分钟
+
+  const [currentStatus, setCurrentStatus] = useState(doc.status);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
+  const pollCountRef = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 轮询 PROCESSING 状态的文档
+  useEffect(() => {
+    if (currentStatus !== 'processing') return;
+
+    timerRef.current = setInterval(async () => {
+      pollCountRef.current += 1;
+      try {
+        const detail = await fetchDocument(doc.doc_id);
+        setCurrentStatus(detail.status);
+        if (detail.status !== 'processing') {
+          clearInterval(timerRef.current!);
+          onDocChanged(); // 刷新列表以更新 chunk_count 等
+        }
+      } catch {
+        // 轮询失败静默重试
+      }
+
+      if (pollCountRef.current >= MAX_POLLS) {
+        clearInterval(timerRef.current!);
+      }
+    }, POLL_INTERVAL);
+
+    return () => {
+      clearInterval(timerRef.current!);
+    };
+  }, [doc.doc_id]); // 只在 doc_id 变化时重启轮询
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowDeleteConfirm(true);
   };
 
-  const badgeClass = statusColor[doc.status] ?? 'bg-slate-100 text-slate-600';
+  const confirmDelete = async () => {
+    setDeleting(true);
+    try {
+      await deleteDocument(doc.doc_id);
+      setShowDeleteConfirm(false);
+      onDocChanged();
+    } catch {
+      // 静默失败
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleRetry = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setReindexing(true);
+    try {
+      const result = await reindexDocument(doc.doc_id);
+      setCurrentStatus(result.status);
+      onDocChanged();
+    } catch {
+      // 静默失败
+    } finally {
+      setReindexing(false);
+    }
+  };
+
+  const isProcessing = currentStatus === 'processing';
 
   return (
-    <div className="flex items-center gap-2 rounded px-2 py-1.5" data-testid={`doc-${doc.doc_id}`}>
+    <div
+      className="flex items-center gap-2 rounded px-2 py-1.5"
+      data-testid={`doc-${doc.doc_id}`}
+    >
       <FileText className="h-3.5 w-3.5 flex-shrink-0 text-slate-300" />
       <span className="text-sm text-slate-600">{doc.filename}</span>
-      <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium ${badgeClass}`}>
-        {doc.status}
-      </span>
+      <StatusBadge status={currentStatus} />
+
+      {/* 操作按钮 */}
+      <div className="ml-auto flex items-center gap-0.5">
+        {/* 重试按钮（仅 FAILED 显示） */}
+        {currentStatus === 'failed' && (
+          <button
+            title="重新索引"
+            onClick={handleRetry}
+            disabled={reindexing}
+            className="rounded p-1 text-slate-400 transition-colors hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50"
+          >
+            <RotateCw className={`h-3 w-3 ${reindexing ? 'animate-spin' : ''}`} />
+          </button>
+        )}
+
+        {/* 删除按钮（PROCESSING 时禁用） */}
+        <button
+          title={isProcessing ? '索引中，无法删除' : '删除文档'}
+          onClick={handleDelete}
+          disabled={isProcessing}
+          className="rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+
+      {/* 删除确认 */}
+      {showDeleteConfirm && (
+        <ConfirmDialog
+          title="删除文档"
+          message={`确定要删除「${doc.filename}」吗？该操作不可撤销。`}
+          onConfirm={confirmDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+          loading={deleting}
+          confirmLabel="删除"
+          variant="destructive"
+        />
+      )}
     </div>
   );
 }
@@ -153,7 +343,7 @@ export default function KnowledgeFileTreePage() {
   const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
   const [tenantInfo, setTenantInfo] = useState<{ tenant_id: string; tenant_name: string } | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const timerRef = useRef<number | undefined>(undefined);
   const navigate = useNavigate();
 
   const loadTree = useCallback(async (kw?: string) => {
@@ -171,6 +361,10 @@ export default function KnowledgeFileTreePage() {
       setLoading(false);
     }
   }, []);
+
+  const handleKbChanged = useCallback(() => {
+    loadTree(keyword || undefined);
+  }, [keyword, loadTree]);
 
   // 首次加载
   useEffect(() => {
@@ -273,7 +467,7 @@ export default function KnowledgeFileTreePage() {
         {!loading && !error && treeItems !== null && treeItems.length > 0 && (
           <div className="space-y-0.5">
             {treeItems.map((kb) => (
-              <KbRow key={kb.kb_id} kb={kb} navigate={navigate} />
+              <KbRow key={kb.kb_id} kb={kb} navigate={navigate} onKbChanged={handleKbChanged} />
             ))}
           </div>
         )}

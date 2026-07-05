@@ -145,6 +145,12 @@ export default function UploadDocPage() {
 
   setResults(uploadResults);
   setUploading(false);
+
+  // 如果有异步索引的文档，提示用户
+  const hasProcessing = uploadResults.some((r) => r.status === 'processing');
+  if (hasProcessing) {
+   setToast({ message: '已提交，正在后台索引', type: 'success' });
+  }
  };
 
  const successCount = results?.filter((r) => r.status === 'success').length ?? 0;

@@ -13,7 +13,7 @@ describe('uploadQueue', () => {
     vi.clearAllMocks();
     vi.mocked(api.uploadDoc).mockResolvedValue({
       code: 0,
-      data: { doc_id: 'doc_abc', kb_id: kbId, chunk_count: 3 },
+      data: { doc_id: 'doc_abc', kb_id: kbId, status: 'success', chunk_count: 3 },
       message: 'ok',
     });
   });
@@ -34,7 +34,7 @@ describe('uploadQueue', () => {
       .mockRejectedValueOnce(new Error('Network Error'))
       .mockResolvedValueOnce({
         code: 0,
-        data: { doc_id: 'doc_xyz', kb_id: kbId, chunk_count: 1 },
+        data: { doc_id: 'doc_xyz', kb_id: kbId, status: 'success', chunk_count: 1 },
         message: 'ok',
       });
 
@@ -48,7 +48,7 @@ describe('uploadQueue', () => {
   it('应处理后端非零错误码（如 10302 重复文件）', async () => {
     vi.mocked(api.uploadDoc).mockResolvedValue({
       code: 10302,
-      data: null as unknown as { doc_id: string; kb_id: string; chunk_count: number },
+      data: null as unknown as { doc_id: string; kb_id: string; status: string; chunk_count: number },
       message: '文档已存在',
     });
 
