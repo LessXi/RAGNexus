@@ -116,6 +116,7 @@ class DocNode:
     filename: str
     status: str
     uploaded_at: str
+    error_message: str | None = None
 
 
 @dataclass
