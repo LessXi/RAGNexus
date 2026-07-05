@@ -490,11 +490,11 @@ class TestBothDisabled:
             await embedder.close()
 
     async def test_noop_rewriter_returns_original_query(self):
-        """NoopRewriteProvider.rewrite 返回 rewritten_query == original_query。"""
+        """NoopRewriteProvider.rewrite 返回 effective_query == raw_query。"""
         noop = NoopRewriteProvider()
         result = await noop.rewrite(query="test query", kb_ids=["kb1"])
-        assert result.original_query == "test query"
-        assert result.rewritten_query == "test query"
+        assert result.raw_query == "test query"
+        assert result.effective_query == "test query"
         assert result.needs_rewrite is False
 
     async def test_noop_reranker_preserves_chunks(self):

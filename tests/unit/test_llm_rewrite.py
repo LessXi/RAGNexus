@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from ragnexus.adapters.llm.base import LLMProvider
-from ragnexus.domain.ports import RewriteResult
+from ragnexus.domain.ports import QueryProcessResult
 
 # ============================================================================
 # Fake / Stub 类
@@ -136,10 +136,10 @@ class TestRewriteNormal:
 
         result = await provider.rewrite(query="上次那个退款的事", kb_ids=["kb1"])
 
-        assert result.original_query == "上次那个退款的事"
-        assert result.rewritten_query == "退款政策 申请条件 流程"
+        assert result.raw_query == "上次那个退款的事"
+        assert result.effective_query == "退款政策 申请条件 流程"
         assert result.needs_rewrite is True
-        assert "指代词" in result.reason
+        assert result.degraded is False
 
     @pytest.mark.asyncio
     async def test_rewrite_no_rewrite_needed(self):
@@ -158,10 +158,10 @@ class TestRewriteNormal:
 
         result = await provider.rewrite(query="退款政策 申请条件", kb_ids=["kb1"])
 
-        assert result.original_query == "退款政策 申请条件"
-        assert result.rewritten_query == "退款政策 申请条件"
+        assert result.raw_query == "退款政策 申请条件"
+        assert result.effective_query == "退款政策 申请条件"
         assert result.needs_rewrite is False
-        assert "关键词" in result.reason
+        assert result.degraded is False
 
 
 class TestCacheHit:
@@ -185,12 +185,12 @@ class TestCacheHit:
 
         # 第一次调用 — 走 LLM
         result1 = await provider.rewrite(query="怎么退款", kb_ids=["kb1"])
-        assert result1.rewritten_query == "退款流程 步骤"
+        assert result1.effective_query == "退款流程 步骤"
         assert llm.call_count == 1
 
         # 第二次调用相同 query — 应命中缓存，不调用 LLM
         result2 = await provider.rewrite(query="怎么退款", kb_ids=["kb1"])
-        assert result2.rewritten_query == "退款流程 步骤"
+        assert result2.effective_query == "退款流程 步骤"
         assert llm.call_count == 1  # 仍然为 1，未增加
 
     @pytest.mark.asyncio
@@ -218,8 +218,8 @@ class TestCacheHit:
 
         # 两个 KB 各自走一次 LLM（缓存未命中，因为 KB 不同）
         assert llm.call_count == 2
-        assert r1.rewritten_query == "退款流程"
-        assert r2.rewritten_query == "退货说明"
+        assert r1.effective_query == "退款流程"
+        assert r2.effective_query == "退货说明"
 
 
 class TestJsonDefense:
@@ -284,10 +284,10 @@ class TestJsonDefense:
         ):
             result = await provider.rewrite(query="原始查询", kb_ids=["kb1"])
 
-        assert result.original_query == "原始查询"
-        assert result.rewritten_query == "原始查询"
+        assert result.raw_query == "原始查询"
+        assert result.effective_query == "原始查询"
         assert result.needs_rewrite is False
-        assert "JSON" in result.reason
+        assert "JSON" in result.degraded_reason
 
 
 class TestDegradation:
@@ -304,13 +304,13 @@ class TestDegradation:
 
         result = await provider.rewrite(query="原始查询", kb_ids=["kb1"])
 
-        assert result.original_query == "原始查询"
-        assert result.rewritten_query == "原始查询"
+        assert result.raw_query == "原始查询"
+        assert result.effective_query == "原始查询"
         assert result.needs_rewrite is False
         assert (
-            "失败" in result.reason
-            or "超时" in result.reason
-            or "异常" in result.reason
+            "失败" in result.degraded_reason
+            or "超时" in result.degraded_reason
+            or "异常" in result.degraded_reason
         )
 
     @pytest.mark.asyncio
@@ -325,8 +325,8 @@ class TestDegradation:
 
         # 缓存查找失败不应阻断，应继续走 LLM
         # 但因为 LLM 也没有响应，全链路降级
-        assert result.original_query == "原始查询"
-        assert result.rewritten_query == "原始查询"
+        assert result.raw_query == "原始查询"
+        assert result.effective_query == "原始查询"
 
 
 class TestClearCache:
@@ -353,7 +353,7 @@ class TestClearCache:
 
         # 再次查询同一 query — 缓存已清空，应重新调用 LLM
         result = await provider.rewrite(query="查询A", kb_ids=["kb1"])
-        assert result.rewritten_query == "改写2"
+        assert result.effective_query == "改写2"
         assert llm.call_count == 2  # 重新调用了 LLM
 
     @pytest.mark.asyncio
@@ -377,10 +377,10 @@ class TestClearCache:
         await provider.clear_cache("kb1")
 
         r2 = await provider.rewrite(query="查询A", kb_ids=["kb2"])
-        assert r2.rewritten_query == "改写1"
+        assert r2.effective_query == "改写1"
         assert llm.call_count == 2  # kb2 命中缓存，未调 LLM
         r1 = await provider.rewrite(query="查询A", kb_ids=["kb1"])
-        assert r1.rewritten_query == "改写2"
+        assert r1.effective_query == "改写2"
         assert llm.call_count == 3  # kb1 缓存已清，重新调 LLM
 
 
@@ -405,10 +405,11 @@ class TestReasonLoggingOnly:
         result = await provider.rewrite(query="原始查询", kb_ids=["kb1"])
 
         # 业务逻辑只看 needs_rewrite 和 rewritten_query
+        # 业务逻辑只看 needs_rewrite 和 effective_query
         assert result.needs_rewrite is True
-        assert result.rewritten_query == "改写后的查询"
-        # reason 存在，但仅用于日志
-        assert result.reason == "任意原因 — 不影响改写结果"
+        assert result.effective_query == "改写后的查询"
+        # 非降级时 degraded_reason 为 None，reason 仅用于日志
+        assert result.degraded is False
 
 
 class TestSecondPassRefinement:
@@ -436,7 +437,7 @@ class TestSecondPassRefinement:
 
         result = await provider.rewrite(query="原始查询", kb_ids=["kb1"])
 
-        assert result.rewritten_query == refined
+        assert result.effective_query == refined
         assert result.needs_rewrite is True
         assert llm.call_count == 2  # 主调用 + 精炼调用
 
@@ -456,8 +457,8 @@ class TestSecondPassRefinement:
 
         result = await provider.rewrite(query="原始查询", kb_ids=["kb1"])
 
-        assert result.original_query == "原始查询"
-        assert result.rewritten_query == "原始查询"
+        assert result.raw_query == "原始查询"
+        assert result.effective_query == "原始查询"
         assert result.needs_rewrite is False
 
 
@@ -476,7 +477,7 @@ class TestAlwaysNoException:
         # 不应抛出任何异常
         result = await provider.rewrite(query="test", kb_ids=["kb1"])
 
-        assert isinstance(result, RewriteResult)
-        assert result.original_query == "test"
-        assert result.rewritten_query == "test"
+        assert isinstance(result, QueryProcessResult)
+        assert result.raw_query == "test"
+        assert result.effective_query == "test"
         assert result.needs_rewrite is False

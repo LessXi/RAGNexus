@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 
-from ragnexus.domain.ports import RewriteResult
+from ragnexus.domain.ports import QueryProcessResult
 
 
 class TestNoopRewriteProvider:
@@ -39,8 +39,8 @@ class TestNoopRewriteProvider:
         rewrite_sig = inspect.signature(cls.rewrite)
         rewrite_params = list(rewrite_sig.parameters.values())
         assert (
-            rewrite_sig.return_annotation == RewriteResult
-        ), f"rewrite 返回类型应为 RewriteResult，实际: {rewrite_sig.return_annotation}"
+            rewrite_sig.return_annotation == QueryProcessResult
+        ), f"rewrite 返回类型应为 QueryProcessResult，实际: {rewrite_sig.return_annotation}"
         for p in rewrite_params[1:]:
             assert (
                 p.kind == inspect.Parameter.KEYWORD_ONLY
@@ -54,15 +54,15 @@ class TestNoopRewriteProvider:
         assert cc_params[1].annotation is str
         assert cc_sig.return_annotation is None
 
-        # 验证实际行为：rewrite 返回 RewriteResult
-        async def _run() -> RewriteResult:
+        # 验证实际行为：rewrite 返回 QueryProcessResult
+        async def _run() -> QueryProcessResult:
             return await instance.rewrite(
                 query="test query",
                 kb_ids=["kb-1"],
             )
 
         result = asyncio.run(_run())
-        assert isinstance(result, RewriteResult)
+        assert isinstance(result, QueryProcessResult)
 
     def test_rewrite_returns_identity_no_modification(self) -> None:
         """rewrite() 直通：original_query == rewritten_query == 输入 query。"""
@@ -70,7 +70,7 @@ class TestNoopRewriteProvider:
 
         provider = NoopRewriteProvider()
 
-        async def _run() -> RewriteResult:
+        async def _run() -> QueryProcessResult:
             return await provider.rewrite(
                 query="什么是向量数据库？",
                 kb_ids=["kb-1", "kb-2"],
@@ -78,12 +78,12 @@ class TestNoopRewriteProvider:
 
         result = asyncio.run(_run())
 
-        assert isinstance(result, RewriteResult)
-        assert result.original_query == "什么是向量数据库？"
-        assert result.rewritten_query == "什么是向量数据库？"
-        assert result.original_query == result.rewritten_query
+        assert isinstance(result, QueryProcessResult)
+        assert result.raw_query == "什么是向量数据库？"
+        assert result.effective_query == "什么是向量数据库？"
+        assert result.raw_query == result.effective_query
         assert result.needs_rewrite is False, "直通实现应设置 needs_rewrite=False"
-        assert result.reason == "禁用改写，直通"
+        assert result.degraded is False
 
     def test_rewrite_custom_query_identity(self) -> None:
         """不同 query 的直通身份保持。"""
@@ -91,15 +91,15 @@ class TestNoopRewriteProvider:
 
         provider = NoopRewriteProvider()
 
-        async def _run() -> RewriteResult:
+        async def _run() -> QueryProcessResult:
             return await provider.rewrite(
                 query="RAG 系统的核心组件有哪些？",
                 kb_ids=[],
             )
 
         result = asyncio.run(_run())
-        assert result.original_query == "RAG 系统的核心组件有哪些？"
-        assert result.rewritten_query == "RAG 系统的核心组件有哪些？"
+        assert result.raw_query == "RAG 系统的核心组件有哪些？"
+        assert result.effective_query == "RAG 系统的核心组件有哪些？"
         assert result.needs_rewrite is False
 
     def test_clear_cache_is_noop(self) -> None:

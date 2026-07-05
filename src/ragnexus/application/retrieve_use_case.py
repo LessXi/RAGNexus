@@ -160,7 +160,7 @@ class RetrieveUseCase:
                 rewrite_result = await self._rewriter.rewrite(
                     query=query, kb_ids=kb_ids
                 )
-                search_query = rewrite_result.rewritten_query
+                search_query = rewrite_result.effective_query
                 query_processing = None
             else:
                 search_query = query

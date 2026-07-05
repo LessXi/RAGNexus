@@ -1,6 +1,7 @@
 """RewritePort Protocol 单元测试。
 
 验证 RewritePort 接口定义正确，以及结构性子类型兼容性。
+适配 QueryProcessResult（10 字段 + kb_context 传参）。
 """
 
 from __future__ import annotations
@@ -9,41 +10,83 @@ import asyncio
 from dataclasses import is_dataclass
 from typing import Protocol
 
-from ragnexus.domain.ports import RewritePort, RewriteResult
+from ragnexus.domain.ports import QueryProcessResult, RewritePort
 
 
-class TestRewriteResult:
-    """RewriteResult dataclass 测试。"""
+class TestQueryProcessResult:
+    """QueryProcessResult dataclass 测试 — 10 字段完整性。"""
 
-    def test_rewrite_result_is_dataclass(self) -> None:
-        """RewriteResult 应为 dataclass。"""
-        assert is_dataclass(RewriteResult)
+    def test_query_process_result_is_dataclass(self) -> None:
+        """QueryProcessResult 应为 dataclass。"""
+        assert is_dataclass(QueryProcessResult)
 
-    def test_rewrite_result_fields(self) -> None:
-        """RewriteResult 应有 original_query, rewritten_query, needs_rewrite, reason 四个字段。"""
-        result = RewriteResult(
-            original_query="什么是 RAG",
-            rewritten_query="检索增强生成（RAG）是什么",
+    def test_query_process_result_all_10_fields(self) -> None:
+        """QueryProcessResult 应有全部 10 个字段，包括 3 段 query + 元数据。"""
+        result = QueryProcessResult(
+            raw_query="什么是 RAG",
+            effective_query="检索增强生成（RAG）是什么",
+            search_query="检索增强生成 (RAG) 是什么 向量检索",
             needs_rewrite=True,
-            reason="口语化查询，需要改写为更正式的检索语句",
+            strategy="rewrite",
+            rewrite_latency_ms=350,
+            degraded=False,
+            degraded_reason=None,
+            synonym_applied=True,
+            synonym_expansions=["向量检索", "知识库"],
         )
 
-        assert result.original_query == "什么是 RAG"
-        assert result.rewritten_query == "检索增强生成（RAG）是什么"
+        # 三段 query
+        assert result.raw_query == "什么是 RAG"
+        assert result.effective_query == "检索增强生成（RAG）是什么"
+        assert result.search_query == "检索增强生成 (RAG) 是什么 向量检索"
+        # 元数据
         assert result.needs_rewrite is True
-        assert result.reason == "口语化查询，需要改写为更正式的检索语句"
+        assert result.strategy == "rewrite"
+        assert result.rewrite_latency_ms == 350
+        assert result.degraded is False
+        assert result.degraded_reason is None
+        assert result.synonym_applied is True
+        assert result.synonym_expansions == ["向量检索", "知识库"]
 
-    def test_rewrite_result_default_behavior(self) -> None:
-        """不需要改写时 rewritten_query 等于 original_query。"""
-        result = RewriteResult(
-            original_query="检索增强生成",
-            rewritten_query="检索增强生成",
+    def test_query_process_result_degraded_behavior(self) -> None:
+        """降级时 effective_query == raw_query, degraded=True, degraded_reason 非空。"""
+        result = QueryProcessResult(
+            raw_query="检索增强生成",
+            effective_query="检索增强生成",
+            search_query="检索增强生成",
             needs_rewrite=False,
-            reason="查询已足够清晰",
+            strategy="rewrite",
+            rewrite_latency_ms=0,
+            degraded=True,
+            degraded_reason="LLM 调用失败: TimeoutError: 请求超时",
+            synonym_applied=False,
+            synonym_expansions=[],
         )
 
-        assert result.original_query == result.rewritten_query
+        assert result.raw_query == result.effective_query
         assert result.needs_rewrite is False
+        assert result.degraded is True
+        assert "超时" in result.degraded_reason
+
+    def test_query_process_result_noop_strategy(self) -> None:
+        """禁用改写时 strategy="noop", 三阶段相同。"""
+        result = QueryProcessResult(
+            raw_query="检索增强生成",
+            effective_query="检索增强生成",
+            search_query="检索增强生成",
+            needs_rewrite=False,
+            strategy="noop",
+            rewrite_latency_ms=0,
+            degraded=False,
+            degraded_reason=None,
+            synonym_applied=False,
+            synonym_expansions=[],
+        )
+
+        assert result.strategy == "noop"
+        assert result.raw_query == result.effective_query == result.search_query
+        assert result.needs_rewrite is False
+        assert result.degraded is False
 
 
 class TestRewritePortProtocol:
@@ -54,7 +97,7 @@ class TestRewritePortProtocol:
         assert issubclass(RewritePort, Protocol)
 
     def test_rewrite_method_signature(self) -> None:
-        """rewrite 方法签名：keyword-only 参数，返回 RewriteResult。"""
+        """rewrite 方法签名：keyword-only 参数，返回 QueryProcessResult，包含 kb_context。"""
         import inspect
 
         sig = inspect.signature(RewritePort.rewrite)
@@ -62,11 +105,12 @@ class TestRewritePortProtocol:
         params = list(sig.parameters.values())
         param_names = [p.name for p in params]
 
-        # self + 2 keyword-only 参数
+        # self + 3 keyword-only 参数（含 kb_context）
         assert param_names == [
             "self",
             "query",
             "kb_ids",
+            "kb_context",
         ], f"参数名不匹配: {param_names}"
 
         for p in params[1:]:  # 跳过 self
@@ -74,10 +118,13 @@ class TestRewritePortProtocol:
                 p.kind == inspect.Parameter.KEYWORD_ONLY
             ), f"{p.name} 应为 KEYWORD_ONLY，实际: {p.kind}"
 
-        # 验证返回类型注解为 RewriteResult
+        # kb_context 应为可选参数
+        assert params[-1].default is None, "kb_context 默认值应为 None"
+
+        # 验证返回类型注解为 QueryProcessResult
         assert (
-            sig.return_annotation == RewriteResult
-        ), f"返回类型应为 RewriteResult，实际: {sig.return_annotation}"
+            sig.return_annotation == QueryProcessResult
+        ), f"返回类型应为 QueryProcessResult，实际: {sig.return_annotation}"
 
     def test_clear_cache_method_signature(self) -> None:
         """clear_cache 方法签名：kb_id: str → None。"""
@@ -100,19 +147,26 @@ class TestRewritePortProtocol:
         """
 
         class _MinimalRewriter:
-            """最小实现 — 原样返回查询，不做改写。"""
+            """最小实现 — 原样返回查询，不做改写，支持 kb_context 传参。"""
 
             async def rewrite(
                 self,
                 *,
                 query: str,
                 kb_ids: list[str],
-            ) -> RewriteResult:
-                return RewriteResult(
-                    original_query=query,
-                    rewritten_query=query,
+                kb_context: dict | None = None,
+            ) -> QueryProcessResult:
+                return QueryProcessResult(
+                    raw_query=query,
+                    effective_query=query,
+                    search_query=query,
                     needs_rewrite=False,
-                    reason="no rewrite needed",
+                    strategy="noop",
+                    rewrite_latency_ms=0,
+                    degraded=False,
+                    degraded_reason=None,
+                    synonym_applied=False,
+                    synonym_expansions=[],
                 )
 
             async def clear_cache(self, kb_id: str) -> None:
@@ -120,7 +174,7 @@ class TestRewritePortProtocol:
 
         instance = _MinimalRewriter()
 
-        async def _run_rewrite() -> RewriteResult:
+        async def _run_rewrite() -> QueryProcessResult:
             return await instance.rewrite(
                 query="什么是 RAG",
                 kb_ids=["kb1", "kb2"],
@@ -128,10 +182,23 @@ class TestRewritePortProtocol:
 
         result = asyncio.run(_run_rewrite())
 
-        assert result.original_query == "什么是 RAG"
-        assert result.rewritten_query == "什么是 RAG"
+        assert result.raw_query == "什么是 RAG"
+        assert result.effective_query == "什么是 RAG"
+        assert result.search_query == "什么是 RAG"
         assert result.needs_rewrite is False
-        assert result.reason == "no rewrite needed"
+        assert result.strategy == "noop"
+        assert result.degraded is False
+
+        async def _run_rewrite_with_context() -> QueryProcessResult:
+            return await instance.rewrite(
+                query="测试",
+                kb_ids=["kb1"],
+                kb_context={"name": "测试知识库"},
+            )
+
+        ctx_result = asyncio.run(_run_rewrite_with_context())
+        assert ctx_result.raw_query == "测试"
+        # kb_context 不影响结果，但应被正确接收
 
         # 验证 clear_cache 也可正常调用
         async def _run_clear() -> None:
