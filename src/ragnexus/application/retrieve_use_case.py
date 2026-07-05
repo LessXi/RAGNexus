@@ -1,6 +1,7 @@
 """RetrieveUseCase — 校验查询、嵌入向量、搜索向量库、异步记录日志。"""
 
 import asyncio
+import os
 import time
 
 from ragnexus.adapters.rewrite.pipeline import QueryPipeline
@@ -137,7 +138,15 @@ class RetrieveUseCase:
         rrf_pool_size = 0
         try:
             if self._pipeline is not None:
-                enabled = query_options.get("enabled", True) if query_options else True
+                # 全局默认来自环境变量 QUERY_REWRITE_ENABLED，请求级 query_options.enabled 优先
+                env_default = (
+                    os.getenv("QUERY_REWRITE_ENABLED", "false").lower() == "true"
+                )
+                enabled = (
+                    query_options.get("enabled", env_default)
+                    if query_options
+                    else env_default
+                )
                 process_result = await self._pipeline.process(
                     raw_query=query,
                     kb_ids=kb_ids,
