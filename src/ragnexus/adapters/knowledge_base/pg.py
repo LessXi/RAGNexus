@@ -3,6 +3,7 @@
 基于 asyncpg 实现 KnowledgeBasePort。
 """
 
+import json
 import asyncpg
 from nanoid import generate as nanoid_generate
 
@@ -71,7 +72,7 @@ class PgKnowledgeBaseRepository:
     async def get(self, kb_id: str) -> KnowledgeBase | None:
         """按 ID 获取知识库，不存在返回 None。"""
         row = await self.pool.fetchrow(
-            "SELECT id, name, tenant_id, created_at FROM knowledge_bases WHERE id=$1",
+            "SELECT id, name, tenant_id, created_at, settings FROM knowledge_bases WHERE id=$1",
             kb_id,
         )
         return KnowledgeBase(**dict(row)) if row else None
@@ -87,7 +88,6 @@ class PgKnowledgeBaseRepository:
 
     async def update_settings(self, kb_id: str, settings: dict) -> None:
         """更新（覆盖）KB 的 settings。"""
-        import json
 
         await self.pool.execute(
             "UPDATE knowledge_bases SET settings = $1::jsonb WHERE id = $2",
