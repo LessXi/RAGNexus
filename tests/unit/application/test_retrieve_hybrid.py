@@ -133,7 +133,7 @@ async def test_hybrid_mode(
     mock_store,
     mock_keyword_store,
     mock_reranker,
-    mock_rewriter,
+    mock_pipeline,
     mock_log_port,
 ):
     """RETRIEVAL_MODE=hybrid: 向量 + BM25 并行召回 → RRF 融合 → rerank。"""
