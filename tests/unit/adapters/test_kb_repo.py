@@ -68,6 +68,7 @@ class TestGet:
         mock_pool.fetchrow.return_value = {
             "id": "kb_abc",
             "name": "Test",
+            "tenant_id": "demo",
             "created_at": now,
         }
 
@@ -76,9 +77,10 @@ class TestGet:
         assert isinstance(result, KnowledgeBase)
         assert result.id == "kb_abc"
         assert result.name == "Test"
+        assert result.tenant_id == "demo"
         assert result.created_at == now
         mock_pool.fetchrow.assert_awaited_once_with(
-            "SELECT id, name, created_at FROM knowledge_bases WHERE id=$1",
+            "SELECT id, name, tenant_id, created_at FROM knowledge_bases WHERE id=$1",
             "kb_abc",
         )
 
