@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """51 个配置字段，从 .env 加载。"""
+    """54 个配置字段，从 .env 加载。"""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -84,6 +84,11 @@ class Settings(BaseSettings):
     ELASTICSEARCH_REQUEST_TIMEOUT: float = 10.0
     CANDIDATE_K: int = 20  # 每路召回候选数
     RRF_K: int = 60  # RRF 平滑参数
+
+    # Celery / Async indexing
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+    INDEX_TIMEOUT_MINUTES: int = 30
 
 
 @cache
