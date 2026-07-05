@@ -53,7 +53,7 @@ from ragnexus.config import get_settings
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import LoggedPool, logger, setup_logging
 from ragnexus.domain.chunking import heading_aware_split
-from ragnexus.domain.models import UploadResult
+from ragnexus.domain.models import DocStatus, UploadResult
 from ragnexus.domain.ports import RerankPort, RewritePort
 
 
@@ -130,19 +130,21 @@ class SynonymSyncUploadUseCase:
             filename=filename,
             content_type=content_type,
         )
-        # 异步增量更新词表（fire-and-forget）
-        if self._llm is not None:
-            import asyncio as _asyncio
+        # 异步索引模式：仅在同步成功时触发词表同步
+        # (Worker 进程独立于 API 进程，词表同步将在 IndexingService.execute SUCCESS 后触发)
+        if result.status == DocStatus.SUCCESS:
+            if self._llm is not None:
+                import asyncio as _asyncio
 
-            _task = _asyncio.create_task(self._sync_synonyms(kb_id))
-            logger.info(
-                "词表同步任务已触发",
-                extra={
-                    "event_type": "BIZ_EVENT",
-                    "event": "synonym_sync_queued",
-                    "kb_id": kb_id,
-                },
-            )
+                _task = _asyncio.create_task(self._sync_synonyms(kb_id))
+                logger.info(
+                    "词表同步任务已触发",
+                    extra={
+                        "event_type": "BIZ_EVENT",
+                        "event": "synonym_sync_queued",
+                        "kb_id": kb_id,
+                    },
+                )
         return result
 
     async def _sync_synonyms(self, kb_id: str) -> None:
