@@ -21,7 +21,7 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from ragnexus.core.logger import LoggedPool
-from ragnexus.domain.models import UploadResult
+from ragnexus.domain.models import DocStatus, UploadResult
 
 # ============================================================================
 # 辅助工具
@@ -545,7 +545,11 @@ class TestCacheInvalidatingUploadUseCase:
     def _make_inner(self) -> AsyncMock:
         inner = AsyncMock()
         inner.execute.return_value = UploadResult(
-            doc_id="d-1", kb_id="kb-1", chunks=[], chunk_count=0
+            doc_id="d-1",
+            kb_id="kb-1",
+            status=DocStatus.PROCESSING,
+            chunks=[],
+            chunk_count=0,
         )
         return inner
 

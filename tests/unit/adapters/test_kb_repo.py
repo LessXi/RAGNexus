@@ -205,3 +205,156 @@ class TestUpdateSettings:
         )
         assert call_args[0][1] == json.dumps(settings, ensure_ascii=False)
         assert call_args[0][2] == "kb_abc"
+
+
+class TestUpdate:
+    """Tests for PgKnowledgeBaseRepository.update()."""
+
+    @pytest.mark.asyncio
+    async def test_update_name_only(self, repo, mock_pool):
+        """update() 仅更新传入的 name 字段，通过 fetchrow + RETURNING 执行。"""
+        now = datetime.now()
+        mock_pool.fetchrow.return_value = {
+            "id": "kb_abc",
+            "name": "新名称",
+            "description": "",
+            "tenant_id": "demo",
+            "created_at": now,
+            "settings": "{}",
+        }
+
+        result = await repo.update("kb_abc", name="新名称")
+
+        assert isinstance(result, KnowledgeBase)
+        assert result.name == "新名称"
+        assert result.id == "kb_abc"
+        # update() 使用 fetchrow + RETURNING，不是 execute
+        mock_pool.fetchrow.assert_awaited()
+        sql = mock_pool.fetchrow.call_args.args[0]
+        assert "UPDATE knowledge_bases" in sql
+        assert "SET name = $1" in sql
+        assert "RETURNING" in sql
+
+    @pytest.mark.asyncio
+    async def test_update_description_only(self, repo, mock_pool):
+        """update() 仅更新 description。"""
+        now = datetime.now()
+        mock_pool.fetchrow.return_value = {
+            "id": "kb_abc",
+            "name": "Old",
+            "description": "新描述",
+            "tenant_id": "demo",
+            "created_at": now,
+            "settings": "{}",
+        }
+
+        result = await repo.update("kb_abc", description="新描述")
+
+        assert result.description == "新描述"
+        sql = mock_pool.fetchrow.call_args.args[0]
+        assert "SET description = $1" in sql
+
+    @pytest.mark.asyncio
+    async def test_update_settings_only(self, repo, mock_pool):
+        """update() 仅更新 settings，settings 通过 jsonb 存储。"""
+        now = datetime.now()
+        test_settings = {"synonyms": {"a": "b"}}
+        mock_pool.fetchrow.return_value = {
+            "id": "kb_abc",
+            "name": "Old",
+            "description": "",
+            "tenant_id": "demo",
+            "created_at": now,
+            "settings": json.dumps(test_settings),
+        }
+
+        result = await repo.update("kb_abc", settings=test_settings)
+
+        assert result.settings == test_settings
+        sql = mock_pool.fetchrow.call_args.args[0]
+        assert "SET settings = $1::jsonb" in sql
+
+    @pytest.mark.asyncio
+    async def test_update_all_fields(self, repo, mock_pool):
+        """update() 同时更新 name + description + settings。"""
+        now = datetime.now()
+        mock_pool.fetchrow.return_value = {
+            "id": "kb_abc",
+            "name": "新名",
+            "description": "新描述",
+            "tenant_id": "demo",
+            "created_at": now,
+            "settings": '{"key": "val"}',
+        }
+
+        result = await repo.update(
+            "kb_abc",
+            name="新名",
+            description="新描述",
+            settings={"key": "val"},
+        )
+
+        assert result.name == "新名"
+        assert result.description == "新描述"
+        sql = mock_pool.fetchrow.call_args.args[0]
+        assert "SET name = $1" in sql
+        assert "description" in sql
+        assert "settings" in sql
+
+    @pytest.mark.asyncio
+    async def test_update_no_fields(self, repo, mock_pool):
+        """update() 不传任何字段时退化为 get()。"""
+        now = datetime.now()
+        mock_pool.fetchrow.return_value = {
+            "id": "kb_abc",
+            "name": "Unchanged",
+            "description": "",
+            "tenant_id": "demo",
+            "created_at": now,
+            "settings": "{}",
+        }
+
+        result = await repo.update("kb_abc")
+
+        assert result.name == "Unchanged"
+        # 当无字段更新时退化为 SELECT 查询，不会执行 UPDATE
+        mock_pool.fetchrow.assert_awaited()
+
+
+class TestDelete:
+    """Tests for PgKnowledgeBaseRepository.delete()."""
+
+    @pytest.mark.asyncio
+    async def test_delete_executes_sql(self, repo, mock_pool):
+        """delete() 按 kb_id 删除记录。"""
+        await repo.delete("kb_abc")
+
+        mock_pool.execute.assert_awaited_once_with(
+            "DELETE FROM knowledge_bases WHERE id = $1", "kb_abc"
+        )
+
+
+class TestHasProcessingDocs:
+    """Tests for PgKnowledgeBaseRepository.has_processing_docs()."""
+
+    @pytest.mark.asyncio
+    async def test_has_processing_docs_true(self, repo, mock_pool):
+        """存在 PROCESSING 文档时返回 True。"""
+        mock_pool.fetchval.return_value = 1
+
+        result = await repo.has_processing_docs("kb_abc")
+
+        assert result is True
+        mock_pool.fetchval.assert_awaited_once_with(
+            "SELECT 1 FROM documents WHERE kb_id = $1 AND status = 2 LIMIT 1",
+            "kb_abc",
+        )
+
+    @pytest.mark.asyncio
+    async def test_has_processing_docs_false(self, repo, mock_pool):
+        """不存在 PROCESSING 文档时返回 False。"""
+        mock_pool.fetchval.return_value = None
+
+        result = await repo.has_processing_docs("kb_abc")
+
+        assert result is False

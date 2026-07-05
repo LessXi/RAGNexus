@@ -17,7 +17,7 @@ from ragnexus.adapters.http.upload_doc_router import (
 )
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.auth import TenantContext
-from ragnexus.domain.models import KnowledgeBase, SearchHit, UploadResult
+from ragnexus.domain.models import DocStatus, KnowledgeBase, SearchHit, UploadResult
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -117,6 +117,7 @@ class TestUploadDoc:
         mock_upload_uc.execute.return_value = UploadResult(
             doc_id="doc_hash12345678",
             kb_id="kb_test123",
+            status=DocStatus.PROCESSING,
             chunks=[],
         )
         resp = client.post(

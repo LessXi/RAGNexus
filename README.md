@@ -190,3 +190,38 @@ npm run dev
 - 前端：`admin/.env` 中 `API_KEY` 留空或不设置
 
 > **安全提醒**：`API_KEY` 经 Vite 打包会内联到 JS bundle，当前仅适用于内网管理 SPA。生产环境建议改用 session token 方案。
+
+
+## 异步索引
+
+RAGNexus 文档上传采用异步索引架构：
+
+1. 上传文档 → API 秒回 PROCESSING 状态
+2. Celery Worker 后台执行解析→分块→嵌入→双写
+3. 前端列表页 3 秒轮询，状态流转: PROCESSING → SUCCESS | FAILED
+
+### 启动 Worker
+
+```bash
+# 方式一: Docker Compose（推荐）
+docker compose up -d worker beat
+
+# 方式二: 本地开发
+celery -A src.ragnexus.celery_app worker --loglevel=info --concurrency=2
+celery -A src.ragnexus.celery_app beat --loglevel=info
+```
+
+### 文档生命周期
+
+| 状态 | 含义 | 操作 |
+|------|------|------|
+| PROCESSING | 索引中 | 不可删除，轮询等待 |
+| SUCCESS | 索引完成 | 可检索、可删除 |
+| FAILED | 索引失败 | 可重试、可删除 |
+
+### 运维 API
+
+- `GET /v1/documents/{doc_id}` — 查询文档状态
+- `DELETE /v1/documents/{doc_id}` — 删除文档（级联清理向量+关键词索引）
+- `POST /v1/documents/{doc_id}/reindex` — 重试失败文档
+- `GET/PATCH/DELETE /v1/knowledge-bases/{kb_id}` — 知识库 CRUD
