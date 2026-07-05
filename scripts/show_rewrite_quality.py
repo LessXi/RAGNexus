@@ -22,10 +22,10 @@ async def show_rewrite(llm, embedder, query, kb_ids):
     elapsed = time.perf_counter() - t0
     changed = "✏️改写" if result.needs_rewrite else "➡️直通"
     print(f"  [{changed}] {elapsed:.1f}s")
-    print(f'  Input:  "{result.original_query}"')
+    print(f'  Input:  "{result.raw_query}"')
     if result.needs_rewrite:
-        print(f'  Output: "{result.rewritten_query}"')
-        print(f"  Why:    {result.reason}")
+        print(f'  Output: "{result.effective_query}"')
+        print(f"  Why:    {result.degraded_reason}")
     return result
 
 
