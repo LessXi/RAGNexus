@@ -121,7 +121,7 @@ class SynonymSyncUploadUseCase:
         file_content: bytes,
         filename: str,
         content_type: str,
-    ) -> UploadResult:
+    ) -> "UploadResult":
         result = await self._inner.execute(
             kb_id=kb_id,
             tenant_id=tenant_id,
@@ -131,9 +131,17 @@ class SynonymSyncUploadUseCase:
         )
         # 异步增量更新词表（fire-and-forget）
         if self._llm is not None:
-            import asyncio
+            import asyncio as _asyncio
 
-            asyncio.create_task(self._sync_synonyms(kb_id))
+            _task = _asyncio.create_task(self._sync_synonyms(kb_id))
+            logger.info(
+                "词表同步任务已触发",
+                extra={
+                    "event_type": "BIZ_EVENT",
+                    "event": "synonym_sync_queued",
+                    "kb_id": kb_id,
+                },
+            )
         return result
 
     async def _sync_synonyms(self, kb_id: str) -> None:
