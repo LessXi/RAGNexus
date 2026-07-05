@@ -6,15 +6,18 @@ import pytest
 
 from ragnexus.adapters.rerank.noop import NoopRerankProvider
 from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
+from ragnexus.adapters.rewrite.pipeline import QueryPipeline
+from ragnexus.adapters.rewrite.synonym_expander import SynonymExpander
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.core.errors import AppError
 from ragnexus.domain.models import RetrieveResult, SearchHit
-from ragnexus.domain.ports import RewriteResult
+from ragnexus.domain.ports import QueryProcessResult
 
 
 @pytest.fixture
 def mock_kb_repo():
     mock = AsyncMock()
+    mock.get.return_value = None
     mock.pool = AsyncMock()
     mock.pool.fetchval.return_value = 1
     return mock
@@ -48,19 +51,27 @@ def mock_reranker():
 
 
 @pytest.fixture
-def mock_rewriter():
-    """RewritePort mock — 默认直通返回原始 query，各测试可按需覆盖。"""
+def mock_pipeline():
+    """QueryPipeline mock — 默认直通返回原始 query。"""
     m = AsyncMock()
 
-    async def _passthrough(*, query, kb_ids):
-        return RewriteResult(
-            original_query=query,
-            rewritten_query=query,
+    async def _passthrough(
+        *, raw_query, kb_ids, kb_context=None, synonyms=None, enabled=True
+    ):
+        return QueryProcessResult(
+            raw_query=raw_query,
+            effective_query=raw_query,
+            search_query=raw_query,
             needs_rewrite=False,
-            reason="mock 直通",
+            strategy="noop",
+            rewrite_latency_ms=0,
+            degraded=False,
+            degraded_reason=None,
+            synonym_applied=False,
+            synonym_expansions=[],
         )
 
-    m.rewrite.side_effect = _passthrough
+    m.process.side_effect = _passthrough
     return m
 
 
@@ -72,7 +83,7 @@ def use_case(
     mock_keyword_store,
     mock_log_port,
     mock_reranker,
-    mock_rewriter,
+    mock_pipeline,
 ):
     return RetrieveUseCase(
         kb_repo=mock_kb_repo,
@@ -80,7 +91,8 @@ def use_case(
         store=mock_store,
         log_port=mock_log_port,
         reranker=mock_reranker,
-        rewriter=mock_rewriter,
+        rewriter=None,
+        pipeline=mock_pipeline,
         keyword_store=mock_keyword_store,
     )
 
@@ -363,7 +375,7 @@ async def test_candidate_k_passed_to_vector_search(
     mock_keyword_store,
     mock_log_port,
     mock_reranker,
-    mock_rewriter,
+    mock_pipeline,
     sample_hits,
 ):
     """candidate_k=15 时，search_by_vector 收到 candidate_k=15。"""
@@ -373,7 +385,8 @@ async def test_candidate_k_passed_to_vector_search(
         store=mock_store,
         log_port=mock_log_port,
         reranker=mock_reranker,
-        rewriter=mock_rewriter,
+        rewriter=None,
+        pipeline=mock_pipeline,
         keyword_store=mock_keyword_store,
         candidate_k=15,
     )
@@ -397,7 +410,7 @@ async def test_candidate_k_passed_to_keyword_search(
     mock_keyword_store,
     mock_log_port,
     mock_reranker,
-    mock_rewriter,
+    mock_pipeline,
     sample_hits,
 ):
     """candidate_k=25 时，BM25 search 也收到 candidate_k=25。"""
@@ -406,8 +419,8 @@ async def test_candidate_k_passed_to_keyword_search(
         embedder=mock_embedder,
         store=mock_store,
         log_port=mock_log_port,
-        reranker=mock_reranker,
-        rewriter=mock_rewriter,
+        rewriter=None,
+        pipeline=mock_pipeline,
         keyword_store=mock_keyword_store,
         candidate_k=25,
     )
@@ -430,7 +443,7 @@ async def test_rerank_called_with_correct_kwargs(
     mock_keyword_store,
     mock_log_port,
     mock_reranker,
-    mock_rewriter,
+    mock_pipeline,
     sample_hits,
 ):
     """reranker.rerank 使用正确的 keyword 参数调用。"""
@@ -440,7 +453,8 @@ async def test_rerank_called_with_correct_kwargs(
         store=mock_store,
         log_port=mock_log_port,
         reranker=mock_reranker,
-        rewriter=mock_rewriter,
+        rewriter=None,
+        pipeline=mock_pipeline,
         keyword_store=mock_keyword_store,
     )
     top_k = 3
@@ -473,7 +487,7 @@ async def test_rerank_result_is_returned(
     mock_keyword_store,
     mock_log_port,
     mock_reranker,
-    mock_rewriter,
+    mock_pipeline,
     sample_hits,
 ):
     """execute() 返回 rerank 后的结果，而非原始向量召回结果。"""
@@ -482,8 +496,8 @@ async def test_rerank_result_is_returned(
         embedder=mock_embedder,
         store=mock_store,
         log_port=mock_log_port,
-        reranker=mock_reranker,
-        rewriter=mock_rewriter,
+        rewriter=None,
+        pipeline=mock_pipeline,
         keyword_store=mock_keyword_store,
     )
     # 构造一个与向量召回不同的 rerank 返回（顺序或内容不同）
@@ -535,19 +549,19 @@ async def test_noop_rerank_integration(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# rewrite 注入测试 — Phase 6 Task 6.1-6.2
+# query processing pipeline 注入测试 — Stage 6
 # ═══════════════════════════════════════════════════════════════════
 
 
 @pytest.mark.asyncio
-async def test_rewriter_called_before_embed(
+async def test_pipeline_called_before_embed(
     use_case,
     mock_kb_repo,
     mock_embedder,
     mock_store,
-    mock_rewriter,
+    mock_pipeline,
 ):
-    """rewriter.rewrite 在 embedder.embed 之前调用。"""
+    """pipeline.process 在 embedder.embed 之前调用。"""
     mock_kb_repo.exists.return_value = True
     mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
     mock_store.search_by_vector.return_value = []
@@ -556,7 +570,10 @@ async def test_rewriter_called_before_embed(
         tenant_id="test-tenant", query="test query", kb_ids=["kb1"], top_k=3
     )
 
-    mock_rewriter.rewrite.assert_awaited_once_with(query="test query", kb_ids=["kb1"])
+    mock_pipeline.process.assert_awaited_once()
+    call_kwargs = mock_pipeline.process.call_args.kwargs
+    assert call_kwargs["raw_query"] == "test query"
+    assert call_kwargs["kb_ids"] == ["kb1"]
 
 
 @pytest.mark.asyncio
@@ -565,57 +582,69 @@ async def test_rewritten_query_used_for_embed(
     mock_kb_repo,
     mock_embedder,
     mock_store,
-    mock_rewriter,
+    mock_pipeline,
 ):
-    """rewrite 后 embed 使用 rewritten_query，而非原始 query。"""
+    """pipeline 改写后 embed 使用 search_query，而非原始 query。"""
     mock_kb_repo.exists.return_value = True
     mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
     mock_store.search_by_vector.return_value = []
 
-    # 覆写 mock_rewriter，返回不同改写结果
-    mock_rewriter.rewrite.side_effect = None
-    mock_rewriter.rewrite.return_value = RewriteResult(
-        original_query="hello world",
-        rewritten_query="hello world technical definition",
+    # 覆写 mock_pipeline，返回不同 search_query
+    mock_pipeline.process.side_effect = None
+    mock_pipeline.process.return_value = QueryProcessResult(
+        raw_query="hello world",
+        effective_query="hello world technical definition",
+        search_query="hello world technical definition search",
         needs_rewrite=True,
-        reason="优化查询",
+        strategy="rewrite",
+        rewrite_latency_ms=10,
+        degraded=False,
+        degraded_reason=None,
+        synonym_applied=True,
+        synonym_expansions=["search"],
     )
 
     await use_case.execute(
         tenant_id="test-tenant", query="hello world", kb_ids=["kb1"], top_k=3
     )
 
-    # embed 用改写后的 query（第一个）+ 原始 query（第二个）
+    # embed 用 search_query（第一个）+ 原始 query（第二个）
     mock_embedder.embed.assert_awaited_once_with(
-        ["hello world technical definition", "hello world"]
+        ["hello world technical definition search", "hello world"]
     )
 
 
 @pytest.mark.asyncio
-async def test_rerank_uses_original_query_rewritten_vector(
+async def test_rerank_uses_original_query_pipeline_vector(
     use_case,
     mock_kb_repo,
     mock_embedder,
     mock_store,
     mock_reranker,
-    mock_rewriter,
+    mock_pipeline,
 ):
     """rerank 用原始 query 做相关性判断，query_vector 用原始 query 的 embedding。"""
     mock_kb_repo.exists.return_value = True
     mock_embedder.embed.return_value = [
         [0.9, 0.1],
         [0.2, 0.3],
-    ]  # [改写后向量, 原始向量]
+    ]  # [search_query向量, 原始向量]
     mock_store.search_by_vector.return_value = []
     mock_reranker.rerank.return_value = []
 
-    # 覆写 mock_rewriter，改写查询
-    mock_rewriter.rewrite.side_effect = None
-    mock_rewriter.rewrite.return_value = RewriteResult(
-        original_query="what is RAG",
-        rewritten_query="retrieval augmented generation definition",
+    # 覆写 mock_pipeline，改写查询
+    mock_pipeline.process.side_effect = None
+    mock_pipeline.process.return_value = QueryProcessResult(
+        raw_query="what is RAG",
+        effective_query="retrieval augmented generation definition",
+        search_query="retrieval augmented generation definition",
         needs_rewrite=True,
-        reason="扩展缩写",
+        strategy="rewrite",
+        rewrite_latency_ms=12,
+        degraded=False,
+        degraded_reason=None,
+        synonym_applied=False,
+        synonym_expansions=[],
     )
 
     await use_case.execute(
@@ -631,7 +660,7 @@ async def test_rerank_uses_original_query_rewritten_vector(
 
 
 @pytest.mark.asyncio
-async def test_noop_rewrite_integration(
+async def test_noop_pipeline_integration(
     mock_kb_repo,
     mock_embedder,
     mock_store,
@@ -640,14 +669,21 @@ async def test_noop_rewrite_integration(
     mock_reranker,
     sample_hits,
 ):
-    """使用真实 NoopRewriteProvider — 禁用改写时直通，行为不变。"""
+    """使用真实 NoopRewriteProvider + SynonymExpander + QueryPipeline — 禁用改写时直通。"""
+    from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
+
+    noop_rewriter = NoopRewriteProvider()
+    expander = SynonymExpander()
+    pipeline = QueryPipeline(noop_rewriter, expander)
+
     uc = RetrieveUseCase(
         kb_repo=mock_kb_repo,
         embedder=mock_embedder,
         store=mock_store,
         log_port=mock_log_port,
         reranker=mock_reranker,
-        rewriter=NoopRewriteProvider(),
+        rewriter=None,
+        pipeline=pipeline,
         keyword_store=mock_keyword_store,
     )
     query = "test query"
@@ -662,7 +698,7 @@ async def test_noop_rewrite_integration(
         tenant_id="test-tenant", query=query, kb_ids=kb_ids, top_k=top_k
     )
 
-    # NoopRewriteProvider 直通：embed 用原始 query（两次，改写后和原始相同）
+    # Noop pipeline 直通：embed 用原始 query（两次，search_query 和原始相同）
     mock_embedder.embed.assert_awaited_once_with([query, query])
     # 其他行为不变
     mock_reranker.rerank.assert_awaited_once()

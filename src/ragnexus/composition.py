@@ -37,6 +37,8 @@ from ragnexus.adapters.rerank.noop import NoopRerankProvider
 from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
 from ragnexus.adapters.rewrite.llm import LLMRewriteProvider
 from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
+from ragnexus.adapters.rewrite.pipeline import QueryPipeline
+from ragnexus.adapters.rewrite.synonym_expander import SynonymExpander
 from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 from ragnexus.adapters.http.auth_router import create_auth_router
 from ragnexus.adapters.http.deps import make_get_current_tenant
@@ -330,6 +332,10 @@ async def lifespan(app: FastAPI):
         upload_doc_uc_wrapped = CacheInvalidatingUploadUseCase(
             upload_doc_uc, reranker, rewriter
         )
+        # --- Query Pipeline (改写 + 词表扩展) ---
+        synonym_expander = SynonymExpander()
+        query_pipeline = QueryPipeline(rewriter, synonym_expander)
+
         retrieve_uc = RetrieveUseCase(
             kb_repo=kb_repo,
             embedder=embedder,
@@ -337,6 +343,7 @@ async def lifespan(app: FastAPI):
             log_port=log_repo,
             reranker=reranker,
             rewriter=rewriter,
+            pipeline=query_pipeline,
             keyword_store=keyword_store,
             candidate_k=cfg.CANDIDATE_K,
             retrieval_mode=cfg.RETRIEVAL_MODE,

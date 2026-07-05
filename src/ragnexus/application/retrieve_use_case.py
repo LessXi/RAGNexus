@@ -3,6 +3,7 @@
 import asyncio
 import time
 
+from ragnexus.adapters.rewrite.pipeline import QueryPipeline
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import logger
 from ragnexus.domain.models import RetrieveResult, SearchHit
@@ -10,6 +11,7 @@ from ragnexus.domain.ports import (
     EmbedderPort,
     KeywordSearchPort,
     KnowledgeBasePort,
+    QueryProcessResult,
     RerankPort,
     RetrieveLogPort,
     RewritePort,
@@ -28,7 +30,8 @@ class RetrieveUseCase:
         store: VectorStorePort,
         log_port: RetrieveLogPort,
         reranker: RerankPort,
-        rewriter: RewritePort,
+        rewriter: RewritePort | None = None,
+        pipeline: QueryPipeline | None = None,
         keyword_store: KeywordSearchPort | None = None,
         candidate_k: int = 20,
         retrieval_mode: str = "hybrid",
@@ -36,10 +39,11 @@ class RetrieveUseCase:
         self._kb_repo = kb_repo
         self._embedder = embedder
         self._store = store
-        self._keyword_store = keyword_store
         self._log_port = log_port
         self._reranker = reranker
         self._rewriter = rewriter
+        self._pipeline = pipeline
+        self._keyword_store = keyword_store
         self._candidate_k = candidate_k
         self._retrieval_mode = retrieval_mode
         self._background_tasks: set[asyncio.Task] = set()
@@ -56,6 +60,7 @@ class RetrieveUseCase:
         rrf_k: int = 60,
         rerank_enabled: bool | None = None,
         rerank_top_n: int = 5,
+        query_options: dict | None = None,
     ) -> RetrieveResult:
         """执行检索：校验 → 改写 → 双路召回 → RRF 融合 → 重排 → 返回 RetrieveResult。
 
@@ -99,6 +104,19 @@ class RetrieveUseCase:
 
         # 3. Validate all KBs belong to current tenant
         await self.validate_kb_ownership(kb_ids, tenant_id)
+        # 3.5 组装 KB 上下文（用于查询改写和词表扩展）
+        primary_kb = await self._kb_repo.get(kb_ids[0])
+        kb_context: dict = {}
+        synonyms: list[dict] | None = None
+        if primary_kb:
+            kb_context = {
+                "name": primary_kb.name,
+                "description": getattr(primary_kb, "description", ""),
+            }
+            kb_settings = getattr(primary_kb, "settings", {}) or {}
+            if isinstance(kb_settings, dict):
+                kb_context["rewrite_hint"] = kb_settings.get("rewrite_hint", "")
+                synonyms = kb_settings.get("synonyms")
 
         # --- 退化检测：ES 不可用 + hybrid 模式 → 降级为纯向量 ---
         degraded = False
@@ -118,9 +136,26 @@ class RetrieveUseCase:
         keyword_latency_ms = 0
         rrf_pool_size = 0
         try:
-            # 3a. 查询改写（在 embed 之前，优化口语化/模糊 query）
-            rewrite_result = await self._rewriter.rewrite(query=query, kb_ids=kb_ids)
-            search_query = rewrite_result.rewritten_query
+            if self._pipeline is not None:
+                enabled = query_options.get("enabled", True) if query_options else True
+                process_result = await self._pipeline.process(
+                    raw_query=query,
+                    kb_ids=kb_ids,
+                    kb_context=kb_context,
+                    synonyms=synonyms,
+                    enabled=enabled,
+                )
+                search_query = process_result.search_query
+                query_processing = _serialize_query_processing(process_result)
+            elif self._rewriter is not None:
+                rewrite_result = await self._rewriter.rewrite(
+                    query=query, kb_ids=kb_ids
+                )
+                search_query = rewrite_result.rewritten_query
+                query_processing = None
+            else:
+                search_query = query
+                query_processing = None
 
             # 3b. 双 embedding: 改写后 query → 向量搜索，原始 query → rerank 缓存匹配
             vectors = await self._embedder.embed([search_query, original_query])
@@ -217,6 +252,7 @@ class RetrieveUseCase:
                 rerank_model=reranker_model,
                 degraded=degraded,
                 degraded_reason=degraded_reason,
+                query_processing=query_processing,
             )
         finally:
             # --- 仅保留资源清理：fire-and-forget 日志 ---
@@ -302,3 +338,18 @@ class RetrieveUseCase:
                 ErrorCode.FORBIDDEN,
                 f"部分知识库不属于当前租户（请求 {len(unique_ids)} 个，归属 {count} 个）",
             )
+
+
+def _serialize_query_processing(result: QueryProcessResult) -> dict:
+    """将 QueryProcessResult 序列化为 query_processing dict。"""
+    return {
+        "raw_query": result.raw_query,
+        "effective_query": result.effective_query,
+        "search_query": result.search_query,
+        "needs_rewrite": result.needs_rewrite,
+        "strategy": result.strategy,
+        "rewrite_latency_ms": result.rewrite_latency_ms,
+        "degraded": result.degraded,
+        "synonym_applied": result.synonym_applied,
+        "synonym_expansions": result.synonym_expansions,
+    }

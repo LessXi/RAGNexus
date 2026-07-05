@@ -13,7 +13,7 @@ import pytest
 
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.domain.models import RetrieveResult, SearchHit
-from ragnexus.domain.ports import RewriteResult
+from ragnexus.domain.ports import QueryProcessResult
 
 
 def _make_hit(
@@ -34,6 +34,7 @@ def _make_hit(
 def mock_kb_repo():
     repo = AsyncMock()
     repo.exists.return_value = True
+    repo.get.return_value = None
     repo.pool = AsyncMock()
     repo.pool.fetchval.return_value = 1
     return repo
@@ -74,19 +75,27 @@ def mock_reranker():
 
 
 @pytest.fixture
-def mock_rewriter():
-    """RewritePort mock — 默认直通返回原始 query。"""
+def mock_pipeline():
+    """QueryPipeline mock — 默认直通返回原始 query。"""
     m = AsyncMock()
 
-    async def _passthrough(*, query, kb_ids):
-        return RewriteResult(
-            original_query=query,
-            rewritten_query=query,
+    async def _passthrough(
+        *, raw_query, kb_ids, kb_context=None, synonyms=None, enabled=True
+    ):
+        return QueryProcessResult(
+            raw_query=raw_query,
+            effective_query=raw_query,
+            search_query=raw_query,
             needs_rewrite=False,
-            reason="mock 直通",
+            strategy="noop",
+            rewrite_latency_ms=0,
+            degraded=False,
+            degraded_reason=None,
+            synonym_applied=False,
+            synonym_expansions=[],
         )
 
-    m.rewrite.side_effect = _passthrough
+    m.process.side_effect = _passthrough
     return m
 
 
@@ -98,7 +107,7 @@ def use_case(
     mock_keyword_store,
     mock_log_port,
     mock_reranker,
-    mock_rewriter,
+    mock_pipeline,
 ):
     return RetrieveUseCase(
         kb_repo=mock_kb_repo,
@@ -106,7 +115,8 @@ def use_case(
         store=mock_store,
         log_port=mock_log_port,
         reranker=mock_reranker,
-        rewriter=mock_rewriter,
+        rewriter=None,
+        pipeline=mock_pipeline,
         keyword_store=mock_keyword_store,
     )
 

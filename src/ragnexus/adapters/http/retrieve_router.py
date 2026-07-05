@@ -16,6 +16,13 @@ class _RerankOptions(BaseModel):
     top_n: int = Field(default=5, ge=1, le=20)
 
 
+class _QueryOptions(BaseModel):
+    """查询处理可选项 — 控制改写和词表扩展。"""
+
+    enabled: bool = True
+    strategy: str = "rewrite"
+
+
 class _RetrieveRequest(BaseModel):
     """检索请求体 — 支持多路召回 + RRF 融合 + 可选重排。"""
 
@@ -28,6 +35,7 @@ class _RetrieveRequest(BaseModel):
     bm25_top_k: int = Field(default=20, ge=1, le=200)
     rrf_k: int = Field(default=60, ge=1, le=200)
     rerank: _RerankOptions | None = None
+    query_options: _QueryOptions | None = None
 
 
 def _serialize_hit(h: SearchHit) -> dict:
@@ -80,6 +88,11 @@ def create_router(uc, get_current_tenant) -> APIRouter:
         rerank_enabled = req.rerank.enabled if req.rerank else None
         rerank_top_n = req.rerank.top_n if req.rerank else 5
 
+        # 解析 query_options
+        query_options_dict = None
+        if req.query_options:
+            query_options_dict = req.query_options.model_dump()
+
         result = await uc.execute(
             query=req.query,
             kb_ids=req.kb_ids,
@@ -91,12 +104,22 @@ def create_router(uc, get_current_tenant) -> APIRouter:
             rrf_k=req.rrf_k,
             rerank_enabled=rerank_enabled,
             rerank_top_n=rerank_top_n,
+            query_options=query_options_dict,
         )
+
+        # 构建 query_processing 字段
+        qp = result.query_processing
+        query_processing = None
+        if qp and (qp.get("strategy") != "noop" or qp.get("synonym_applied")):
+            query_processing = qp
+
         return {
             "code": 0,
             "data": {
+                "query": req.query,
                 "hits": [_serialize_hit(h) for h in result.hits],
                 "meta": {
+                    "query_processing": query_processing,
                     "total": result.total,
                     "latency_ms": result.latency_ms,
                     "mode": result.mode,

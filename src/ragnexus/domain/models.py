@@ -73,6 +73,8 @@ class RetrieveResult:
     rerank_model: str | None
     degraded: bool
     degraded_reason: str | None
+    # query processing pipeline result (stage 6)
+    query_processing: dict | None = None
 
 
 @dataclass
