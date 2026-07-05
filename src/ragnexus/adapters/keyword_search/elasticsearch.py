@@ -245,3 +245,15 @@ class ESKeywordSearchProvider:
                 ErrorCode.KEYWORD_DELETE_FAILED,
                 f"ES delete_by_query 失败: {e}",
             ) from e
+
+    async def delete_by_document(self, doc_id: str) -> None:
+        """按文档 ID 删除 ES 中所有相关 chunk。"""
+        try:
+            await self._client.delete_by_query(
+                index=self.index,
+                body={"query": {"term": {"doc_id": doc_id}}},
+            )
+        except Exception:
+            from ragnexus.core.logger import logger
+
+            logger.warning("ES delete_by_document 失败", extra={"doc_id": doc_id})

@@ -156,6 +156,10 @@ class KeywordSearchPort(Protocol):
         """从关键词索引删除指定 chunk。"""
         ...
 
+    async def delete_by_document(self, doc_id: str) -> None:
+        """从关键词索引删除指定文档的所有 chunk。"""
+        ...
+
 
 class DocumentPort(Protocol):
     """文档 CRUD 端口 — 从 KnowledgeBasePort 独立出的文档操作。"""
