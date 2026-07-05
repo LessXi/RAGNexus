@@ -3,6 +3,15 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+from enum import IntEnum
+
+
+class DocStatus(IntEnum):
+    """文档索引状态枚举 — 与数据库 INTEGER 字段映射。"""
+
+    SUCCESS = 1  # 索引成功
+    PROCESSING = 2  # 索引中（默认值）
+    FAILED = 3  # 索引失败
 
 
 @dataclass
@@ -55,6 +64,24 @@ class UploadResult:
     kb_id: str
     chunks: list[Chunk]  # used internally by use case; router should use chunk_count
     chunk_count: int = 0
+
+
+@dataclass
+class Document:
+    """文档领域模型 — 对应 documents 表完整行。"""
+
+    doc_id: str
+    kb_id: str
+    filename: str
+    file_hash: str
+    file_size: int
+    content_type: str
+    content: str
+    status: DocStatus = DocStatus.PROCESSING
+    chunk_count: int = 0
+    error_message: str | None = None
+    uploaded_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass
