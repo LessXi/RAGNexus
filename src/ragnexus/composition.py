@@ -180,8 +180,12 @@ class SynonymSyncUploadUseCase:
                 '{"synonyms":[{"terms":["术语1","术语2"],"expand":["扩展词1","扩展词2"]}]}\n'
                 "只返回 JSON，不要解释。"
             )
-            if not synonyms:
-                return
+            response = await self._llm.chat_json(
+                system_prompt="你是术语提取专家。从文档中提取专业术语并建议同义词。",
+                user_payload={"query": prompt},
+            )
+            draft = json.loads(response) if isinstance(response, str) else response
+            synonyms = draft.get("synonyms", [])
 
             # 合并到现有词表
             settings_raw = await self._kb_repo.get_settings(kb_id)
