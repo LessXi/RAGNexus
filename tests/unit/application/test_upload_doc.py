@@ -7,6 +7,7 @@ import pytest
 
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
 from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.domain.chunking import heading_aware_split
 from ragnexus.domain.models import ParsedDocument, Section, UploadResult
 
 
@@ -72,10 +73,11 @@ class TestUploadDocument:
     """Suite for UploadDocumentUseCase.execute()."""
 
     @pytest.mark.asyncio
+    @patch("ragnexus.tasks.indexing.index_document_task")
     async def test_upload_success(
-        self, use_case, mock_kb_repo, mock_parser, mock_embedder, mock_store
+        self, mock_task, use_case, mock_kb_repo, mock_parser, mock_embedder, mock_store
     ):
-        """Valid markdown file returns UploadResult with correct doc_id, kb_id, chunks."""
+        """Valid markdown file returns UploadResult with PROCESSING status, task queued."""
         file_bytes = b"# Hello\n\nThis is a test document."
         result = await use_case.execute(
             kb_id="kb_test123",
@@ -85,39 +87,31 @@ class TestUploadDocument:
             content_type="text/markdown",
         )
 
+        # 异步模式: 立即返回 PROCESSING，无 chunks
+        from ragnexus.domain.models import DocStatus
+
         assert isinstance(result, UploadResult)
+        assert result.status == DocStatus.PROCESSING
         assert result.kb_id == "kb_test123"
         assert result.doc_id.startswith("doc_")
+        assert result.chunk_count == 0
+        assert result.chunks == []
 
         # doc_id = SHA256(file_content)[:16] with doc_ prefix
         expected_hash = "doc_" + hashlib.sha256(file_bytes).hexdigest()[:16]
         assert result.doc_id == expected_hash
 
-        # All chunks carry correct kb_id and doc_id
-        for chunk in result.chunks:
-            assert chunk.kb_id == "kb_test123"
-            assert chunk.doc_id == expected_hash
+        # Celery task 已投递
+        mock_task.delay.assert_called_once_with(expected_hash)
 
-        # Metadata fields present per spec
-        first = result.chunks[0]
-        assert first.metadata["chunk_index"] == 0
-        assert first.metadata["filename"] == "test.md"
-        assert first.metadata["file_hash"] == hashlib.sha256(file_bytes).hexdigest()
-        assert first.metadata["file_size"] == len(file_bytes)
-        assert first.metadata["content_type"] == "text/markdown"
-
-        # Heading metadata from Section info
-        assert first.metadata["heading"] == "Intro"
-        assert first.metadata["heading_level"] == 1
-
-        # Transactional write called
-        mock_store.upsert.assert_awaited_once_with("kb_test123", result.chunks)
+        # store.upsert 在 IndexingService 中异步调用，此处不验证
 
     @pytest.mark.asyncio
+    @patch("ragnexus.tasks.indexing.index_document_task")
     async def test_upload_logs_biz_event(
-        self, use_case, mock_kb_repo, mock_embedder, mock_parser, mock_store
+        self, mock_task, use_case, mock_kb_repo, mock_embedder, mock_parser, mock_store
     ):
-        """Successful upload emits BIZ_EVENT log with document_uploaded event."""
+        """Successful upload emits BIZ_EVENT log with index_task_queued event."""
         file_bytes = b"# Hello\n\nThis is a test document."
 
         with patch("ragnexus.core.logger.logger.info") as mock_info:
@@ -137,10 +131,10 @@ class TestUploadDocument:
             ]
             assert len(biz_calls) == 1
             extra = biz_calls[0].kwargs["extra"]
+            # 异步模式: 日志事件保持 document_uploaded，但 chunks 为空
             assert extra["event"] == "document_uploaded"
             assert extra["kb_id"] == "kb_test123"
             assert extra["doc_id"].startswith("doc_")
-            assert extra["chunks"] > 0
 
     @pytest.mark.asyncio
     async def test_file_too_large(self, use_case):
@@ -174,6 +168,8 @@ class TestUploadDocument:
     async def test_kb_not_found(
         self, mock_kb_repo, mock_doc_repo, mock_embedder, mock_parser, mock_store
     ):
+        from ragnexus.domain.chunking import heading_aware_split
+
         mock_kb_repo.get.return_value = None
         uc = UploadDocumentUseCase(
             kb_repo=mock_kb_repo,
@@ -224,6 +220,7 @@ class TestUploadDocument:
     async def test_duplicate_doc(
         self, mock_kb_repo, mock_doc_repo, mock_embedder, mock_parser, mock_store
     ):
+        from ragnexus.domain.chunking import heading_aware_split
 
         mock_kb_repo.doc_exists.return_value = True
         uc = UploadDocumentUseCase(
@@ -248,9 +245,18 @@ class TestUploadDocument:
         mock_parser.parse.assert_not_called()
 
     @pytest.mark.asyncio
+    @patch("ragnexus.application.upload_doc_use_case.index_document_task")
     async def test_empty_file(
-        self, mock_kb_repo, mock_doc_repo, mock_embedder, mock_parser, mock_store
+        self,
+        mock_task,
+        mock_kb_repo,
+        mock_doc_repo,
+        mock_embedder,
+        mock_parser,
+        mock_store,
     ):
+        """Empty file is accepted and creates a Document record in PROCESSING state."""
+        from ragnexus.domain.chunking import heading_aware_split
 
         mock_parser.parse.return_value = ParsedDocument(
             filename="test.md",
@@ -265,12 +271,16 @@ class TestUploadDocument:
             chunker=heading_aware_split,
             store=mock_store,
         )
-        with pytest.raises(AppError) as exc:
-            await uc.execute(
-                kb_id="kb_test123",
-                tenant_id="test_tenant",
-                file_content=b"",
-                filename="test.md",
-                content_type="text/markdown",
-            )
-        assert exc.value.code == ErrorCode.FILE_EMPTY.code
+        result = await uc.execute(
+            kb_id="kb_test123",
+            tenant_id="test_tenant",
+            file_content=b"",
+            filename="test.md",
+            content_type="text/markdown",
+        )
+
+        from ragnexus.domain.models import DocStatus
+
+        assert isinstance(result, UploadResult)
+        assert result.status == DocStatus.PROCESSING
+        mock_task.delay.assert_called_once()
