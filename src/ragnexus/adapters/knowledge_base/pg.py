@@ -95,6 +95,80 @@ class PgKnowledgeBaseRepository:
             kb_id,
         )
 
+    async def update(
+        self,
+        kb_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        settings: dict | None = None,
+    ) -> KnowledgeBase:
+        """更新知识库字段。仅更新传入的非 None 字段。
+
+        无任何字段变更时退化为 get() 查询。
+
+        Raises:
+            AppError(ErrorCode.NOT_FOUND): 知识库不存在时。
+        """
+        sets: list[str] = []
+        params: list = []
+        idx = 1
+        if name is not None:
+            sets.append(f"name = ${idx}")
+            params.append(name)
+            idx += 1
+        if description is not None:
+            sets.append(f"description = ${idx}")
+            params.append(description)
+            idx += 1
+        if settings is not None:
+            sets.append(f"settings = ${idx}::jsonb")
+            params.append(json.dumps(settings, ensure_ascii=False))
+            idx += 1
+        if not sets:
+            return await self.get(kb_id)  # type: ignore[return-value]
+        params.append(kb_id)
+        row = await self.pool.fetchrow(
+            f"UPDATE knowledge_bases SET {', '.join(sets)} WHERE id = ${idx} "
+            "RETURNING id, name, description, tenant_id, created_at, settings",
+            *params,
+        )
+        if row is None:
+            raise AppError(ErrorCode.NOT_FOUND, f"知识库 {kb_id} 不存在")
+        # asyncpg JSONB 返回 str，需 json.loads 反序列化
+        kb_settings_raw = row["settings"] or {}
+        kb_settings = (
+            json.loads(kb_settings_raw)
+            if isinstance(kb_settings_raw, str)
+            else kb_settings_raw
+        )
+        return KnowledgeBase(
+            id=row["id"],
+            name=row["name"],
+            description=row["description"] or "",
+            tenant_id=row["tenant_id"],
+            created_at=row["created_at"],
+            settings=kb_settings,
+        )
+
+    async def delete(self, kb_id: str) -> None:
+        """删除知识库及其关联数据。
+
+        依赖外键 CASCADE 自动清理 documents 及下游 chunks。
+        """
+        await self.pool.execute("DELETE FROM knowledge_bases WHERE id = $1", kb_id)
+
+    async def has_processing_docs(self, kb_id: str) -> bool:
+        """检查知识库下是否有处理中的文档（status=2）。
+
+        硬编码 status=2 对应 DocStatus.PROCESSING，避免循环导入。
+        """
+        result = await self.pool.fetchval(
+            "SELECT 1 FROM documents WHERE kb_id = $1 AND status = 2 LIMIT 1",
+            kb_id,
+        )
+        return result is not None
+
     async def exists(self, kb_id: str) -> bool:
         """检查知识库是否按 ID 存在。"""
         return bool(
