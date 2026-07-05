@@ -54,6 +54,21 @@ class KnowledgeBasePort(Protocol):
         """更新（覆盖）KB 的 settings。"""
         ...
 
+    async def update(
+        self,
+        kb_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        settings: dict | None = None,
+    ) -> "KnowledgeBase": ...
+
+    async def delete(self, kb_id: str) -> None: ...
+
+    async def has_processing_docs(self, kb_id: str) -> bool:
+        """检查知识库下是否有 PROCESSING 状态的文档。"""
+        return False
+
 
 class EmbedderPort(Protocol):
     """文本 → 向量。骨架实现: OpenAICompatEmbedder。"""
