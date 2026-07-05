@@ -245,7 +245,7 @@ class TestUploadDocument:
         mock_parser.parse.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("ragnexus.application.upload_doc_use_case.index_document_task")
+    @patch("ragnexus.tasks.indexing.index_document_task")
     async def test_empty_file(
         self,
         mock_task,
