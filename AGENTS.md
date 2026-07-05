@@ -210,3 +210,57 @@ curl -s https://dashscope.aliyuncs.com/compatible-mode/v1/models \
 curl -s http://localhost:8000/health
 docker compose logs app --tail 20
 ```
+
+## 开发经验（query-semantic-optimization 变更沉淀）
+
+### asyncpg JSONB 返回字符串
+
+asyncpg 查询 JSONB 列返回 Python `str` 而非 `dict`。使用前必须 `json.loads()`：
+
+```python
+# ❌ 错误 — asyncpg 返回 str, isinstance 判断失败
+kb_settings = getattr(primary_kb, "settings", {}) or {}
+if isinstance(kb_settings, dict):  # 永远是 False
+    ...
+
+# ✅ 正确
+kb_settings_raw = getattr(primary_kb, "settings", {}) or {}
+kb_settings = json.loads(kb_settings_raw) if isinstance(kb_settings_raw, str) else kb_settings_raw
+```
+
+### Docker 容器无热重载
+
+Dockerfile 的 uvicorn 不带 `--reload`。`docker cp` 复制文件后进程不会自动重载。代码变更必须完整重建：
+
+```bash
+docker compose build app && docker compose down app && docker compose up -d app
+```
+
+### uv editable 安装
+
+删除 `.venv` 后必须重新 editable 安装，否则 `uv run` 使用编译包而非源码：
+```bash
+uv sync
+uv pip install -e . --no-deps
+```
+
+验证：`uv pip show ragnexus | findstr Editable` 应显示项目路径。
+
+### 词表管理
+
+```bash
+# 覆盖写入
+uv run python scripts/update_kb_settings.py --kb-id kb_xxx --settings-file kb_settings.json
+# 增量合并（去重）
+uv run python scripts/update_kb_settings.py --kb-id kb_xxx --merge --settings-file new.json
+# 删除词组
+uv run python scripts/update_kb_settings.py --kb-id kb_xxx --remove-terms 背调 薪酬
+```
+
+上传文档后自动触发 LLM 提取术语 → 合并词表。（见 `composition.py` `SynonymSyncUploadUseCase`）
+
+### openspec archive 验证规则
+
+- delta spec 正文必须含 `SHALL` 或 `MUST`
+- `MODIFIED` 操作要求主 spec 已存在；新 spec 用 `ADDED`
+- proposal requirements 同样需要 SHALL/MUST
