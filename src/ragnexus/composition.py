@@ -95,6 +95,118 @@ class CacheInvalidatingUploadUseCase:
         return result
 
 
+class SynonymSyncUploadUseCase:
+    """文档上传后异步增量更新词表。
+
+    上传成功后，后台调用 LLM 从新文档提取术语，合并到 KB settings。
+    不影响上传请求的响应时间。
+    """
+
+    def __init__(
+        self,
+        inner: "CacheInvalidatingUploadUseCase",
+        kb_repo: "KnowledgeBasePort",
+        llm_provider: "OpenAICompatibleLLMProvider | None" = None,
+    ) -> None:
+        self._inner = inner
+        self._kb_repo = kb_repo
+        self._llm = llm_provider
+
+    async def execute(
+        self,
+        kb_id: str,
+        tenant_id: str,
+        file_content: bytes,
+        filename: str,
+        content_type: str,
+    ) -> UploadResult:
+        result = await self._inner.execute(
+            kb_id=kb_id,
+            tenant_id=tenant_id,
+            file_content=file_content,
+            filename=filename,
+            content_type=content_type,
+        )
+        # 异步增量更新词表（fire-and-forget）
+        if self._llm is not None:
+            import asyncio
+
+            asyncio.create_task(self._sync_synonyms(kb_id))
+        return result
+
+    async def _sync_synonyms(self, kb_id: str) -> None:
+        """从新文档提取术语并合并到 KB settings。"""
+        import json
+
+        try:
+            kb = await self._kb_repo.get(kb_id)
+            if kb is None:
+                return
+            name = getattr(kb, "name", "")
+            desc = getattr(kb, "description", "")
+
+            # 构建 LLM prompt
+            prompt = (
+                f"知识库名称：{name}\n"
+                f"描述：{desc}\n\n"
+                "请从以上知识库描述中提取 2-5 组专业术语及其同义词/扩展词，"
+                "以 JSON 格式返回：\n"
+                '{"synonyms":[{"terms":["术语1","术语2"],"expand":["扩展词1","扩展词2"]}]}\n'
+                "只返回 JSON，不要解释。"
+            )
+            response = await self._llm.chat_json(
+                system_prompt="你是术语提取专家。从知识库描述中提取专业术语并建议同义词。",
+                user_payload={"query": prompt},
+            )
+            draft = json.loads(response) if isinstance(response, str) else response
+            synonyms = draft.get("synonyms", [])
+            if not synonyms:
+                return
+
+            # 合并到现有词表
+            settings_raw = await self._kb_repo.get_settings(kb_id)
+            existing = (
+                json.loads(settings_raw)
+                if isinstance(settings_raw, str)
+                else (settings_raw or {})
+            )
+            existing_syns = existing.get("synonyms", [])
+            existing_term_sets = {
+                frozenset(g.get("terms", []))
+                for g in existing_syns
+                if isinstance(g, dict)
+            }
+
+            added = 0
+            for group in synonyms:
+                if not isinstance(group, dict):
+                    continue
+                ts = frozenset(group.get("terms", []))
+                if ts and ts not in existing_term_sets:
+                    existing_syns.append(group)
+                    existing_term_sets.add(ts)
+                    added += 1
+
+            if added > 0:
+                merged = dict(existing)
+                merged["synonyms"] = existing_syns
+                import json as _json
+
+                await self._kb_repo.update_settings(kb_id, merged)
+                logger.info(
+                    "增量词表更新完成",
+                    extra={
+                        "event_type": "BIZ_EVENT",
+                        "event": "synonym_sync",
+                        "kb_id": kb_id,
+                        "added": added,
+                        "total": len(existing_syns),
+                    },
+                )
+        except Exception:
+            logger.debug("增量词表同步失败", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期 — 注入依赖、运行、清理。
@@ -331,6 +443,11 @@ async def lifespan(app: FastAPI):
         # 包装 upload_doc_uc，成功后清空 rerank 和 rewrite 缓存
         upload_doc_uc_wrapped = CacheInvalidatingUploadUseCase(
             upload_doc_uc, reranker, rewriter
+        )
+
+        # 再包装一层：上传成功后异步增量更新词表
+        upload_doc_uc_wrapped = SynonymSyncUploadUseCase(
+            upload_doc_uc_wrapped, kb_repo, llm_provider
         )
         # --- Query Pipeline (改写 + 词表扩展) ---
         synonym_expander = SynonymExpander()
