@@ -1,5 +1,17 @@
 services:
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - redisdata:/data
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.17.4
     environment:
@@ -57,6 +69,42 @@ services:
         condition: service_completed_successfully
       elasticsearch:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: celery -A src.ragnexus.celery_app worker --loglevel=info --concurrency=2
+    env_file: .env
+    environment:
+      PG_DSN: postgresql://ragnexus:ragnexus@db:5432/ragnexus
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ES_ENABLED: "true"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  beat:
+    build: .
+    command: celery -A src.ragnexus.celery_app beat --loglevel=info
+    env_file: .env
+    environment:
+      PG_DSN: postgresql://ragnexus:ragnexus@db:5432/ragnexus
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
   esdata:
+  redisdata:
