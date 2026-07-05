@@ -35,6 +35,7 @@ class TestRequestSchemaInvariance:
             "bm25_top_k",
             "rrf_k",
             "rerank",
+            "query_options",
         }, f"请求 model_fields 必须含全部新字段，实际: {fields}"
 
     def test_request_forbids_extra_fields(self):
@@ -166,6 +167,7 @@ class TestRouterResponseFormat:
             "bm25_top_k",
             "rrf_k",
             "rerank",
+            "query_options",
         }
 
     def test_hit_serialization_in_router(self):
