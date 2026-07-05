@@ -4,6 +4,9 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
     name_key    TEXT UNIQUE NOT NULL,
+    tenant_id   TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    settings    JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -15,7 +18,11 @@ CREATE TABLE IF NOT EXISTS documents (
     file_size     INTEGER NOT NULL,
     content_type  TEXT,
     chunk_count   INTEGER NOT NULL,
-    uploaded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    uploaded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status        INTEGER NOT NULL DEFAULT 2,
+    content       TEXT NOT NULL DEFAULT '',
+    error_message TEXT,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
