@@ -42,6 +42,7 @@ from ragnexus.adapters.rewrite.synonym_expander import SynonymExpander
 from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 from ragnexus.adapters.http.auth_router import create_auth_router
 from ragnexus.adapters.http.deps import make_get_current_tenant
+from ragnexus.adapters.document.pg import PgDocumentRepository
 from ragnexus.adapters.tenant.pg import PgApiKeyRepository, PgTenantRepository
 
 from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
@@ -385,6 +386,7 @@ async def lifespan(app: FastAPI):
         else:
             rewriter = NoopRewriteProvider()
         kb_repo = PgKnowledgeBaseRepository(pool=cast(Any, repo_pool))
+        document_repo = PgDocumentRepository(pool=cast(Any, repo_pool))
 
         # --- Tenant & API Key Repositories ---
         tenant_repo = PgTenantRepository(pool=cast(Any, repo_pool))
