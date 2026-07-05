@@ -361,4 +361,5 @@ def _serialize_query_processing(result: QueryProcessResult) -> dict:
         "degraded": result.degraded,
         "synonym_applied": result.synonym_applied,
         "synonym_expansions": result.synonym_expansions,
+        "degraded_reason": result.degraded_reason,
     }

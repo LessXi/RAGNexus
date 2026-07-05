@@ -706,3 +706,186 @@ async def test_noop_pipeline_integration(
     mock_reranker.rerank.assert_awaited_once()
     mock_store.search_by_vector.assert_awaited_once()
     assert len(result.hits) == top_k
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Stage 12 验收场景测试
+# ═══════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_scenario_12_1_no_query_options_noop(
+    mock_kb_repo,
+    mock_embedder,
+    mock_store,
+    mock_keyword_store,
+    mock_log_port,
+    mock_reranker,
+    mock_pipeline,
+    sample_hits,
+):
+    """12.1: 不传 query_options + 无 settings → 行为与改前一致，query_processing 为 null。
+
+    验证：pipeline 以 enabled=False 调用（env 默认 false），
+    返回 noop 结果，query_processing 序列化为 strategy="noop" + synonym_applied=False，
+    这在 router 层会被过滤为 null。
+    """
+    # Arrange: env 默认 QUERY_REWRITE_ENABLED=false（不设置 env var），无 KB settings
+    mock_kb_repo.exists.return_value = True
+    mock_kb_repo.get.return_value = None  # 无 KB 对象 → 无 settings
+    mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
+    mock_store.search_by_vector.return_value = sample_hits
+    mock_reranker.rerank.return_value = sample_hits[:2]
+
+    result = await RetrieveUseCase(
+        kb_repo=mock_kb_repo,
+        embedder=mock_embedder,
+        store=mock_store,
+        log_port=mock_log_port,
+        reranker=mock_reranker,
+        rewriter=None,
+        pipeline=mock_pipeline,
+        keyword_store=mock_keyword_store,
+    ).execute(
+        tenant_id="test-tenant",
+        query="test query",
+        kb_ids=["kb1"],
+        top_k=2,
+        # 不传 query_options
+    )
+
+    # pipeline 被 enabled=False 调用
+    mock_pipeline.process.assert_awaited_once()
+    call_kwargs = mock_pipeline.process.call_args.kwargs
+    assert call_kwargs["enabled"] is False
+    assert call_kwargs["raw_query"] == "test query"
+
+    # 结果可正常返回（行为与改前一致）
+    assert len(result.hits) == 2
+    assert result.degraded is False
+
+    # query_processing 存在但为 noop — router 会过滤为 null
+    assert result.query_processing is not None
+    assert result.query_processing["strategy"] == "noop"
+    assert result.query_processing["synonym_applied"] is False
+
+
+@pytest.mark.asyncio
+async def test_scenario_12_7_cross_kb_isolation(
+    mock_kb_repo,
+    mock_embedder,
+    mock_store,
+    mock_keyword_store,
+    mock_log_port,
+    mock_reranker,
+    mock_pipeline,
+    sample_hits,
+):
+    """12.7: 跨库隔离 — KB_A 词表不影响 KB_B。
+
+    验证：当 kb_ids=["kb_a", "kb_b"] 时，只有 kb_ids[0]（KB_A）的 settings
+    被读取并传给 pipeline，KB_B 的 settings 不会被读取。
+    """
+    from unittest.mock import MagicMock
+
+    # 构造 KB_A（有 synonyms）和 KB_B（无）
+    kb_a = MagicMock()
+    kb_a.name = "KB_A"
+    kb_a.description = "Knowledge Base A"
+    kb_a.settings = {"synonyms": [{"terms": ["AI"], "expand": ["人工智能"]}]}
+
+    kb_b = MagicMock()
+    kb_b.name = "KB_B"
+    kb_b.description = "Knowledge Base B"
+    kb_b.settings = {"synonyms": [{"terms": ["ML"], "expand": ["机器学习"]}]}
+
+    # kb_repo.get 只返回 kb_ids[0] 的 KB（代码中只调用了 kb_ids[0]）
+    # 这里 mock 返回 KB_A 来验证其 synonyms 被使用
+    mock_kb_repo.get.return_value = kb_a
+    mock_kb_repo.exists.return_value = True
+    # ownership 校验需返回 2（2 个 unique KB）
+    mock_kb_repo.pool.fetchval.return_value = 2
+    mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
+    mock_store.search_by_vector.return_value = sample_hits
+    mock_reranker.rerank.return_value = sample_hits[:2]
+
+    uc = RetrieveUseCase(
+        kb_repo=mock_kb_repo,
+        embedder=mock_embedder,
+        store=mock_store,
+        log_port=mock_log_port,
+        reranker=mock_reranker,
+        rewriter=None,
+        pipeline=mock_pipeline,
+        keyword_store=mock_keyword_store,
+    )
+
+    await uc.execute(
+        tenant_id="test-tenant",
+        query="AI test",
+        kb_ids=["kb_a", "kb_b"],
+        top_k=2,
+        query_options={"enabled": True},
+    )
+
+    # 验证 pipeline 被调用时 synonyms 来自 KB_A
+    call_kwargs = mock_pipeline.process.call_args.kwargs
+    assert call_kwargs["synonyms"] == [{"terms": ["AI"], "expand": ["人工智能"]}]
+    # KB_B 的 settings 未被读取（mock_kb_repo.get 只被调用一次，参数为 "kb_a"）
+    mock_kb_repo.get.assert_awaited_once_with("kb_a")
+
+
+@pytest.mark.asyncio
+async def test_scenario_12_10_enabled_false_priority(
+    mock_kb_repo,
+    mock_embedder,
+    mock_store,
+    mock_keyword_store,
+    mock_log_port,
+    mock_reranker,
+    mock_pipeline,
+    sample_hits,
+):
+    """12.10: enabled=false + strategy="rewrite" → enabled 优先，query_processing 为 null。
+
+    验证：当 query_options={'enabled': False, 'strategy': 'rewrite'} 时，
+    pipeline 以 enabled=False 调用，忽略 strategy 字段。
+    返回的 query_processing 为 noop（router 层会过滤为 null）。
+    """
+    mock_kb_repo.exists.return_value = True
+    mock_kb_repo.get.return_value = None
+    mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
+    mock_store.search_by_vector.return_value = sample_hits
+    mock_reranker.rerank.return_value = sample_hits[:2]
+
+    uc = RetrieveUseCase(
+        kb_repo=mock_kb_repo,
+        embedder=mock_embedder,
+        store=mock_store,
+        log_port=mock_log_port,
+        reranker=mock_reranker,
+        rewriter=None,
+        pipeline=mock_pipeline,
+        keyword_store=mock_keyword_store,
+    )
+
+    result = await uc.execute(
+        tenant_id="test-tenant",
+        query="test query",
+        kb_ids=["kb1"],
+        top_k=2,
+        query_options={"enabled": False, "strategy": "rewrite"},
+    )
+
+    # enabled=False 优先 → pipeline 以 enabled=False 调用
+    call_kwargs = mock_pipeline.process.call_args.kwargs
+    assert call_kwargs["enabled"] is False
+
+    # 结果正常返回
+    assert len(result.hits) == 2
+    # query_processing 为 noop（router 会过滤为 null）
+    assert result.query_processing is not None
+    assert result.query_processing["strategy"] == "noop"
+    assert result.query_processing["synonym_applied"] is False
+    # needs_rewrite 为 false（未执行改写）
+    assert result.query_processing["needs_rewrite"] is False

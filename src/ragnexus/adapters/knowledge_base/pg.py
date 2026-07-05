@@ -72,7 +72,7 @@ class PgKnowledgeBaseRepository:
     async def get(self, kb_id: str) -> KnowledgeBase | None:
         """按 ID 获取知识库，不存在返回 None。"""
         row = await self.pool.fetchrow(
-            "SELECT id, name, tenant_id, created_at, settings FROM knowledge_bases WHERE id=$1",
+            "SELECT id, name, description, tenant_id, created_at, settings FROM knowledge_bases WHERE id=$1",
             kb_id,
         )
         return KnowledgeBase(**dict(row)) if row else None

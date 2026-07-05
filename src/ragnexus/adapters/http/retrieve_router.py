@@ -91,7 +91,7 @@ def create_router(uc, get_current_tenant) -> APIRouter:
         # 解析 query_options
         query_options_dict = None
         if req.query_options:
-            query_options_dict = req.query_options.model_dump()
+            query_options_dict = req.query_options.model_dump(exclude_unset=True)
 
         result = await uc.execute(
             query=req.query,
