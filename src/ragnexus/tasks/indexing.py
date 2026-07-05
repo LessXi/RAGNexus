@@ -18,13 +18,15 @@ from ragnexus.domain.models import DocStatus
     autoretry_for=(Exception,),
 )
 def index_document_task(self, doc_id: str) -> None:
-    """Celery 任务入口 — asyncio.run 桥接到 IndexingService.execute。"""
-    from ragnexus.di import build_indexing_services
+    """Celery 任务入口 — 在单个 asyncio.run 中完成构建+执行+清理。"""
+    from ragnexus.di import build_indexing_services_async
 
-    indexing_svc, doc_repo, kb_repo = build_indexing_services()
+    async def _run():
+        indexing_svc, _doc_repo, _kb_repo = await build_indexing_services_async()
+        await indexing_svc.execute(doc_id)
 
     try:
-        asyncio.run(indexing_svc.execute(doc_id))
+        asyncio.run(_run())
     except Exception as exc:
         logger.warning(
             "索引任务重试",

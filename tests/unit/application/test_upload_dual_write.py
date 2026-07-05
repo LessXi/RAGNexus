@@ -76,6 +76,14 @@ def mock_keyword_store():
 
 
 @pytest.fixture
+def mock_doc_repo():
+    """返回文档仓库 mock。"""
+    repo = MagicMock()
+    repo.create = AsyncMock(return_value=MagicMock())
+    return repo
+
+
+@pytest.fixture
 def test_file_bytes():
     return b"# Hello\n\nThis is a test document."
 
@@ -86,12 +94,13 @@ def expected_doc_id(test_file_bytes):
 
 
 @pytest.fixture
-def use_case(mock_kb_repo, mock_embedder, mock_parser, mock_pg_store):
+def use_case(mock_kb_repo, mock_doc_repo, mock_embedder, mock_parser, mock_pg_store):
     """双写启用时: es_enabled=True 且注入 keyword_store。"""
     from ragnexus.domain.chunking import heading_aware_split
 
     return UploadDocumentUseCase(
         kb_repo=mock_kb_repo,
+        doc_repo=mock_doc_repo,
         parser=mock_parser,
         embedder=mock_embedder,
         chunker=heading_aware_split,
@@ -107,13 +116,19 @@ def use_case(mock_kb_repo, mock_embedder, mock_parser, mock_pg_store):
 
 
 def _make_dual_write_use_case(
-    mock_kb_repo, mock_embedder, mock_parser, mock_pg_store, mock_keyword_store
+    mock_kb_repo,
+    mock_doc_repo,
+    mock_embedder,
+    mock_parser,
+    mock_pg_store,
+    mock_keyword_store,
 ):
     """创建双写启用的 use case。"""
     from ragnexus.domain.chunking import heading_aware_split
 
     return UploadDocumentUseCase(
         kb_repo=mock_kb_repo,
+        doc_repo=mock_doc_repo,
         parser=mock_parser,
         embedder=mock_embedder,
         chunker=heading_aware_split,
@@ -135,6 +150,7 @@ class TestUploadDualWrite:
     async def test_both_succeed(
         self,
         mock_kb_repo,
+        mock_doc_repo,
         mock_embedder,
         mock_parser,
         mock_pg_store,
@@ -145,6 +161,7 @@ class TestUploadDualWrite:
         """ES 成功 + PG 成功 → commit PG, 返回 UploadResult。"""
         uc = _make_dual_write_use_case(
             mock_kb_repo,
+            mock_doc_repo,
             mock_embedder,
             mock_parser,
             mock_pg_store,
@@ -192,6 +209,7 @@ class TestUploadDualWrite:
     async def test_both_fail(
         self,
         mock_kb_repo,
+        mock_doc_repo,
         mock_embedder,
         mock_parser,
         mock_pg_store,
@@ -204,6 +222,7 @@ class TestUploadDualWrite:
 
         uc = _make_dual_write_use_case(
             mock_kb_repo,
+            mock_doc_repo,
             mock_embedder,
             mock_parser,
             mock_pg_store,
@@ -234,6 +253,7 @@ class TestUploadDualWrite:
     async def test_pg_ok_es_fail(
         self,
         mock_kb_repo,
+        mock_doc_repo,
         mock_embedder,
         mock_parser,
         mock_pg_store,
@@ -246,6 +266,7 @@ class TestUploadDualWrite:
 
         uc = _make_dual_write_use_case(
             mock_kb_repo,
+            mock_doc_repo,
             mock_embedder,
             mock_parser,
             mock_pg_store,
@@ -278,6 +299,7 @@ class TestUploadDualWrite:
     async def test_pg_fail_es_ok(
         self,
         mock_kb_repo,
+        mock_doc_repo,
         mock_embedder,
         mock_parser,
         mock_pg_store,
@@ -291,6 +313,7 @@ class TestUploadDualWrite:
 
         uc = _make_dual_write_use_case(
             mock_kb_repo,
+            mock_doc_repo,
             mock_embedder,
             mock_parser,
             mock_pg_store,
@@ -348,6 +371,7 @@ class TestUploadBackwardCompat:
     async def test_es_disabled_uses_simple_upsert(
         self,
         mock_kb_repo,
+        mock_doc_repo,
         mock_embedder,
         mock_parser,
         mock_pg_store,
@@ -359,6 +383,7 @@ class TestUploadBackwardCompat:
 
         uc = UploadDocumentUseCase(
             kb_repo=mock_kb_repo,
+            doc_repo=mock_doc_repo,
             parser=mock_parser,
             embedder=mock_embedder,
             chunker=heading_aware_split,

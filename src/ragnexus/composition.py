@@ -457,6 +457,7 @@ async def lifespan(app: FastAPI):
         create_kb_uc = CreateKnowledgeBaseUseCase(kb_repo=kb_repo)
         upload_doc_uc = UploadDocumentUseCase(
             kb_repo=kb_repo,
+            doc_repo=document_repo,
             parser=parser,
             embedder=embedder,
             chunker=chunker,

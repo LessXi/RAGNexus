@@ -47,11 +47,20 @@ def mock_store():
 
 
 @pytest.fixture
-def use_case(mock_kb_repo, mock_embedder, mock_parser, mock_store):
+def mock_doc_repo():
+    """返回文档仓库 mock，create 返回模拟 Document。"""
+    repo = MagicMock()
+    repo.create = AsyncMock(return_value=MagicMock())
+    return repo
+
+
+@pytest.fixture
+def use_case(mock_kb_repo, mock_doc_repo, mock_embedder, mock_parser, mock_store):
     from ragnexus.domain.chunking import heading_aware_split
 
     return UploadDocumentUseCase(
         kb_repo=mock_kb_repo,
+        doc_repo=mock_doc_repo,
         parser=mock_parser,
         embedder=mock_embedder,
         chunker=heading_aware_split,
@@ -163,14 +172,12 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_kb_not_found(
-        self, mock_kb_repo, mock_embedder, mock_parser, mock_store
+        self, mock_kb_repo, mock_doc_repo, mock_embedder, mock_parser, mock_store
     ):
-        """Non-existent kb_id raises NotFoundError."""
-        from ragnexus.domain.chunking import heading_aware_split
-
         mock_kb_repo.get.return_value = None
         uc = UploadDocumentUseCase(
             kb_repo=mock_kb_repo,
+            doc_repo=mock_doc_repo,
             parser=mock_parser,
             embedder=mock_embedder,
             chunker=heading_aware_split,
@@ -188,7 +195,7 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_kb_wrong_tenant(
-        self, mock_kb_repo, mock_embedder, mock_parser, mock_store
+        self, mock_kb_repo, mock_doc_repo, mock_embedder, mock_parser, mock_store
     ):
         """kb_id 属于其他租户时抛出 FORBIDDEN。"""
         from ragnexus.domain.chunking import heading_aware_split
@@ -197,6 +204,7 @@ class TestUploadDocument:
         mock_kb_repo.get.return_value = MagicMock(tenant_id="other_tenant")
         uc = UploadDocumentUseCase(
             kb_repo=mock_kb_repo,
+            doc_repo=mock_doc_repo,
             parser=mock_parser,
             embedder=mock_embedder,
             chunker=heading_aware_split,
@@ -214,14 +222,13 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_duplicate_doc(
-        self, mock_kb_repo, mock_embedder, mock_parser, mock_store
+        self, mock_kb_repo, mock_doc_repo, mock_embedder, mock_parser, mock_store
     ):
-        """Duplicate doc_id (SHA256 collision) raises AppError BEFORE parsing."""
-        from ragnexus.domain.chunking import heading_aware_split
 
         mock_kb_repo.doc_exists.return_value = True
         uc = UploadDocumentUseCase(
             kb_repo=mock_kb_repo,
+            doc_repo=mock_doc_repo,
             parser=mock_parser,
             embedder=mock_embedder,
             chunker=heading_aware_split,
@@ -242,10 +249,8 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_empty_file(
-        self, mock_kb_repo, mock_embedder, mock_parser, mock_store
+        self, mock_kb_repo, mock_doc_repo, mock_embedder, mock_parser, mock_store
     ):
-        """File with no content (parser returns empty) raises EmptyFileError."""
-        from ragnexus.domain.chunking import heading_aware_split
 
         mock_parser.parse.return_value = ParsedDocument(
             filename="test.md",
@@ -254,6 +259,7 @@ class TestUploadDocument:
         )
         uc = UploadDocumentUseCase(
             kb_repo=mock_kb_repo,
+            doc_repo=mock_doc_repo,
             parser=mock_parser,
             embedder=mock_embedder,
             chunker=heading_aware_split,

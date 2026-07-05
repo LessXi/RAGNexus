@@ -35,6 +35,7 @@ def create_router(uc, get_current_tenant) -> APIRouter:
             "data": {
                 "doc_id": result.doc_id,
                 "kb_id": result.kb_id,
+                "status": result.status.name.lower(),
                 "chunk_count": result.chunk_count,
             },
             "message": "ok",
