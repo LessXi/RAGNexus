@@ -83,7 +83,7 @@ class TestGet:
         assert result.tenant_id == "demo"
         assert result.created_at == now
         mock_pool.fetchrow.assert_awaited_once_with(
-            "SELECT id, name, tenant_id, created_at, settings FROM knowledge_bases WHERE id=$1",
+            "SELECT id, name, description, tenant_id, created_at, settings FROM knowledge_bases WHERE id=$1",
             "kb_abc",
         )
 

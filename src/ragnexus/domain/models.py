@@ -9,8 +9,9 @@ from typing import Any
 class KnowledgeBase:
     id: str  # "kb_" + nanoid(8)
     name: str  # user input
-    description: str = ""  # KB 描述，用于改写器 kb_context
+DEL 12
     created_at: datetime
+    description: str = ""  # KB 描述，用于改写器 kb_context
     tenant_id: str = ""  # 租户ID，默认为空字符串（兼容旧数据）
     settings: dict = field(default_factory=dict)  # KB 级配置: synonyms、rewrite_hint 等
 
