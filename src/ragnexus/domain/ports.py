@@ -44,6 +44,14 @@ class KnowledgeBasePort(Protocol):
         """获取单租户→KB→文档三级树，keyword 模糊匹配 KB 名称。"""
         ...
 
+    async def get_settings(self, kb_id: str) -> dict:
+        """获取 KB 的 settings（JSONB）。"""
+        ...
+
+    async def update_settings(self, kb_id: str, settings: dict) -> None:
+        """更新（覆盖）KB 的 settings。"""
+        ...
+
 
 class EmbedderPort(Protocol):
     """文本 → 向量。骨架实现: OpenAICompatEmbedder。"""
