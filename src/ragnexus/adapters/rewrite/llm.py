@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 from ragnexus.adapters.llm.base import LLMProvider
 from ragnexus.core.logger import logger
-from ragnexus.domain.ports import EmbedderPort, RewriteResult
+from ragnexus.domain.ports import EmbedderPort, QueryProcessResult
 
 # ============================================================================
 # System Prompt
@@ -60,7 +60,7 @@ class CacheEntry:
 
     query_embedding: list[float]
     query_text: str
-    rewrite_result: RewriteResult
+    rewrite_result: QueryProcessResult
     timestamp: float
 
 
@@ -253,27 +253,54 @@ class LLMRewriteProvider:
         *,
         query: str,
         kb_ids: list[str],
-    ) -> RewriteResult:
+        kb_context: dict | None = None,
+    ) -> QueryProcessResult:
         """改写查询 — 永不抛异常。
 
         流程:
-        a) 查缓存（向量余弦相似度 ≥ 阈值）
-        b) LLM 调用（判断 + 改写一次完成）
-        c) 5 层防御解析
-        d) Layer 5 内容合理性检查（含二次精炼）
-        e) 写入缓存
-        f) 降级时返回原始 query
+        a) 构建增强 system prompt（注入 kb_context）
+        b) 查缓存（向量余弦相似度 ≥ 阈值）
+        c) LLM 调用（判断 + 改写一次完成）
+        d) 5 层防御解析
+        e) Layer 5 内容合理性检查（含二次精炼）
+        f) 写入缓存
+        g) 降级时返回原始 query
         """
+        # 构建增强 system prompt
+        enhanced_prompt = SYSTEM_PROMPT
+        if kb_context:
+            parts = []
+            if name := kb_context.get("name"):
+                parts.append(f"当前知识库: {name}")
+            if desc := kb_context.get("description"):
+                parts.append(f"知识库描述: {desc}")
+            if hint := kb_context.get("rewrite_hint"):
+                parts.append(f"领域说明: {hint}")
+            if parts:
+                enhanced_prompt = SYSTEM_PROMPT + "\n\n" + "\n".join(parts)
+
+        start_time = time.monotonic()
         try:
-            return await self._rewrite_impl(query=query, kb_ids=kb_ids)
+            return await self._rewrite_impl(
+                query=query,
+                kb_ids=kb_ids,
+                enhanced_prompt=enhanced_prompt,
+                start_time=start_time,
+            )
         except Exception as exc:
             reason = f"rewrite 失败，降级为原始 query: {type(exc).__name__}: {exc}"
             self._log_degraded(kb_ids, query, type(exc).__name__, str(exc))
-            return RewriteResult(
-                original_query=query,
-                rewritten_query=query,
+            return QueryProcessResult(
+                raw_query=query,
+                effective_query=query,
+                search_query=query,
                 needs_rewrite=False,
-                reason=reason,
+                strategy="rewrite",
+                rewrite_latency_ms=0,
+                degraded=True,
+                degraded_reason=reason,
+                synonym_applied=False,
+                synonym_expansions=[],
             )
 
     async def clear_cache(self, kb_id: str) -> None:
@@ -290,7 +317,9 @@ class LLMRewriteProvider:
         *,
         query: str,
         kb_ids: list[str],
-    ) -> RewriteResult:
+        enhanced_prompt: str,
+        start_time: float,
+    ) -> QueryProcessResult:
         """rewrite 核心实现 — 含缓存、LLM、防御、精炼。"""
         # Step a) 查缓存
         for kb_id in kb_ids:
@@ -300,26 +329,38 @@ class LLMRewriteProvider:
 
         # Step b) LLM 调用
         try:
-            parsed = await self._call_llm(query)
+            parsed = await self._call_llm(query, enhanced_prompt)
         except Exception as exc:
             reason = f"LLM 调用失败: {type(exc).__name__}: {exc}"
             self._log_degraded(kb_ids, query, type(exc).__name__, str(exc))
-            return RewriteResult(
-                original_query=query,
-                rewritten_query=query,
+            return QueryProcessResult(
+                raw_query=query,
+                effective_query=query,
+                search_query=query,
                 needs_rewrite=False,
-                reason=reason,
+                strategy="rewrite",
+                rewrite_latency_ms=0,
+                degraded=True,
+                degraded_reason=reason,
+                synonym_applied=False,
+                synonym_expansions=[],
             )
 
         # 降级检查
         if parsed.get("_degraded"):
             reason = f"JSON 解析降级: {parsed.get('reason', '未知原因')}"
             self._log_degraded(kb_ids, query, "ParseError", reason)
-            return RewriteResult(
-                original_query=query,
-                rewritten_query=query,
+            return QueryProcessResult(
+                raw_query=query,
+                effective_query=query,
+                search_query=query,
                 needs_rewrite=False,
-                reason=reason,
+                strategy="rewrite",
+                rewrite_latency_ms=0,
+                degraded=True,
+                degraded_reason=reason,
+                synonym_applied=False,
+                synonym_expansions=[],
             )
 
         needs_rewrite: bool = parsed["needs_rewrite"]
@@ -338,20 +379,33 @@ class LLMRewriteProvider:
             )
             if refined_query == query:
                 # 精炼失败降级
-                return RewriteResult(
-                    original_query=query,
-                    rewritten_query=query,
+                return QueryProcessResult(
+                    raw_query=query,
+                    effective_query=query,
+                    search_query=query,
                     needs_rewrite=False,
-                    reason=llm_reason,
+                    strategy="rewrite",
+                    rewrite_latency_ms=0,
+                    degraded=True,
+                    degraded_reason=llm_reason,
+                    synonym_applied=False,
+                    synonym_expansions=[],
                 )
             rewritten_query = refined_query
 
         # Step e) 写入缓存
-        final_result = RewriteResult(
-            original_query=query,
-            rewritten_query=rewritten_query if needs_rewrite else query,
+        latency_ms = int((time.monotonic() - start_time) * 1000)
+        final_result = QueryProcessResult(
+            raw_query=query,
+            effective_query=rewritten_query if needs_rewrite else query,
+            search_query=rewritten_query if needs_rewrite else query,
             needs_rewrite=needs_rewrite,
-            reason=llm_reason,
+            strategy="rewrite",
+            rewrite_latency_ms=latency_ms,
+            degraded=False,
+            degraded_reason=None,
+            synonym_applied=False,
+            synonym_expansions=[],
         )
         await self._write_cache(kb_ids, query, final_result)
 
@@ -364,7 +418,7 @@ class LLMRewriteProvider:
                     "event": "rewrite_completed",
                     "kb_ids": kb_ids,
                     "original_query": query[:200],
-                    "rewritten_query": final_result.rewritten_query[:200],
+                    "rewritten_query": final_result.effective_query[:200],
                     "needs_rewrite": needs_rewrite,
                     "reason": llm_reason,
                 },
@@ -374,10 +428,10 @@ class LLMRewriteProvider:
 
         return final_result
 
-    async def _call_llm(self, query: str) -> dict:
+    async def _call_llm(self, query: str, system_prompt: str = SYSTEM_PROMPT) -> dict:
         """调用 LLM 完成判断+改写，返回解析后的 dict。"""
         llm_response = await self.llm.chat_json(
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_payload={"query": query},
             temperature=self.temperature,
         )
@@ -389,28 +443,40 @@ class LLMRewriteProvider:
         needs_rewrite: bool,
         rewritten_query: str,
         llm_reason: str,
-    ) -> RewriteResult | None:
-        """Layer 5 内容合理性检查。返回 RewriteResult 表示降级，None 表示通过。"""
+    ) -> QueryProcessResult | None:
+        """Layer 5 内容合理性检查。返回 QueryProcessResult 表示降级，None 表示通过。"""
         # 不需要改写 → 直接通过
         if not needs_rewrite:
             return None
 
         # 为空 → 降级
         if not rewritten_query or not rewritten_query.strip():
-            return RewriteResult(
-                original_query=query,
-                rewritten_query=query,
+            return QueryProcessResult(
+                raw_query=query,
+                effective_query=query,
+                search_query=query,
                 needs_rewrite=False,
-                reason="Layer 5: rewritten_query 为空",
+                strategy="rewrite",
+                rewrite_latency_ms=0,
+                degraded=True,
+                degraded_reason="Layer 5: rewritten_query 为空",
+                synonym_applied=False,
+                synonym_expansions=[],
             )
 
         # 与原始相同 → 降级
         if rewritten_query.strip() == query.strip():
-            return RewriteResult(
-                original_query=query,
-                rewritten_query=query,
+            return QueryProcessResult(
+                raw_query=query,
+                effective_query=query,
+                search_query=query,
                 needs_rewrite=False,
-                reason="Layer 5: rewritten_query 与原始相同",
+                strategy="rewrite",
+                rewrite_latency_ms=0,
+                degraded=True,
+                degraded_reason="Layer 5: rewritten_query 与原始相同",
+                synonym_applied=False,
+                synonym_expansions=[],
             )
 
         # None of the above triggered → passed
@@ -445,7 +511,7 @@ class LLMRewriteProvider:
     # 缓存
     # ------------------------------------------------------------------
 
-    async def _check_cache(self, kb_id: str, query: str) -> RewriteResult | None:
+    async def _check_cache(self, kb_id: str, query: str) -> QueryProcessResult | None:
         """检查缓存是否命中。命中返回缓存结果，否则返回 None。
 
         缓存查找需要 embed query 以计算余弦相似度。
@@ -493,7 +559,7 @@ class LLMRewriteProvider:
         return None
 
     async def _write_cache(
-        self, kb_ids: list[str], query: str, result: RewriteResult
+        self, kb_ids: list[str], query: str, result: QueryProcessResult
     ) -> None:
         """将改写结果写入所有 KB 的缓存。"""
         try:
