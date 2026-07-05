@@ -172,7 +172,20 @@ class RewritePort(Protocol):
         *,
         query: str,
         kb_ids: list[str],
-    ) -> RewriteResult: ...
+        kb_context: dict | None = None,
+    ) -> QueryProcessResult:
+        """改写查询，返回三段式查询处理结果。
+
+        Args:
+            query: 原始用户查询。
+            kb_ids: 目标知识库 ID 列表。
+            kb_context: 额外上下文字典，包含 KB 的 name、description、settings
+                （含 rewrite_hint）。改写器将其注入 system prompt 以提升改写质量。
+
+        Returns:
+            QueryProcessResult: raw_query → effective_query → search_query 三段式结构。
+        """
+        ...
 
     async def clear_cache(self, kb_id: str) -> None:
         """清空指定 KB 的改写缓存。文档上传后由 composition.py 调用。"""
