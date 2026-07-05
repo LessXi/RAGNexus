@@ -62,7 +62,10 @@ class SearchHit:
 class UploadResult:
     doc_id: str
     kb_id: str
-    chunks: list[Chunk]  # used internally by use case; router should use chunk_count
+    status: DocStatus
+    chunks: list[Chunk] = field(
+        default_factory=list
+    )  # used internally by use case; router should use chunk_count
     chunk_count: int = 0
 
 

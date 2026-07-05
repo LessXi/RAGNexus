@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import logger
-from ragnexus.domain.models import Chunk, UploadResult
+from ragnexus.domain.models import Chunk, DocStatus, UploadResult
 from ragnexus.domain.ports import (
     EmbedderPort,
     KnowledgeBasePort,
@@ -279,5 +279,9 @@ class UploadDocumentUseCase:
         )
 
         return UploadResult(
-            doc_id=doc_id, kb_id=kb_id, chunks=chunks, chunk_count=len(chunks)
+            doc_id=doc_id,
+            kb_id=kb_id,
+            status=DocStatus.SUCCESS,
+            chunks=chunks,
+            chunk_count=len(chunks),
         )
