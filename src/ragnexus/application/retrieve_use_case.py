@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-import time
+import json
 
 from ragnexus.adapters.rewrite.pipeline import QueryPipeline
 from ragnexus.core.errors import AppError, ErrorCode
@@ -22,7 +22,7 @@ from ragnexus.domain.retrieval.fusion import rrf_fuse
 
 
 class RetrieveUseCase:
-    """跨知识库按查询搜索 chunk。"""
+    """跨知识库按查询搜索 chunk。Pipeline v2."""
 
     def __init__(
         self,
@@ -114,10 +114,14 @@ class RetrieveUseCase:
                 "name": primary_kb.name,
                 "description": getattr(primary_kb, "description", ""),
             }
-            kb_settings = getattr(primary_kb, "settings", {}) or {}
-            if isinstance(kb_settings, dict):
-                kb_context["rewrite_hint"] = kb_settings.get("rewrite_hint", "")
-                synonyms = kb_settings.get("synonyms")
+            kb_settings_raw = getattr(primary_kb, "settings", {}) or {}
+            kb_settings = (
+                json.loads(kb_settings_raw)
+                if isinstance(kb_settings_raw, str)
+                else kb_settings_raw
+            )
+            kb_context["rewrite_hint"] = kb_settings.get("rewrite_hint", "")
+            synonyms = kb_settings.get("synonyms")
 
         # --- 退化检测：ES 不可用 + hybrid 模式 → 降级为纯向量 ---
         degraded = False
