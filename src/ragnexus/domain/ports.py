@@ -133,13 +133,32 @@ class KeywordSearchPort(Protocol):
 
 
 @dataclass
-class RewriteResult:
-    """查询改写结果。"""
+class QueryProcessResult:
+    """查询处理结果 — 三阶段查询链的输出。
 
-    original_query: str
-    rewritten_query: str  # 不需要改写时 = original_query
+    raw_query → effective_query → search_query
+    """
+
+    raw_query: str
+    """用户原话，全程不变"""
+    effective_query: str
+    """LLM 改写后；未改写时 = raw_query"""
+    search_query: str
+    """追加扩展词后；无扩展时 = effective_query"""
     needs_rewrite: bool
-    reason: str  # 仅日志使用
+    """LLM 判断是否需要改写"""
+    strategy: str
+    """"rewrite" | "noop" """
+    rewrite_latency_ms: int
+    """改写耗时；未改写时 = 0（哨兵值）"""
+    degraded: bool
+    """改写是否失败降级"""
+    degraded_reason: str | None
+    """降级原因"""
+    synonym_applied: bool
+    """词表是否命中"""
+    synonym_expansions: list[str]
+    """追加的扩展词列表"""
 
 
 class RewritePort(Protocol):
