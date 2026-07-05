@@ -55,6 +55,7 @@ export default function RetrievePage() {
   const [rrfK, setRrfK] = useState(60);
   const [rerankEnabled, setRerankEnabled] = useState(false);
   const [rerankTopN, setRerankTopN] = useState(5);
+  const [rewriteEnabled, setRewriteEnabled] = useState(false);
 
   /* ── 结果 ── */
   const [results, setResults] = useState<RetrieveResponse | null>(null);
@@ -113,6 +114,10 @@ export default function RetrievePage() {
 
       if (rerankEnabled) {
         body.rerank = { enabled: true, top_n: rerankTopN };
+      }
+
+      if (rewriteEnabled) {
+        body.query_options = { enabled: true, strategy: 'rewrite' };
       }
 
       const res = await retrieve(body);
@@ -305,6 +310,24 @@ export default function RetrievePage() {
                   />
                 </div>
               )}
+            </div>
+
+            {/* query 改写 */}
+            <div className="flex items-center gap-3">
+              <Switch.Root
+                checked={rewriteEnabled}
+                onCheckedChange={setRewriteEnabled}
+                className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent bg-muted transition-colors data-[checked]:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <Switch.Thumb className="pointer-events-none block size-4 rounded-full bg-background shadow-lg ring-0 transition-transform data-[checked]:translate-x-4" />
+              </Switch.Root>
+              <span className="text-sm font-medium text-foreground">启用 query 改写</span>
+              <span className="group relative inline-flex items-center">
+                <Info className="size-4 cursor-help text-muted-foreground hover:text-foreground transition-colors" />
+                <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+                  用 AI 把口语问题改成更好搜的说法
+                </span>
+              </span>
             </div>
           </div>
         )}
@@ -520,6 +543,66 @@ export default function RetrievePage() {
                       <p className="text-red-600">{meta.degraded_reason}</p>
                     )}
                   </div>
+                </div>
+              )}
+
+              {meta.query_processing && (
+                <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+                  <div className="text-sm font-semibold text-foreground">Query 处理</div>
+
+                  {/* 三句对比 */}
+                  <div className="grid grid-cols-1 gap-2">
+                    <div className="flex items-start gap-2">
+                      <span className="shrink-0 text-xs text-muted-foreground w-16">原话</span>
+                      <span className="text-sm text-foreground">{meta.query_processing.raw_query}</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="shrink-0 text-xs text-muted-foreground w-16">改写后</span>
+                      <span className="text-sm text-foreground">{meta.query_processing.effective_query}</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="shrink-0 text-xs text-muted-foreground w-16">最终检索句</span>
+                      <span className="text-sm text-foreground">{meta.query_processing.search_query}</span>
+                    </div>
+                  </div>
+
+                  {/* 改写耗时 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">改写耗时</span>
+                    <span className="text-sm font-medium text-foreground">
+                      {meta.query_processing.rewrite_latency_ms.toFixed(1)} ms
+                    </span>
+                  </div>
+
+                  {/* 降级提示 */}
+                  {meta.query_processing.degraded && (
+                    <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                      <div>
+                        <p className="font-medium">Query 改写降级</p>
+                        {meta.query_processing.degraded_reason && (
+                          <p className="text-red-600">{meta.query_processing.degraded_reason}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 扩展词列表 */}
+                  {meta.query_processing.synonym_expansions.length > 0 && (
+                    <div>
+                      <span className="text-xs text-muted-foreground">扩展词</span>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {meta.query_processing.synonym_expansions.map((word: string) => (
+                          <span
+                            key={word}
+                            className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
+                          >
+                            {word}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

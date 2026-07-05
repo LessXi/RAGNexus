@@ -119,6 +119,11 @@ export interface RetrieveRequest {
     enabled: boolean;
     top_n?: number;
   };
+  /** 查询改写配置 */
+  query_options?: {
+    enabled: boolean;
+    strategy: string;
+  };
   /** 禁止显式传入 tenant_id */
   tenant_id?: never;
 }
@@ -148,6 +153,19 @@ export interface RetrieveMeta {
   rerank_model: string | null;
   degraded: boolean;
   degraded_reason: string | null;
+  /** 查询处理详情 */
+  query_processing?: {
+    raw_query: string;
+    effective_query: string;
+    search_query: string;
+    needs_rewrite: boolean;
+    strategy: string;
+    rewrite_latency_ms: number;
+    degraded: boolean;
+    degraded_reason: string | null;
+    synonym_applied: boolean;
+    synonym_expansions: string[];
+  } | null;
 }
 
 /** 检索响应 */

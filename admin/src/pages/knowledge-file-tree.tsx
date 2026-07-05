@@ -153,7 +153,7 @@ export default function KnowledgeFileTreePage() {
   const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
   const [tenantInfo, setTenantInfo] = useState<{ tenant_id: string; tenant_name: string } | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const navigate = useNavigate();
 
   const loadTree = useCallback(async (kw?: string) => {
