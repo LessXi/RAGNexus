@@ -54,6 +54,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         set_log_context(req_id=req_id, client_ip=client_ip or "")
 
         # 4. 记录 API_REQUEST
+        body_present = body_str is not None
+        body_length = len(body_str) if body_str else 0
         logger.info(
             "",
             extra={
@@ -61,6 +63,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 "method": request.method,
                 "path": request.url.path,
                 "body": body_str or "",
+                "body_present": body_present,
+                "body_length": body_length,
             },
         )
 
