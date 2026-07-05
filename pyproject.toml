@@ -43,7 +43,7 @@ asyncio_mode = "auto"
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
-exclude = ["**/__pycache__", ".venv", ".worktrees", ".pytest_cache", ".ruff_cache", ".agents"]
+exclude = ["**/__pycache__", ".venv", ".worktrees", ".pytest_cache", ".ruff_cache", ".agents", ".tmp", "node_modules", "docs/superpowers", ".codegraph", ".comet"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"

@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAGNexus — UI 设计稿 v3 白色科技风</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --surface-hover: #f1f5f9;
+    --border: #e2e8f0;
+    --border-hover: #cbd5e1;
+    --text: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-light: #eff6ff;
+    --accent-glow: rgba(37,99,235,0.1);
+    --success: #059669;
+    --success-light: #ecfdf5;
+    --warning: #d97706;
+    --warning-light: #fffbeb;
+    --danger: #dc2626;
+    --danger-light: #fef2f2;
+    --info: #0ea5e9;
+    --info-light: #f0f9ff;
+
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+    --radius: 8px;
+    --radius-sm: 6px;
+    --radius-xs: 4px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.04);
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{font-size:16px;-webkit-font-smoothing:antialiased}
+  body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.6}
+
+  /* ═══ AppHeader ═══ */
+  .app-header{
+    height:52px;
+    background:var(--surface);
+    border-bottom:1px solid var(--border);
+    display:flex;align-items:center;
+    padding:0 28px;
+    position:sticky;top:0;z-index:20;
+  }
+  .app-header-brand{
+    display:flex;align-items:center;gap:10px;
+    font-size:15px;font-weight:700;color:var(--text);
+    letter-spacing:-0.3px;
+  }
+  .app-header-dot{
+    width:9px;height:9px;border-radius:3px;
+    background:var(--accent);
+  }
+
+  /* ═══ Sticky Tabs ═══ */
+  .tabs-bar{
+    position:sticky;top:52px;z-index:10;
+    background:var(--bg);
+    border-bottom:1px solid var(--border);
+    padding:0 28px;
+  }
+  .tabs{display:flex;gap:0}
+  .tab{
+    padding:12px 20px;
+    font-size:13px;font-weight:600;
+    font-family:var(--font);
+    border:none;border-bottom:2px solid transparent;
+    background:transparent;
+    color:var(--text-muted);
+    cursor:pointer;transition:all .15s;
+  }
+  .tab:hover{color:var(--text-secondary)}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+  /* ═══ Page ═══ */
+  .page{max-width:1060px;margin:0 auto;padding:32px 28px 96px}
+
+  /* ═══ Cards ═══ */
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    margin-bottom:20px;
+    overflow:hidden;
+  }
+  .card-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:16px 24px;
+    border-bottom:1px solid var(--border);
+    background:var(--bg);
+  }
+  .card-title{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .card-badge{font-size:11px;color:var(--text-muted);font-weight:500}
+  .card-body{padding:24px}
+  .card-body-tight{padding:16px 24px}
+
+  /* ═══ Section ═══ */
+  .section-hr{border:none;border-top:1px solid var(--border);margin:20px 0 16px}
+  .section-label{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
+
+  /* ═══ Forms ═══ */
+  .form-row{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .form-row-top{align-items:flex-start}
+  .form-label{width:108px;text-align:right;font-size:13px;font-weight:600;color:var(--text-secondary);flex-shrink:0}
+  .form-hint{font-size:12px;color:var(--text-muted);margin-top:4px}
+  input,select,textarea{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    padding:8px 12px;
+    color:var(--text);
+    font-size:13px;
+    font-family:var(--font);
+    outline:none;
+    transition:border-color .15s,box-shadow .15s;
+  }
+  input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+  input[type="text"]{width:280px}
+  input[type="number"]{width:80px;text-align:center;font-family:var(--font-mono)}
+  select{width:360px}
+  textarea{width:100%;resize:vertical;min-height:64px;line-height:1.5}
+  .input-mono{font-family:var(--font-mono);font-size:12px}
+  .input-sm{width:200px}
+
+  /* ═══ Buttons ═══ */
+  .btn{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:8px 18px;border-radius:var(--radius-sm);
+    font-size:13px;font-weight:600;
+    font-family:var(--font);
+    border:1px solid transparent;
+    cursor:pointer;transition:all .15s;
+    white-space:nowrap;
+  }
+  .btn:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-glow)}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-hover)}
+  .btn-secondary{background:var(--surface);color:var(--text-secondary);border:1px solid var(--border)}
+  .btn-secondary:hover{color:var(--text);border-color:var(--border-hover);background:var(--surface-hover)}
+  .btn-ghost{background:transparent;color:var(--text-muted)}
+  .btn-ghost:hover{color:var(--text-secondary);background:var(--surface-hover)}
+  .btn-xs{padding:3px 10px;font-size:11px;border-radius:var(--radius-xs)}
+  .btn-sm{padding:5px 12px;font-size:12px}
+
+  /* ═══ Tags ═══ */
+  .tag{
+    display:inline-flex;align-items:center;gap:4px;
+    padding:2px 8px;border-radius:99px;
+    font-size:11px;font-weight:600;
+    font-family:var(--font-mono);
+  }
+  .tag-success{background:var(--success-light);color:var(--success)}
+  .tag-info{background:var(--info-light);color:var(--info)}
+  .tag-mono{background:var(--surface-hover);color:var(--text-secondary)}
+  .tag-warn{background:var(--warning-light);color:var(--warning)}
+
+  /* ═══ Tree ═══ */
+  .search-box{position:relative;margin-bottom:20px}
+  .search-box svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:18px;height:18px;color:var(--text-muted)}
+  .search-box input{width:100%;padding:10px 14px 10px 42px;font-size:13px}
+
+  .tree{font-size:13px}
+  .tree-row{
+    display:flex;align-items:center;
+    padding:8px 12px;border-radius:var(--radius-sm);
+    cursor:default;gap:10px;
+    transition:background .1s;
+  }
+  .tree-row:hover{background:var(--surface-hover)}
+  .tree-row.clickable{cursor:pointer}
+  .tree-arrow{width:20px;text-align:center;color:var(--text-muted);font-size:10px;flex-shrink:0;transition:transform .15s}
+  .tree-arrow.open{transform:rotate(90deg)}
+  .tree-icon{color:var(--text-muted);flex-shrink:0;display:flex;align-items:center}
+  .tree-icon.folder{color:var(--info)}
+  .tree-name{font-weight:500}
+  .tree-name-muted{color:var(--text-secondary)}
+  .tree-mono{font-family:var(--font-mono);font-size:11px;color:var(--text-muted)}
+  .tree-meta{font-size:11px;color:var(--text-muted)}
+  .tree-badge{
+    font-size:10px;font-weight:600;padding:1px 8px;border-radius:99px;
+    background:var(--surface-hover);color:var(--text-muted)
+  }
+  .tree-actions{margin-left:auto;display:flex;gap:6px;opacity:0;transition:opacity .12s}
+  .tree-row:hover .tree-actions{opacity:1}
+  .tree-level-0{font-weight:700}
+  .tree-level-1{padding-left:38px}
+  .tree-level-2{padding-left:66px;font-family:var(--font-mono);font-size:11px;color:var(--text-secondary)}
+  .tree-level-2 .tree-name{font-family:var(--font)}
+  .tree-indent{margin-left:20px}
+
+  /* ═══ Enclosed box ═══ */
+  .enclosed{
+    background:var(--bg);border:1px solid var(--border);
+    border-radius:var(--radius);padding:18px;margin-bottom:16px;
+  }
+  .enclosed-title{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
+
+  /* ═══ Toggle Switch ═══ */
+  .toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary);user-select:none}
+  .toggle input{display:none}
+  .toggle-track{width:34px;height:20px;border-radius:10px;background:var(--border);transition:background .15s;position:relative}
+  .toggle-thumb{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.15);transition:all .15s}
+  .toggle input:checked+.toggle-track{background:var(--accent)}
+  .toggle input:checked+.toggle-track .toggle-thumb{left:16px}
+
+  /* ═══ Mode tabs ═══ */
+  .mode-tabs{display:inline-flex;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px}
+  .mode-tab{
+    padding:5px 14px;border-radius:var(--radius-xs);
+    font-size:12px;font-weight:600;font-family:var(--font-mono);
+    border:none;background:transparent;color:var(--text-muted);
+    cursor:pointer;transition:all .15s;
+  }
+  .mode-tab.active{background:var(--accent);color:#fff}
+  .mode-tab:hover:not(.active){color:var(--text-secondary)}
+
+  /* ═══ Inline params ═══ */
+  .inline-row{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+  .param-label{font-size:12px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap}
+
+  /* ═══ Results ═══ */
+  .result{
+    background:var(--bg);border:1px solid var(--border);
+    border-radius:var(--radius);margin-bottom:8px;overflow:hidden;
+    transition:border-color .15s;
+  }
+  .result:hover{border-color:var(--border-hover)}
+  .result-header{
+    padding:12px 18px;display:flex;align-items:center;gap:14px;
+    cursor:pointer;
+  }
+  .result-rank{
+    width:26px;height:26px;border-radius:50%;
+    background:var(--accent-light);color:var(--accent);
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:700;flex-shrink:0;
+  }
+  .result-scores{display:flex;gap:10px;font-size:12px;flex-wrap:wrap}
+  .score{
+    padding:2px 8px;border-radius:var(--radius-xs);
+    font-size:11px;font-family:var(--font-mono);font-weight:600;
+  }
+  .score-primary{background:var(--accent-light);color:var(--accent)}
+  .score-info{background:var(--info-light);color:var(--info)}
+  .score-muted{background:var(--surface-hover);color:var(--text-muted)}
+  .result-meta{font-size:11px;color:var(--text-muted);margin-left:auto;font-family:var(--font-mono)}
+  .result-body{padding:0 18px 10px 58px}
+  .result-file{font-size:12px;color:var(--text-muted);margin-bottom:8px;display:flex;gap:12px;flex-wrap:wrap}
+  .result-content{
+    background:var(--surface);border:1px solid var(--border);
+    border-radius:var(--radius-sm);padding:14px 16px;
+    font-size:12px;color:var(--text-secondary);
+    max-height:150px;overflow-y:auto;
+    white-space:pre-wrap;font-family:var(--font-mono);line-height:1.7;
+  }
+
+  /* ═══ Summary ═══ */
+  .summary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+  .summary-card{
+    background:var(--bg);border:1px solid var(--border);
+    border-radius:var(--radius);padding:14px 16px;
+  }
+  .summary-card-label{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+  .summary-card-value{font-size:20px;font-weight:700;color:var(--text)}
+  .summary-card-value-sm{font-size:14px;font-weight:600;color:var(--text)}
+  .summary-card-unit{font-size:12px;font-weight:400;color:var(--text-muted)}
+  .summary-note{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:var(--warning);padding:8px 12px;background:var(--warning-light);border-radius:var(--radius-sm);font-family:var(--font-mono)}
+
+  /* ═══ Table ═══ */
+  .table{width:100%;font-size:13px;border-collapse:collapse}
+  .table th{text-align:left;padding:10px 14px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+  .table td{padding:10px 14px;border-bottom:1px solid var(--border)}
+  .table tr:hover td{background:var(--surface-hover)}
+
+  /* ═══ Toast ═══ */
+  .toast{
+    display:flex;align-items:center;gap:10px;
+    padding:12px 16px;border-radius:var(--radius);
+    font-size:13px;border:1px solid;
+  }
+  .toast-success{background:var(--success-light);border-color:var(--success);color:var(--success)}
+  .toast-success strong{color:var(--success)}
+
+  /* ═══ SVG icon ═══ */
+  .i{width:18px;height:18px;flex-shrink:0}
+  .i-sm{width:14px;height:14px}
+  .i-xs{width:12px;height:12px}
+</style>
+</head>
+<body>
+
+<!-- ═════════════════════════════════════════════════════ -->
+<!-- AppHeader                                             -->
+<!-- ═════════════════════════════════════════════════════ -->
+<header class="app-header">
+  <div class="app-header-brand">
+    <div class="app-header-dot"></div>
+    RAGNexus
+    <span style="font-size:12px;font-weight:400;color:var(--text-muted);margin-left:2px;">调试控制台</span>
+  </div>
+</header>
+
+<!-- ═════════════════════════════════════════════════════ -->
+<!-- Page Tabs Bar                                        -->
+<!-- ═════════════════════════════════════════════════════ -->
+<div class="tabs-bar">
+  <div class="tabs">
+    <button class="tab active" onclick="showPage('upload')">首页</button>
+    <button class="tab" onclick="showPage('list')">知识库列表</button>
+    <button class="tab" onclick="showPage('retrieve')">检索调试</button>
+  </div>
+</div>
+
+<div class="page">
+
+<!-- ═════════════════════════════════════════════════════ -->
+<!-- PAGE 1 — 创建KB + 上传文档                           -->
+<!-- ═════════════════════════════════════════════════════ -->
+<div id="page-upload">
+
+  <!-- Create KB -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        创建知识库
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="form-row">
+        <span class="form-label">租户标识</span>
+        <input type="text" class="input-mono" placeholder="例如 tech_position" value="tech_position">
+      </div>
+      <div class="form-row">
+        <span class="form-label">名称</span>
+        <input type="text" placeholder="例如 技术岗位知识库" value="技术岗位知识库">
+      </div>
+      <div class="form-row">
+        <span class="form-label"></span>
+        <button class="btn btn-primary">
+          <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+          创建
+        </button>
+      </div>
+      <div class="toast toast-success" style="margin-top:8px;margin-left:120px;">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+        创建成功 &mdash; <strong>技术岗位知识库</strong> &nbsp;
+        <code style="font-family:var(--font-mono);font-size:11px">kb_939a5baf</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload Document -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        文档上传
+      </div>
+    </div>
+    <div class="card-body">
+      <!-- KB selector -->
+      <div style="display:flex;gap:16px;margin-bottom:16px;">
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">目标知识库</div>
+          <select>
+            <option>tech_position / 技术岗位知识库 (kb_939a5baf)</option>
+            <option>tech_position / 面试题库 (kb_1a2b3c4d)</option>
+          </select>
+        </div>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">或输入 kb_id</div>
+          <input type="text" class="input-mono input-sm" placeholder="kb_...">
+        </div>
+      </div>
+
+      <!-- Upload area -->
+      <div style="border:2px dashed var(--border);border-radius:var(--radius);padding:32px;text-align:center;cursor:pointer;transition:border-color .15s;background:var(--bg);margin-bottom:16px"
+           onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border)'">
+        <div style="font-size:28px;margin-bottom:8px;opacity:.5">&#x1F4C4;</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">拖拽文件到此处，或 <span style="color:var(--accent);font-weight:600">浏览文件</span></div>
+        <div style="font-size:11px;color:var(--text-muted)">支持 .md / .txt，单文件 ≤ 10MB</div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:13px;color:var(--text-secondary)">已选 <strong style="color:var(--text)">2</strong> 个文件</span>
+        <button class="btn btn-primary">
+          <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          开始上传
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload Results -->
+  <div class="card" style="border-color:var(--success);box-shadow:var(--shadow-md),0 0 0 1px var(--success-light)">
+    <div class="card-header" style="background:var(--success-light);border-bottom-color:var(--success)">
+      <div class="card-title" style="color:var(--success)">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        上传完成
+      </div>
+      <span class="tag tag-success">2 成功 / 0 失败</span>
+    </div>
+    <div class="card-body" style="padding:0">
+      <table class="table">
+        <thead>
+          <tr><th>文件</th><th>大小</th><th>状态</th><th>详情</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>backend_engineer.md</td>
+            <td style="color:var(--text-muted)">4.2 KB</td>
+            <td><span class="tag tag-success">OK</span></td>
+            <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">doc_3f2a1b7c · 12 chunks</td>
+          </tr>
+          <tr>
+            <td>frontend_engineer.md</td>
+            <td style="color:var(--text-muted)">3.1 KB</td>
+            <td><span class="tag tag-success">OK</span></td>
+            <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">doc_7c8d2e9f · 8 chunks</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="padding:16px 24px;display:flex;gap:10px">
+        <button class="btn btn-primary">
+          <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          继续上传
+        </button>
+        <button class="btn btn-secondary">清空重来</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═════════════════════════════════════════════════════ -->
+<!-- PAGE 2 — 知识库列表                                    -->
+<!-- ═════════════════════════════════════════════════════ -->
+<div id="page-list" style="display:none">
+
+  <!-- Search -->
+  <div class="search-box">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+    <input type="search" placeholder="搜索租户...">
+  </div>
+
+  <!-- Tree -->
+  <div class="card" style="overflow:visible">
+    <div class="tree">
+
+      <!-- Tenant: tech_position -->
+      <div class="tree-row tree-level-0 clickable">
+        <span class="tree-arrow open">&#9654;</span>
+        <svg class="i i-sm tree-icon folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <span class="tree-name">tech_position</span>
+        <span class="tree-badge">2 知识库</span>
+      </div>
+
+      <!-- KB 1 -->
+      <div class="tree-row tree-level-1 clickable">
+        <span class="tree-arrow open">&#9654;</span>
+        <svg class="i i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span class="tree-name">技术岗位知识库</span>
+        <span class="tree-mono">kb_939a5baf</span>
+        <span class="tree-badge">2 文档</span>
+        <span class="tree-actions">
+          <button class="btn btn-xs btn-ghost">复制 ID</button>
+          <button class="btn btn-xs btn-secondary">去上传</button>
+          <button class="btn btn-xs btn-primary">检索</button>
+        </span>
+      </div>
+
+      <!-- docs -->
+      <div class="tree-row tree-level-2">
+        <svg class="i i-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span class="tree-name">backend_engineer.md</span>
+        <span class="tree-meta">doc_3f2a1b7c</span>
+        <span class="tree-meta">12 chunks</span>
+        <span class="tree-meta">2024-06-15</span>
+      </div>
+      <div class="tree-row tree-level-2">
+        <svg class="i i-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span class="tree-name">frontend_engineer.md</span>
+        <span class="tree-meta">doc_7c8d2e9f</span>
+        <span class="tree-meta">8 chunks</span>
+        <span class="tree-meta">2024-06-14</span>
+      </div>
+
+      <!-- KB 2 -->
+      <div class="tree-row tree-level-1 clickable">
+        <span class="tree-arrow">&#9654;</span>
+        <svg class="i i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span class="tree-name">面试题库</span>
+        <span class="tree-mono">kb_1a2b3c4d</span>
+        <span class="tree-actions">
+          <button class="btn btn-xs btn-ghost">复制 ID</button>
+          <button class="btn btn-xs btn-secondary">去上传</button>
+          <button class="btn btn-xs btn-primary">检索</button>
+        </span>
+      </div>
+
+      <!-- Tenant: tenant_demo -->
+      <div class="tree-row tree-level-0 clickable" style="margin-top:2px">
+        <span class="tree-arrow">&#9654;</span>
+        <svg class="i i-sm tree-icon folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <span class="tree-name">tenant_demo</span>
+        <span class="tree-badge">1 知识库</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═════════════════════════════════════════════════════ -->
+<!-- PAGE 3 — 检索调试                                      -->
+<!-- ═════════════════════════════════════════════════════ -->
+<div id="page-retrieve" style="display:none">
+
+  <!-- Card 1: Configuration -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        检索配置
+      </div>
+      <span class="card-badge">可折叠</span>
+    </div>
+    <div class="card-body">
+
+      <!-- Scope -->
+      <div class="enclosed">
+        <div class="enclosed-title">检索范围</div>
+        <div class="form-row">
+          <span class="form-label">租户</span>
+          <input type="text" class="input-mono" style="width:240px" value="tech_position">
+        </div>
+        <div class="form-row">
+          <span class="form-label">知识库</span>
+          <select style="width:370px">
+            <option>技术岗位知识库 (kb_939a5baf)</option>
+            <option>面试题库 (kb_1a2b3c4d)</option>
+          </select>
+        </div>
+      </div>
+
+      <hr class="section-hr">
+      <div class="section-label">检索参数</div>
+
+      <!-- Top K -->
+      <div class="form-row">
+        <span class="form-label">Top K</span>
+        <input type="number" value="5" style="width:80px">
+      </div>
+
+      <!-- Mode -->
+      <div class="form-row">
+        <span class="form-label">检索模式</span>
+        <div class="mode-tabs">
+          <button class="mode-tab">vector</button>
+          <button class="mode-tab">bm25</button>
+          <button class="mode-tab active">hybrid</button>
+        </div>
+      </div>
+
+      <!-- Hybrid params -->
+      <div class="form-row">
+        <span class="form-label"></span>
+        <div class="inline-row">
+          <span class="param-label">vector_top_k</span>
+          <input type="number" value="20">
+          <span class="param-label">bm25_top_k</span>
+          <input type="number" value="20">
+          <span class="param-label">rrf_k</span>
+          <input type="number" value="60">
+        </div>
+      </div>
+
+      <!-- Rerank -->
+      <div class="form-row">
+        <span class="form-label">Rerank</span>
+        <div style="display:flex;align-items:center;gap:20px">
+          <label class="toggle">
+            <input type="checkbox" checked>
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            启用
+          </label>
+          <span class="param-label">rerank top_n</span>
+          <input type="number" value="5" style="width:80px">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 2: Search & Results -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        检索与召回
+      </div>
+      <span class="card-badge">5 结果</span>
+    </div>
+    <div class="card-body">
+
+      <div class="form-row form-row-top">
+        <span class="form-label">Query</span>
+        <textarea rows="2" placeholder="输入检索查询...">Go 后端开发需要什么技能？</textarea>
+      </div>
+      <div class="form-row">
+        <span class="form-label"></span>
+        <button class="btn btn-primary">
+          <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          检索
+        </button>
+        <span style="font-size:12px;color:var(--text-muted)">耗时 320ms</span>
+      </div>
+
+      <hr class="section-hr" style="margin-top:4px">
+
+      <!-- Result #1 -->
+      <div class="result">
+        <div class="result-header">
+          <div class="result-rank">1</div>
+          <div class="result-scores">
+            <span class="score score-primary">score 0.821</span>
+            <span class="score score-info">vec 0.793</span>
+            <span class="score score-muted">bm25 &mdash;</span>
+            <span class="score score-primary">rerank 0.910</span>
+          </div>
+          <span class="result-meta">chunk:0</span>
+        </div>
+        <div class="result-body">
+          <div class="result-file">
+            <span>backend_engineer.md</span> &bull;
+            <span style="font-family:var(--font-mono)">doc_3f2a1b7c</span> &bull;
+            <span>12 chunks total</span>
+          </div>
+          <div class="result-content"># Go 后端工程师技能要求
+
+## 语言基础
+- Go 语法、goroutine、channel、interface
+- 标准库（net/http, encoding/json, database/sql）
+
+## 框架与工具
+- Web 框架：Gin, Echo, Fiber
+- ORM：GORM, Ent
+- 测试：testing, testify, gomock</div>
+        </div>
+      </div>
+
+      <!-- Result #2 -->
+      <div class="result">
+        <div class="result-header">
+          <div class="result-rank">2</div>
+          <div class="result-scores">
+            <span class="score score-primary">score 0.761</span>
+            <span class="score score-info">vec 0.712</span>
+            <span class="score score-muted">bm25 &mdash;</span>
+            <span class="score score-primary">rerank 0.851</span>
+          </div>
+          <span class="result-meta">chunk:3</span>
+        </div>
+        <div class="result-body">
+          <div class="result-file">
+            <span>frontend_engineer.md</span> &bull;
+            <span style="font-family:var(--font-mono)">doc_7c8d2e9f</span> &bull;
+            <span>8 chunks total</span>
+          </div>
+          <div class="result-content">## 后端技能交叉
+
+虽然前端工程师关注 UI，后端知识显著提升协作效率：
+- RESTful API 设计与 JWT 认证
+- 数据库关系模型，基础 SQL 联表查询
+- 服务端缓存策略理解</div>
+        </div>
+      </div>
+
+      <!-- Result #3 -->
+      <div class="result">
+        <div class="result-header">
+          <div class="result-rank">3</div>
+          <div class="result-scores">
+            <span class="score score-primary">score 0.683</span>
+            <span class="score score-info">vec 0.683</span>
+            <span class="score score-muted">bm25 &mdash;</span>
+            <span class="score score-muted">rerank &mdash;</span>
+          </div>
+          <span class="result-meta">chunk:5</span>
+        </div>
+        <div class="result-body">
+          <div class="result-file">
+            <span>backend_engineer.md</span> &bull;
+            <span style="font-family:var(--font-mono)">doc_3f2a1b7c</span>
+          </div>
+          <div class="result-content">## 团队协作
+- Git 版本控制，Git Flow 分支策略
+- Code Review 关注性能与安全性
+- 单元测试与集成测试，覆盖率 &gt;80%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 3: Run Summary -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        运行摘要
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="summary-grid">
+        <div class="summary-card">
+          <div class="summary-card-label">检索模式</div>
+          <div class="summary-card-value-sm" style="font-family:var(--font-mono);color:var(--accent)">hybrid</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-card-label">服务端耗时</div>
+          <div class="summary-card-value">320<span class="summary-card-unit">ms</span></div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-card-label">向量命中</div>
+          <div class="summary-card-value">12</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-card-label">BM25 命中</div>
+          <div class="summary-card-value">8</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-card-label">RRF 融合</div>
+          <div class="summary-card-value">15</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-card-label">Rerank 引擎</div>
+          <div class="summary-card-value-sm" style="font-family:var(--font-mono)">deepseek-chat</div>
+        </div>
+      </div>
+      <div class="summary-note">
+        <svg class="i i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/></svg>
+        ES 不可用，已降级为纯向量检索
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</div><!-- /page -->
+
+<script>
+function showPage(name){
+  document.getElementById('page-upload').style.display=name==='upload'?'':'none';
+  document.getElementById('page-list').style.display=name==='list'?'':'none';
+  document.getElementById('page-retrieve').style.display=name==='retrieve'?'':'none';
+  document.querySelectorAll('.tab').forEach((t,i)=>{
+    const pages=['upload','list','retrieve'];
+    t.classList.toggle('active',pages[i]===name);
+  });
+}
+</script>
+</body>
+</html>
