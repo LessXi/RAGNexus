@@ -31,7 +31,7 @@
 ## Phase 4: 前端反馈条
 
 - [x] 4.1 types/api.ts 新增 FeedbackRequest, FeedbackData 类型
-- [ ] 4.2 ragService.ts 新增 submitFeedback() 方法
+- [x] 4.2 ragService.ts 新增 submitFeedback() 方法
 - [ ] 4.3 RetrievePage 新增五星反馈条组件（Card 内 chunk 列表上方，shadcn Card/Button/Textarea）
 - [ ] 4.4 交互逻辑：显示条件(trace_id非空)/星级点击(黄灰)/备注/提交(loading+成功+错误)/清空(再次检索)
 
