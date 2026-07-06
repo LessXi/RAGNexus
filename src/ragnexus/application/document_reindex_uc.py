@@ -27,5 +27,5 @@ class DocumentReindexUseCase:
         await self._doc_repo.update_status(
             doc_id, status=DocStatus.PROCESSING, error_message=None
         )
-        index_document_task.delay(doc_id)
+        index_document_task.apply_async(args=[doc_id], ignore_result=True)
         return {"doc_id": doc_id, "status": "processing"}

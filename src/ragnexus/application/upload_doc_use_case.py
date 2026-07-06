@@ -154,7 +154,7 @@ class UploadDocumentUseCase:
         # 8. 提交异步索引任务
         from ragnexus.tasks.indexing import index_document_task
 
-        index_document_task.delay(doc_id)
+        index_document_task.apply_async(args=[doc_id], ignore_result=True)
 
         # BIZ_EVENT: 文档上传成功（异步处理中）
         logger.info(
