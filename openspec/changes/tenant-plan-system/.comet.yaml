@@ -21,5 +21,5 @@ verified_at: null
 archived: false
 handoff_context: openspec/changes/tenant-plan-system/.comet/handoff/design-context.json
 handoff_hash: f628057788f83ec2405f38f05b9e5565f70fdfb4752a1b4168b838e2799e70f7
-build_command: uv run pytest tests/ -x -q
+build_command: uv run pytest tests/unit/ -x -q
 verify_command: docker compose build app
