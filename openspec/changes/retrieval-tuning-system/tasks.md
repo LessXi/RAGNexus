@@ -41,7 +41,7 @@
 - [x] 5.2 新建 eval/datasets/ 和 eval/reports/ 目录，.gitignore 新增 eval/reports/
 - [x] 5.3 新建 data/ecommerce/ 目录 + 种子文档
 - [x] 5.4 新建 eval/datasets/_seed_ecommerce.json（5~10 条手工种子）
-- [ ] 5.5 用 create_api_key.py 创建 eval 专用 API Key（租户名 eval_runner）
+- [x] 5.5 用 create_api_key.py 创建 eval 专用 API Key（租户名 eval_runner）
 - [ ] 5.6 新建 scripts/export_eval_cases_from_langfuse.py（5 个 argparse 参数，--merge 去重，httpx trust_env=False）
 - [ ] 5.7 新建 scripts/run_retrieval_eval.py（读 golden set → 调 retrieve → RAGAS 计算 → 输出报告，context_recall 偏低单独列出）
 
