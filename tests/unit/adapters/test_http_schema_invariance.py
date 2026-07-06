@@ -24,7 +24,7 @@ class TestRequestSchemaInvariance:
     """请求体 Pydantic model 只有 query/kb_ids/top_k 三个字段。"""
 
     def test_request_only_allowed_fields(self):
-        """_RetrieveRequest 的 model_fields 含 query, kb_ids, top_k, mode, vector_top_k, bm25_top_k, rrf_k, rerank。"""
+        """_RetrieveRequest 的 model_fields 含 query, kb_ids, top_k, mode, vector_top_k, bm25_top_k, rrf_k, rerank, query_options, profile。"""
         fields = set(_RetrieveRequest.model_fields.keys())
         assert fields == {
             "query",
@@ -36,6 +36,7 @@ class TestRequestSchemaInvariance:
             "rrf_k",
             "rerank",
             "query_options",
+            "profile",
         }, f"请求 model_fields 必须含全部新字段，实际: {fields}"
 
     def test_request_forbids_extra_fields(self):
@@ -155,7 +156,7 @@ class TestRouterResponseFormat:
         assert hasattr(rmod, "create_router")
 
     def test_request_model_dump_keys(self):
-        """_RetrieveRequest.model_dump() 含全部 8 个字段。"""
+        """_RetrieveRequest.model_dump() 含全部字段（含 profile）。"""
         req = _RetrieveRequest(query="test", kb_ids=["kb1"], top_k=5)
         d = req.model_dump()
         assert set(d.keys()) == {
@@ -168,6 +169,7 @@ class TestRouterResponseFormat:
             "rrf_k",
             "rerank",
             "query_options",
+            "profile",
         }
 
     def test_hit_serialization_in_router(self):

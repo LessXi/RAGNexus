@@ -45,6 +45,7 @@ def app(mock_kb_uc, mock_upload_uc, mock_retrieve_uc):
             tenant_name="默认租户",
             key_id="test",
             key_prefix="test",
+            plan="standard",
         )
 
     app = FastAPI()
@@ -207,6 +208,22 @@ class TestRetrieve:
             },
         )
         assert resp.status_code == 422
+
+    def test_profile_rejected_by_plan(self, client, mock_retrieve_uc):
+        """profile="quality" 在 free 套餐下应被拒（20013 FEATURE_NOT_ALLOWED）。"""
+        resp = client.post(
+            "/v1/rag:retrieve",
+            json={
+                "query": "test query",
+                "kb_ids": ["kb_test123"],
+                "top_k": 5,
+                "profile": "quality",
+            },
+        )
+        assert resp.status_code == 403
+        data = resp.json()
+        assert data["code"] == 20013
+        mock_retrieve_uc.execute.assert_not_called()
 
 
 # ── Error Handler ─────────────────────────────────────────────────────────

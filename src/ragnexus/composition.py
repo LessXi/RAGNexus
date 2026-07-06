@@ -12,6 +12,7 @@ from datetime import UTC
 from typing import Any, cast
 
 import asyncpg
+import redis.asyncio as aioredis
 from fastapi import FastAPI
 
 from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
@@ -59,6 +60,7 @@ from ragnexus.application.document_reindex_uc import DocumentReindexUseCase
 from ragnexus.application.kb_detail_uc import KnowledgeBaseDetailUseCase
 from ragnexus.application.kb_update_uc import KnowledgeBaseUpdateUseCase
 from ragnexus.application.kb_delete_uc import KnowledgeBaseDeleteUseCase
+from ragnexus.services.rate_limit_service import RateLimitService
 from ragnexus.config import get_settings
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import LoggedPool, logger, setup_logging
@@ -272,6 +274,7 @@ async def lifespan(app: FastAPI):
     embedder = None
     llm_provider = None
     keyword_store = None
+    redis_client = None
 
     try:
         # --- 1. Vector store (external pool wrapped with LoggedPool) ----------
@@ -528,13 +531,26 @@ async def lifespan(app: FastAPI):
         get_current_tenant = make_get_current_tenant(
             tenant_repo, api_key_repo, cfg.AUTH_ENABLED
         )
+
+        # --- Redis + Rate Limiter ---
+        try:
+            redis_client = aioredis.from_url(
+                cfg.CELERY_BROKER_URL, decode_responses=True
+            )
+            rate_limiter = RateLimitService(redis_client)
+        except Exception:
+            logger.warning("Redis 连接失败，速率限制已禁用", exc_info=True)
+            redis_client = None
+            rate_limiter = None
+
         # --- 6. Routers -------------------------------------------------------
         app.include_router(create_kb_create_router(create_kb_uc, get_current_tenant))
         app.include_router(
             create_upload_doc_router(upload_doc_uc_wrapped, get_current_tenant)
         )
-        app.include_router(create_retrieve_router(retrieve_uc, get_current_tenant))
-        app.include_router(create_health_router(lambda: store))
+        app.include_router(
+            create_retrieve_router(retrieve_uc, get_current_tenant, rate_limiter)
+        )
         app.include_router(create_kb_tree_router(kb_tree_uc, get_current_tenant))
         app.include_router(
             create_document_router(
@@ -562,6 +578,13 @@ async def lifespan(app: FastAPI):
         if cleanup_tasks:
             for t in cleanup_tasks:
                 t.cancel()
+
+        # 关闭 Redis 连接
+        if redis_client:
+            try:
+                await redis_client.aclose()
+            except Exception:
+                logger.debug("Redis 连接关闭失败", exc_info=True)
 
         # 关闭 keyword store (ES)
         if keyword_store is not None:
