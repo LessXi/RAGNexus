@@ -28,6 +28,7 @@ class TenantContext:
     tenant_name: str
     key_id: str
     key_prefix: str
+    plan: str = "free"  # 租户套餐: free | standard | pro
 
 
 def hash_key(raw_key: str) -> str:
@@ -50,12 +51,12 @@ def extract_token(header: str | None) -> str | None:
     return parts[1]
 
 
-# 降级占位租户
 _FALLBACK_TENANT = TenantContext(
     tenant_id="default",
     tenant_name="默认租户",
     key_id="fallback",
     key_prefix="none",
+    plan="pro",  # AUTH_ENABLED=false 时享有全部功能
 )
 
 
@@ -136,6 +137,7 @@ def make_get_current_tenant(
             tenant_name=key_record["tenant_name"],
             key_id=key_record["key_id"],
             key_prefix=key_record["key_prefix"],
+            plan=key_record.get("tenant_plan", "free"),
         )
 
     return get_current_tenant

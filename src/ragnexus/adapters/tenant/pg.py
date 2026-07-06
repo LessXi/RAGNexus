@@ -46,7 +46,7 @@ class PgTenantRepository:
     async def get(self, id: str) -> Tenant | None:
         """按 ID 查询租户，不存在返回 None。"""
         row = await self.pool.fetchrow(
-            "SELECT id, name, status, created_at FROM tenants WHERE id = $1", id
+            "SELECT id, name, status, plan, created_at FROM tenants WHERE id = $1", id
         )
         if row is None:
             return None
@@ -54,6 +54,7 @@ class PgTenantRepository:
             id=row["id"],
             name=row["name"],
             status=row["status"],
+            plan=row.get("plan", "free"),
             created_at=row["created_at"],
         )
 
@@ -133,7 +134,8 @@ class PgApiKeyRepository:
             SELECT ak.id::text AS key_id, ak.tenant_id, ak.key_hash, ak.key_prefix,
                    ak.name AS key_name, ak.status AS key_status,
                    ak.expires_at, ak.created_at,
-                   t.name AS tenant_name, t.status AS tenant_status
+                   t.name AS tenant_name, t.status AS tenant_status,
+                   t.plan AS tenant_plan
             FROM api_keys ak
             JOIN tenants t ON t.id = ak.tenant_id
             WHERE ak.key_hash = $1
