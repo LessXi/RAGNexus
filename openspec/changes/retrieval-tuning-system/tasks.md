@@ -16,7 +16,7 @@
 - [x] 2.2 retrieve_router.py 用 nanoid 预生成 log_id，响应 metadata 新增 log_id + trace_id
 - [x] 2.3 RetrieveResult/RetrieveMetadata schema 新增 log_id + trace_id 字段
 - [x] 2.4 retrieval_logs 表扩展 5 列（log_id VARCHAR(24) UNIQUE + trace_id + profile + search_query + effective_query），Alembic migration 0006 + schema.sql
-- [ ] 2.5 PgRetrieveLogRepository 适配新字段写入（log PORT 扩展接口）
+- [x] 2.5 PgRetrieveLogRepository 适配新字段写入（log PORT 扩展接口）
 - [ ] 2.6 frontend types/api.ts 同步 log_id + trace_id
 
 ## Phase 3: 反馈 API
