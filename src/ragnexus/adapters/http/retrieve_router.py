@@ -3,6 +3,7 @@
 含 plan 策略层：profile 校验 → profile 展开 → QPS 限流 → 检索 → 日计数 +1。
 """
 
+from nanoid import generate as nanoid_generate
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
@@ -159,9 +160,11 @@ def create_router(
                 "search_query": req.query,
             },
         )
-
         try:
-            # ── Step 5: 调用检索管道 ──────────────────────────────────────
+            # ── Step 5: 预生成 log_id ──────────────────────────────────────
+            log_id = f"log_{nanoid_generate(size=12)}"
+
+            # ── Step 6: 调用检索管道 ──────────────────────────────────────
             result = await uc.execute(
                 query=req.query,
                 kb_ids=req.kb_ids,
@@ -174,6 +177,7 @@ def create_router(
                 rerank_enabled=effective_rerank_enabled,
                 rerank_top_n=effective_rerank_top_n,
                 query_options=effective_query_options_dict,
+                log_id=log_id,
             )
 
             # ── Langfuse Spans (fire-and-forget) ───────────────────────────
@@ -260,6 +264,8 @@ def create_router(
                     "hits": [_serialize_hit(h) for h in result.hits],
                     "meta": {
                         "query_processing": query_processing,
+                        "log_id": log_id,
+                        "trace_id": trace["id"] if trace else None,
                         "total": result.total,
                         "latency_ms": result.latency_ms,
                         "mode": result.mode,

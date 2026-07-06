@@ -93,6 +93,7 @@ class RetrieveLogPort(Protocol):
         top_k: int,
         hit_count: int,
         latency_ms: int,
+        log_id: str = "",
     ) -> None: ...
 
 

@@ -63,6 +63,7 @@ class RetrieveUseCase:
         rerank_enabled: bool | None = None,
         rerank_top_n: int = 5,
         query_options: dict | None = None,
+        log_id: str = "",
     ) -> RetrieveResult:
         """执行检索：校验 → 改写 → 双路召回 → RRF 融合 → 重排 → 返回 RetrieveResult。
 
@@ -284,6 +285,7 @@ class RetrieveUseCase:
                     rrf_pool_size=rrf_pool_size,
                     vector_latency_ms=vector_latency_ms,
                     keyword_latency_ms=keyword_latency_ms,
+                    log_id=log_id,
                 )
             )
             task.add_done_callback(self._background_tasks.discard)
@@ -302,6 +304,7 @@ class RetrieveUseCase:
         rrf_pool_size: int = 0,
         vector_latency_ms: int = 0,
         keyword_latency_ms: int = 0,
+        log_id: str = "",
     ) -> None:
         """Fire-and-forget log call — 异常被捕获并在 debug 级别记录，不中断主流程。"""
         try:
@@ -311,6 +314,7 @@ class RetrieveUseCase:
                 top_k=top_k,
                 hit_count=hit_count,
                 latency_ms=latency_ms,
+                log_id=log_id,
             )
         except Exception:
             logger.debug("retrieve 日志写入失败", exc_info=True)
@@ -332,6 +336,7 @@ class RetrieveUseCase:
                     "rrf_pool_size": rrf_pool_size,
                     "vector_latency_ms": vector_latency_ms,
                     "keyword_latency_ms": keyword_latency_ms,
+                    "log_id": log_id,
                 },
             )
         except Exception:

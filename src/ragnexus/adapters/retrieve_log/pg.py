@@ -22,17 +22,19 @@ class PgRetrieveLogRepository:
         top_k: int,
         hit_count: int,
         latency_ms: int,
+        log_id: str = "",
     ) -> None:
         """插入一条检索日志（fire-and-forget）。"""
         async with self.pool.acquire() as conn:
             await conn.execute(
-                """INSERT INTO retrieve_logs (kb_ids, query, top_k, hit_count, latency_ms)
-                   VALUES ($1, $2, $3, $4, $5)""",
+                """INSERT INTO retrieve_logs (kb_ids, query, top_k, hit_count, latency_ms, log_id)
+                   VALUES ($1, $2, $3, $4, $5, $6)""",
                 kb_ids,
                 query,
                 top_k,
                 hit_count,
                 latency_ms,
+                log_id,
             )
 
     async def prune(self, before: datetime) -> int:
