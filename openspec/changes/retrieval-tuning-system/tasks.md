@@ -8,7 +8,7 @@
 - [x] 1.3 .env 和 .env.example 补充 LANGFUSE_* 变量
 - [x] 1.4 pyproject.toml 新增 langfuse>=2.0.0,<3.0.0 依赖
 - [x] 1.5 新增 src/ragnexus/observability/__init__.py + langfuse_client.py（RetrieveObservability + get_langfuse_client() + 静默逻辑）
-- [ ] 1.6 composition.py 注入 langfuse_client 单例
+- [x] 1.6 composition.py 注入 langfuse_client 单例
 
 ## Phase 2: 检索可观测
 
