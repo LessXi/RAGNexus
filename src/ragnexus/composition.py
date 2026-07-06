@@ -49,6 +49,10 @@ from ragnexus.adapters.document.pg import PgDocumentRepository
 from ragnexus.adapters.tenant.pg import PgApiKeyRepository, PgTenantRepository
 from ragnexus.adapters.http.document_router import create_document_router
 from ragnexus.adapters.http.kb_router import create_kb_router
+from ragnexus.adapters.http.feedback_router import (
+    create_router as create_feedback_router,
+)
+from ragnexus.services.feedback_service import FeedbackService
 
 from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
 from ragnexus.application.kb_tree_use_case import GetKnowledgeBaseTreeUseCase
@@ -580,6 +584,11 @@ async def lifespan(app: FastAPI):
         app.include_router(
             create_auth_router(get_current_tenant, tenant_repo, rate_limiter)
         )
+
+        feedback_service = FeedbackService(
+            pool=repo_pool, langfuse_client=app.state.langfuse_client
+        )
+        app.include_router(create_feedback_router(get_current_tenant, feedback_service))
 
         # Stash references for teardown
         app.state.store = store
