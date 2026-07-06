@@ -28,6 +28,7 @@ export async function uploadQueue(
         const docStatus = res.data.status;
         if (docStatus === 'processing') {
           results.push({
+            doc_id: res.data.doc_id,
             name: file.name,
             size: file.size,
             status: 'processing',

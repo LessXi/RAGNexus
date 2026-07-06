@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, type NavigateFunction } from 'react-router-dom';
-import { fetchTree, fetchAuthMe } from '@/services/api';
+import { fetchTree } from '@/services/api';
+import { fetchAuthMe } from '@/services/authService';
 import { fetchDocument, deleteDocument, reindexDocument } from '@/services/documentService';
 import { fetchKBDetail, updateKB, deleteKB } from '@/services/knowledgeBaseService';
-import type { KBItem, DocItem, DocumentDetail, KBDetail } from '@/types/api';
+import type { KBItem, DocItem, DocumentDetail, KBDetail, AuthMeData } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -223,7 +224,7 @@ function DocRow({ doc, onDocChanged }: { doc: DocItem; onDocChanged: () => void 
   const [deleting, setDeleting] = useState(false);
   const [reindexing, setReindexing] = useState(false);
   const pollCountRef = useRef(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<number | null>(null);
 
   // 轮询 PROCESSING 状态的文档
   useEffect(() => {
@@ -342,7 +343,7 @@ export default function KnowledgeFileTreePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
-  const [tenantInfo, setTenantInfo] = useState<{ tenant_id: string; tenant_name: string } | null>(null);
+  const [tenantInfo, setTenantInfo] = useState<AuthMeData | null>(null);
   const timerRef = useRef<number | undefined>(undefined);
   const navigate = useNavigate();
 
@@ -405,9 +406,20 @@ export default function KnowledgeFileTreePage() {
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold text-slate-900">知识库列表</h1>
           {tenantInfo && (
-            <Badge>
-              {tenantInfo.tenant_name} ({tenantInfo.tenant_id})
-            </Badge>
+            <>
+              <Badge>
+                {tenantInfo.tenant_name} ({tenantInfo.tenant_id})
+              </Badge>
+              {tenantInfo.plan && (
+                <Badge className={
+                  tenantInfo.plan === 'free' ? 'bg-slate-100 text-slate-600' :
+                    tenantInfo.plan === 'standard' ? 'bg-blue-50 text-blue-700' :
+                      'bg-purple-50 text-purple-700'
+                }>
+                  {tenantInfo.plan}
+                </Badge>
+              )}
+            </>
           )}
         </div>
         <p className="mt-1 text-sm text-slate-500">浏览和管理当前租户下的知识库与文档</p>

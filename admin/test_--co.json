@@ -1,0 +1,127 @@
+{
+  "mode": "--co",
+  "timestamp": "2026-07-06 13:21:15",
+  "kb_id": "kb_3FtAzN4Z",
+  "results": [
+    {
+      "query_label": "口语-智能助手",
+      "query_text": "怎么做智能助手",
+      "runs": [
+        {
+          "label": "口语-智能助手",
+          "query": "怎么做智能助手",
+          "elapsed_s": 1.519,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        },
+        {
+          "label": "口语-智能助手",
+          "query": "怎么做智能助手",
+          "elapsed_s": 1.5584,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        },
+        {
+          "label": "口语-智能助手",
+          "query": "怎么做智能助手",
+          "elapsed_s": 1.513,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        }
+      ]
+    },
+    {
+      "query_label": "口语-检索效果",
+      "query_text": "怎么提升检索效果",
+      "runs": [
+        {
+          "label": "口语-检索效果",
+          "query": "怎么提升检索效果",
+          "elapsed_s": 1.5574,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        },
+        {
+          "label": "口语-检索效果",
+          "query": "怎么提升检索效果",
+          "elapsed_s": 1.5499,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        },
+        {
+          "label": "口语-检索效果",
+          "query": "怎么提升检索效果",
+          "elapsed_s": 1.9512,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        }
+      ]
+    },
+    {
+      "query_label": "专业-RAG流程",
+      "query_text": "RAG检索增强生成流程",
+      "runs": [
+        {
+          "label": "专业-RAG流程",
+          "query": "RAG检索增强生成流程",
+          "elapsed_s": 1.8327,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        },
+        {
+          "label": "专业-RAG流程",
+          "query": "RAG检索增强生成流程",
+          "elapsed_s": 1.5219,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        },
+        {
+          "label": "专业-RAG流程",
+          "query": "RAG检索增强生成流程",
+          "elapsed_s": 1.5562,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        }
+      ]
+    },
+    {
+      "query_label": "专业-RLHF",
+      "query_text": "RLHF对齐训练方法",
+      "runs": [
+        {
+          "label": "专业-RLHF",
+          "query": "RLHF对齐训练方法",
+          "elapsed_s": 1.5876,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        },
+        {
+          "label": "专业-RLHF",
+          "query": "RLHF对齐训练方法",
+          "elapsed_s": 2.6648,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        },
+        {
+          "label": "专业-RLHF",
+          "query": "RLHF对齐训练方法",
+          "elapsed_s": 1.5626,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        }
+      ]
+    },
+    {
+      "query_label": "短-Agent",
+      "query_text": "Agent",
+      "runs": [
+        {
+          "label": "短-Agent",
+          "query": "Agent",
+          "elapsed_s": 1.5213,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        },
+        {
+          "label": "短-Agent",
+          "query": "Agent",
+          "elapsed_s": 1.5738,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        },
+        {
+          "label": "短-Agent",
+          "query": "Agent",
+          "elapsed_s": 1.5237,
+          "error": "Expecting value: line 1 column 1 (char 0)"
+        }
+      ]
+    }
+  ]
+}

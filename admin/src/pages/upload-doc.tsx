@@ -3,6 +3,8 @@ import { useLocation } from 'react-router-dom';
 import { createKB, fetchTree } from '@/services/api';
 import { preFilterFiles } from '@/utils/file-filter';
 import { uploadQueue } from '@/utils/upload-queue';
+import { fetchDocument } from '@/services/documentService';
+import api from '@/lib/axios';
 import type { KBItem, UploadResultEntry, SkippedFile } from '@/types/api';
 
 /** KB 下拉选项（扁平化后的条目） */
@@ -65,6 +67,23 @@ export default function UploadDocPage() {
  useEffect(() => {
   loadKBs();
  }, [loadKBs]);
+
+ // --- 20014 配额错误拦截 ---
+ useEffect(() => {
+  const interceptor = api.interceptors.response.use(
+   (response) => {
+    if (response.data?.code === 20014) {
+     const msg = response.data?.message || '操作超出配额限制，请联系管理员';
+     setToast({ message: msg, type: 'error' });
+     return Promise.reject(new Error(msg));
+    }
+    return response;
+   },
+  );
+  return () => {
+   api.interceptors.response.eject(interceptor);
+  };
+ }, []);
 
  // --- 自动隐藏 toast ---
  useEffect(() => {
@@ -154,7 +173,41 @@ export default function UploadDocPage() {
  };
 
  const successCount = results?.filter((r) => r.status === 'success').length ?? 0;
+ const processingCount = results?.filter((r) => r.status === 'processing').length ?? 0;
  const failCount = results?.filter((r) => r.status === 'failed').length ?? 0;
+
+ // 轮询 PROCESSING 文档的状态更新
+ useEffect(() => {
+  const processingEntries = results?.filter((r) => r.status === 'processing' && r.doc_id) ?? [];
+  if (processingEntries.length === 0) return;
+
+  const timer = setInterval(async () => {
+   const updated = await Promise.all(
+    processingEntries.map(async (entry) => {
+     try {
+      const doc = await fetchDocument(entry.doc_id!);
+      if (doc.status !== 'processing') {
+       return {
+        ...entry,
+        status: doc.status as 'success' | 'failed',
+        detail: doc.status === 'success'
+         ? `${doc.chunk_count} chunks`
+         : (doc.error_message || '索引失败'),
+       };
+      }
+     } catch {
+      /* 轮询失败静默重试 */
+     }
+     return entry;
+    }),
+   );
+
+   const hasChanged = updated.some((u, i) => u.status !== processingEntries[i].status);
+   if (hasChanged) setResults(updated);
+  }, 3000);
+
+  return () => clearInterval(timer);
+ }, [results]);
 
  return (
   <div>
@@ -397,7 +450,7 @@ export default function UploadDocPage() {
       ✅ 上传完成
      </h2>
      <p className="text-sm text-slate-400 mb-4">
-      合计 {results.length} 个文件，{successCount} 个成功，{failCount} 个失败
+      合计 {results.length} 个文件，{successCount} 个成功，{processingCount} 个索引中，{failCount} 个失败
      </p>
      <table className="w-full text-sm">
       <thead>
@@ -416,14 +469,13 @@ export default function UploadDocPage() {
           {(r.size / 1024).toFixed(1)} KB
          </td>
          <td className="py-2.5 px-3">
-          <span
-           className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${r.status === 'success'
-            ? 'bg-green-600/20 text-green-400'
-            : 'bg-red-600/20 text-red-400'
-            }`}
-          >
-           {r.status === 'success' ? '✅ 成功' : '❌ 失败'}
-          </span>
+          {r.status === 'success' ? (
+           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-600/20 text-green-400">✅ 成功</span>
+          ) : r.status === 'processing' ? (
+           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-600/20 text-amber-400">⏳ 索引中</span>
+          ) : (
+           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-600/20 text-red-400">❌ 失败</span>
+          )}
          </td>
          <td className="py-2.5 px-3 text-xs text-slate-400">{r.detail}</td>
         </tr>

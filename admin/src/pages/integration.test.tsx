@@ -19,6 +19,9 @@ const mockReindexDocument = vi.fn();
 
 vi.mock('@/services/api', () => ({
  fetchTree: (...args: unknown[]) => mockFetchTree(...args),
+}));
+
+vi.mock('@/services/authService', () => ({
  fetchAuthMe: (...args: unknown[]) => mockFetchAuthMe(...args),
 }));
 

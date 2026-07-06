@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Switch } from '@base-ui/react/switch';
-import { fetchTree, retrieve } from '@/services/api';
-import type { TreeItem, KBItem, RetrieveResponse } from '@/types/api';
+import { fetchTree } from '@/services/api';
+import { retrieve } from '@/services/ragService';
+import { fetchAuthMe } from '@/services/authService';
+import type { TreeItem, KBItem, RetrieveResponse, AuthMeData } from '@/types/api';
 import { Search, Loader2, ChevronDown, ChevronRight, AlertTriangle, Info } from 'lucide-react';
 
 /* ── 类型 ── */
@@ -57,6 +59,10 @@ export default function RetrievePage() {
   const [rerankTopN, setRerankTopN] = useState(5);
   const [rewriteEnabled, setRewriteEnabled] = useState(false);
 
+  /* ── 简档 ── */
+  const [profile, setProfile] = useState<"speed" | "balanced" | "quality" | "custom">("balanced");
+  const [planInfo, setPlanInfo] = useState<AuthMeData | null>(null);
+
   /* ── 结果 ── */
   const [results, setResults] = useState<RetrieveResponse | null>(null);
   const [retrieving, setRetrieving] = useState(false);
@@ -90,6 +96,22 @@ export default function RetrievePage() {
     loadTree();
   }, [loadTree]);
 
+  /* ── 加载 plan 信息 ── */
+  useEffect(() => {
+    fetchAuthMe().then(setPlanInfo).catch(() => { });
+  }, []);
+
+  /* ── plan 变化时调整 profile 默认值 ── */
+  useEffect(() => {
+    if (planInfo) {
+      const allowed = planInfo.features?.allowed_profiles ?? ['speed', 'balanced', 'quality', 'custom'];
+      setProfile((prev) => {
+        if (!allowed.includes(prev)) return allowed[0] as typeof prev;
+        return prev;
+      });
+    }
+  }, [planInfo]);
+
   /* ── 检索 ── */
   const handleRetrieve = async () => {
     if (!query.trim() || !selectedKbId) return;
@@ -103,21 +125,22 @@ export default function RetrievePage() {
         query: query.trim(),
         kb_ids: [selectedKbId],
         top_k: topK,
-        mode,
+        profile,
       };
 
-      if (mode === 'hybrid') {
-        body.vector_top_k = vectorTopK;
-        body.bm25_top_k = bm25TopK;
-        body.rrf_k = rrfK;
-      }
-
-      if (rerankEnabled) {
-        body.rerank = { enabled: true, top_n: rerankTopN };
-      }
-
-      if (rewriteEnabled) {
-        body.query_options = { enabled: true, strategy: 'rewrite' };
+      if (profile === 'custom') {
+        body.mode = mode;
+        if (mode === 'hybrid') {
+          body.vector_top_k = vectorTopK;
+          body.bm25_top_k = bm25TopK;
+          body.rrf_k = rrfK;
+        }
+        if (rerankEnabled) {
+          body.rerank = { enabled: true, top_n: rerankTopN };
+        }
+        if (rewriteEnabled) {
+          body.query_options = { enabled: true, strategy: 'rewrite' };
+        }
       }
 
       const res = await retrieve(body);
@@ -215,120 +238,170 @@ export default function RetrievePage() {
               />
             </div>
 
-            {/* 模式 Tabs */}
+            {/* 检索简档 */}
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
-                检索模式
+                检索简档
+                <span className="group relative ml-1.5 inline-flex items-center">
+                  <Info className="size-4 cursor-help text-muted-foreground hover:text-foreground transition-colors" />
+                  <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-56 rounded-md border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+                    speed/balanced/quality 使用服务端预设参数；custom 可自行配置检索模式与高级参数
+                  </span>
+                </span>
               </label>
               <div
                 className="inline-flex rounded-lg border border-border bg-muted p-0.5"
                 role="tablist"
               >
-                {(['vector', 'bm25', 'hybrid'] as const).map((m) => (
-                  <button
-                    key={m}
-                    role="tab"
-                    type="button"
-                    aria-selected={mode === m}
-                    onClick={() => setMode(m)}
-                    className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${mode === m
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
-                      }`}
+                {(['speed', 'balanced', 'quality', 'custom'] as const).map((p) => {
+                  const allowed = planInfo?.features?.allowed_profiles ?? ['speed', 'balanced', 'quality', 'custom'];
+                  const isDisabled = !allowed.includes(p);
+                  return (
+                    <span key={p} className="group relative">
+                      <button
+                        role="tab"
+                        type="button"
+                        aria-selected={profile === p}
+                        disabled={isDisabled}
+                        onClick={() => setProfile(p)}
+                        className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${isDisabled
+                          ? 'cursor-not-allowed opacity-40'
+                          : profile === p
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        {p}
+                      </button>
+                      {isDisabled && (
+                        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-10">
+                          当前 plan 不支持此简档
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+
+            {profile === 'custom' && (
+              <>
+                {/* 模式 Tabs */}
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-foreground">
+                    检索模式
+                  </label>
+                  <div
+                    className="inline-flex rounded-lg border border-border bg-muted p-0.5"
+                    role="tablist"
                   >
-                    {m}
-                  </button>
-                ))}
-              </div>
-            </div>
+                    {(['vector', 'bm25', 'hybrid'] as const).map((m) => (
+                      <button
+                        key={m}
+                        role="tab"
+                        type="button"
+                        aria-selected={mode === m}
+                        onClick={() => setMode(m)}
+                        className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${mode === m
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            {/* hybrid 参数 */}
-            {mode === 'hybrid' && (
-              <div className="grid grid-cols-3 gap-4 rounded-lg border border-border bg-muted/30 p-4">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    vector_top_k (1–200)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={200}
-                    value={vectorTopK}
-                    onChange={(e) => setVectorTopK(Number(e.target.value))}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
-                  />
+                {/* hybrid 参数 */}
+                {mode === 'hybrid' && (
+                  <div className="grid grid-cols-3 gap-4 rounded-lg border border-border bg-muted/30 p-4">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                        vector_top_k (1–200)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={vectorTopK}
+                        onChange={(e) => setVectorTopK(Number(e.target.value))}
+                        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                        bm25_top_k (1–200)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={bm25TopK}
+                        onChange={(e) => setBm25TopK(Number(e.target.value))}
+                        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                        rrf_k (1–200)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={rrfK}
+                        onChange={(e) => setRrfK(Number(e.target.value))}
+                        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* rerank */}
+                <div className="flex items-center gap-3">
+                  <Switch.Root
+                    checked={rerankEnabled}
+                    onCheckedChange={setRerankEnabled}
+                    className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent bg-muted transition-colors data-[checked]:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <Switch.Thumb className="pointer-events-none block size-4 rounded-full bg-background shadow-lg ring-0 transition-transform data-[checked]:translate-x-4" />
+                  </Switch.Root>
+                  <span className="text-sm font-medium text-foreground">Rerank</span>
+                  {rerankEnabled && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-muted-foreground">top_n</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={rerankTopN}
+                        onChange={(e) => setRerankTopN(Number(e.target.value))}
+                        className="w-20 rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
+                      />
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    bm25_top_k (1–200)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={200}
-                    value={bm25TopK}
-                    onChange={(e) => setBm25TopK(Number(e.target.value))}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
-                  />
+
+                {/* query 改写 */}
+                <div className="flex items-center gap-3">
+                  <Switch.Root
+                    checked={rewriteEnabled}
+                    onCheckedChange={setRewriteEnabled}
+                    className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent bg-muted transition-colors data-[checked]:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <Switch.Thumb className="pointer-events-none block size-4 rounded-full bg-background shadow-lg ring-0 transition-transform data-[checked]:translate-x-4" />
+                  </Switch.Root>
+                  <span className="text-sm font-medium text-foreground">启用 query 改写</span>
+                  <span className="group relative inline-flex items-center">
+                    <Info className="size-4 cursor-help text-muted-foreground hover:text-foreground transition-colors" />
+                    <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+                      用 AI 把口语问题改成更好搜的说法
+                    </span>
+                  </span>
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    rrf_k (1–200)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={200}
-                    value={rrfK}
-                    onChange={(e) => setRrfK(Number(e.target.value))}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
-                  />
-                </div>
-              </div>
+              </>
             )}
-
-            {/* rerank */}
-            <div className="flex items-center gap-3">
-              <Switch.Root
-                checked={rerankEnabled}
-                onCheckedChange={setRerankEnabled}
-                className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent bg-muted transition-colors data-[checked]:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                <Switch.Thumb className="pointer-events-none block size-4 rounded-full bg-background shadow-lg ring-0 transition-transform data-[checked]:translate-x-4" />
-              </Switch.Root>
-              <span className="text-sm font-medium text-foreground">Rerank</span>
-              {rerankEnabled && (
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-muted-foreground">top_n</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={rerankTopN}
-                    onChange={(e) => setRerankTopN(Number(e.target.value))}
-                    className="w-20 rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* query 改写 */}
-            <div className="flex items-center gap-3">
-              <Switch.Root
-                checked={rewriteEnabled}
-                onCheckedChange={setRewriteEnabled}
-                className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent bg-muted transition-colors data-[checked]:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                <Switch.Thumb className="pointer-events-none block size-4 rounded-full bg-background shadow-lg ring-0 transition-transform data-[checked]:translate-x-4" />
-              </Switch.Root>
-              <span className="text-sm font-medium text-foreground">启用 query 改写</span>
-              <span className="group relative inline-flex items-center">
-                <Info className="size-4 cursor-help text-muted-foreground hover:text-foreground transition-colors" />
-                <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-                  用 AI 把口语问题改成更好搜的说法
-                </span>
-              </span>
-            </div>
           </div>
         )}
       </div>
@@ -611,6 +684,6 @@ export default function RetrievePage() {
           )}
         </div>
       </div>
-    </div>
+    </div >
   );
 }

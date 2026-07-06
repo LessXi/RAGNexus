@@ -53,6 +53,7 @@ export interface CachedKB {
 
 /** 上传结果条目 */
 export interface UploadResultEntry {
+  doc_id?: string; // 异步索引时用于轮询状态
   name: string;
   size: number;
   status: 'success' | 'failed' | 'processing';
@@ -125,6 +126,8 @@ export interface RetrieveRequest {
     enabled: boolean;
     strategy: string;
   };
+  /** 检索简档：speed/balanced/quality 为预设模式，custom 为自定义 */
+  profile?: "speed" | "balanced" | "quality" | "custom";
   /** 禁止显式传入 tenant_id */
   tenant_id?: never;
 }
@@ -184,6 +187,24 @@ export interface AuthMeData {
   tenant_name: string;
   key_id: string;
   key_prefix: string;
+  plan: string;
+  features: {
+    allowed_profiles: string[];
+    hybrid_allowed: boolean;
+    rerank_allowed: boolean;
+    query_rewrite_allowed: boolean;
+  };
+  limits: {
+    retrieve_qps: number;
+    retrieve_daily: number;
+    max_kb: number;
+    max_documents_per_kb: number;
+    max_processing_documents: number;
+  };
+  usage: {
+    kb_count: number;
+    retrieve_daily_count: number;
+  };
 }
 
 /** 文档索引状态枚举 */

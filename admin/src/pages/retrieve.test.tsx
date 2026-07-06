@@ -12,7 +12,14 @@ const mockUseSearchParams = vi.fn(() => [defaultParams, vi.fn()]);
 
 vi.mock('@/services/api', () => ({
  fetchTree: (...args: unknown[]) => mockFetchTree(...args),
+}));
+
+vi.mock('@/services/ragService', () => ({
  retrieve: (...args: unknown[]) => mockRetrieve(...args),
+}));
+
+vi.mock('@/services/authService', () => ({
+ fetchAuthMe: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('react-router-dom', async () => {
@@ -173,15 +180,11 @@ describe('RetrievePage', () => {
   *  URL query params 预填
   * ═══════════════════════════════════════════ */
 
- it('URL 带 ?tenant_id=xxx&kb_id=yyy 时应预填选择框', async () => {
-  const sp = new URLSearchParams('?tenant_id=tenant_a&kb_id=kb_2');
+ it('URL 带 ?kb_id=yyy 时应预填 KB 选择框', async () => {
+  const sp = new URLSearchParams('?kb_id=kb_2');
   renderPage(sp);
 
-  await waitFor(() => {
-   const tenantSelect = screen.getByRole('combobox', { name: '租户' });
-   expect((tenantSelect as HTMLSelectElement).value).toBe('tenant_a');
-  });
-
+  // 租户由 API Key 自动识别，页面只有 KB 选择器
   const kbSelect = screen.getByLabelText(/知识库/i);
   await waitFor(() => {
    expect((kbSelect as HTMLSelectElement).value).toBe('kb_2');
@@ -350,6 +353,10 @@ describe('RetrievePage', () => {
   await waitFor(() => {
    expect(mockFetchTree).toHaveBeenCalled();
   });
+
+  // 先切换到 custom 简档以显示高级参数
+  const customTab = screen.getByRole('tab', { name: /custom/i });
+  await userEvent.click(customTab);
 
   const hybridTab = screen.getByRole('tab', { name: /hybrid/i });
   await userEvent.click(hybridTab);
