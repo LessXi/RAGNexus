@@ -12,7 +12,7 @@
 
 ## Phase 2: 检索可观测
 
-- [ ] 2.1 retrieve_router.py 包裹 trace（rag_retrieve + 3 个子 span）
+- [x] 2.1 retrieve_router.py 包裹 trace（rag_retrieve + 3 个子 span）
 - [ ] 2.2 retrieve_router.py 用 nanoid 预生成 log_id，响应 metadata 新增 log_id + trace_id
 - [ ] 2.3 RetrieveResult/RetrieveMetadata schema 新增 log_id + trace_id 字段
 - [ ] 2.4 retrieval_logs 表扩展 5 列（log_id VARCHAR(24) UNIQUE + trace_id + profile + search_query + effective_query），Alembic migration 0006 + schema.sql
