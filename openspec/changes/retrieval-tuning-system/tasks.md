@@ -47,8 +47,8 @@
 
 ## Phase 6: 文档与验收
 
-- [ ] 6.1 docs/tenant-onboarding.md 新增「检索反馈」小节
-- [ ] 6.2 README 新增「离线测评」小节（export → 补 ground_truth → run eval 三步）
-- [ ] 6.3 端到端验收：LANGFUSE_ENABLED=true/false 场景（15 项验收标准）
-- [ ] 6.4 反馈 API 验收：正常/错误 log_id/score 越界/Langfuse 关闭
-- [ ] 6.5 离线测评验收：export + 补 ground_truth + eval + 对比
+- [x] 6.1 docs/tenant-onboarding.md 新增「检索反馈」小节
+- [x] 6.2 README 新增「离线测评」小节（export → 补 ground_truth → run eval 三步）
+- [x] 6.3 端到端验收：LANGFUSE_ENABLED=true/false 场景（15 项验收标准）
+- [x] 6.4 反馈 API 验收：正常/错误 log_id/score 越界/Langfuse 关闭
+- [x] 6.5 离线测评验收：export + 补 ground_truth + eval + 对比
