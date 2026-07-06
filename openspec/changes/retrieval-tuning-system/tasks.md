@@ -2,7 +2,7 @@
 
 ## Phase 1: Langfuse 基础设施
 
-- [ ] 1.0 确认 Alembic 已初始化（否则先执行 alembic init）
+- [x] 1.0 确认 Alembic 已初始化（否则先执行 alembic init）
 - [ ] 1.1 docker-compose.yml 新增 langfuse + langfuse-db service（含 NEXTAUTH_SECRET + langfusedata volume）
 - [ ] 1.2 config.py 新增 LANGFUSE_ENABLED/HOST/PUBLIC_KEY/SECRET_KEY 配置项
 - [ ] 1.3 .env 和 .env.example 补充 LANGFUSE_* 变量
