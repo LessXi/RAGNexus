@@ -146,6 +146,7 @@ class Tenant:
 
     id: str
     name: str
+    plan: str = "free"  # 租户套餐: free | standard | pro
     status: str = "active"  # active | disabled
     created_at: datetime | None = None
 
