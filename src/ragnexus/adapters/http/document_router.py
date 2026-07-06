@@ -5,7 +5,7 @@ from ragnexus.core.auth import TenantContext
 
 
 def create_document_router(
-    uc_query, uc_delete, uc_reindex, get_current_tenant
+    uc_query, uc_delete, uc_reindex, get_current_tenant, quota_svc=None
 ) -> APIRouter:
     router = APIRouter()
 
@@ -43,6 +43,11 @@ def create_document_router(
     async def reindex_document(
         doc_id: str, current_tenant: TenantContext = Depends(get_current_tenant)
     ):
+        if quota_svc:
+            await quota_svc.check_processing(
+                current_tenant.tenant_id, current_tenant.plan
+            )
+
         result = await uc_reindex.execute(doc_id, current_tenant.tenant_id)
         return {"code": 0, "data": result, "message": "ok"}
 

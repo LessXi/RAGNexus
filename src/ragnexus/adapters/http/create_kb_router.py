@@ -11,7 +11,7 @@ class _CreateKBRequest(BaseModel):
     description: str = Field(default="", max_length=256)
 
 
-def create_router(uc, get_current_tenant) -> APIRouter:
+def create_router(uc, get_current_tenant, quota_svc=None) -> APIRouter:
     """返回含单个 POST 端点的 APIRouter。
 
     ``uc`` 必须提供 ``async def execute(*, name: str, tenant_id: str) -> KnowledgeBase``。
@@ -24,6 +24,11 @@ def create_router(uc, get_current_tenant) -> APIRouter:
         req: _CreateKBRequest,
         current_tenant: TenantContext = Depends(get_current_tenant),
     ):
+        if quota_svc:
+            await quota_svc.check_kb_count(
+                current_tenant.tenant_id, current_tenant.plan
+            )
+
         result = await uc.execute(name=req.name, tenant_id=current_tenant.tenant_id)
         return {
             "code": 0,

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from ragnexus.core.auth import TenantContext
 
 
-def create_router(uc, get_current_tenant) -> APIRouter:
+def create_router(uc, get_current_tenant, quota_svc=None) -> APIRouter:
     """返回含单个 multipart POST 端点的 APIRouter。
 
     ``uc`` 必须提供 ``async def execute(
@@ -23,6 +23,11 @@ def create_router(uc, get_current_tenant) -> APIRouter:
         current_tenant: TenantContext = Depends(get_current_tenant),  # noqa: B008
     ):
         content = await file.read()
+        if quota_svc:
+            await quota_svc.check_doc_upload(
+                kb_id, current_tenant.tenant_id, current_tenant.plan
+            )
+
         result = await uc.execute(
             kb_id=kb_id,
             file_content=content,

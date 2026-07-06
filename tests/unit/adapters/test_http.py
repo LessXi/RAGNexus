@@ -337,3 +337,170 @@ class TestCatchAllHandler:
             assert hasattr(system_errors[0], "traceback")
         finally:
             rag_logger.removeHandler(handler)
+
+
+# ── Quota Checks ──────────────────────────────────────────────────────────────
+
+
+class TestQuotaCreateKB:
+    """POST /v1/knowledge-bases:create 前走 check_kb_count"""
+
+    def test_quota_svc_called(self):
+        """quota_svc 不为 None 时应在 create_kb uc.execute 之前被调用。"""
+        from ragnexus.adapters.http.create_kb_router import (
+            create_router as create_kb_router,
+        )
+
+        mock_uc = AsyncMock()
+        mock_uc.execute.return_value = KnowledgeBase(
+            id="kb_test123",
+            name="Test KB",
+            created_at=datetime(2026, 6, 22, 10, 0, 0),
+            tenant_id="default",
+        )
+        mock_quota_svc = AsyncMock()
+
+        async def get_current_tenant():
+            return TenantContext(
+                tenant_id="default",
+                tenant_name="默认租户",
+                key_id="test",
+                key_prefix="test",
+                plan="standard",
+            )
+
+        app = FastAPI()
+        app.include_router(
+            create_kb_router(mock_uc, get_current_tenant, quota_svc=mock_quota_svc)
+        )
+        register_error_handlers(app)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        resp = client.post(
+            "/v1/knowledge-bases:create",
+            json={"name": "Test KB", "tenant_id": "default"},
+        )
+        assert resp.status_code == 200
+        mock_quota_svc.check_kb_count.assert_awaited_once_with("default", "standard")
+        mock_uc.execute.assert_awaited_once()
+
+    def test_no_quota_svc_passes_through(self):
+        """quota_svc 为 None（默认）时创建正常进行，不抛异常。"""
+        from ragnexus.adapters.http.create_kb_router import (
+            create_router as create_kb_router,
+        )
+
+        mock_uc = AsyncMock()
+        mock_uc.execute.return_value = KnowledgeBase(
+            id="kb_test123",
+            name="Test KB",
+            created_at=datetime(2026, 6, 22, 10, 0, 0),
+            tenant_id="default",
+        )
+
+        async def get_current_tenant():
+            return TenantContext(
+                tenant_id="default",
+                tenant_name="默认租户",
+                key_id="test",
+                key_prefix="test",
+                plan="standard",
+            )
+
+        app = FastAPI()
+        app.include_router(create_kb_router(mock_uc, get_current_tenant))
+        register_error_handlers(app)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        resp = client.post(
+            "/v1/knowledge-bases:create",
+            json={"name": "Test KB", "tenant_id": "default"},
+        )
+        assert resp.status_code == 200
+
+
+class TestQuotaUploadDoc:
+    """POST /v1/documents:upload 前走 check_doc_upload"""
+
+    def test_quota_svc_called(self):
+        """quota_svc 不为 None 时应在 upload_doc uc.execute 之前被调用。"""
+        from ragnexus.adapters.http.upload_doc_router import (
+            create_router as create_upload_router,
+        )
+
+        mock_uc = AsyncMock()
+        mock_uc.execute.return_value = UploadResult(
+            doc_id="doc_hash12345678",
+            kb_id="kb_test123",
+            status=DocStatus.PROCESSING,
+            chunks=[],
+        )
+        mock_quota_svc = AsyncMock()
+
+        async def get_current_tenant():
+            return TenantContext(
+                tenant_id="default",
+                tenant_name="默认租户",
+                key_id="test",
+                key_prefix="test",
+                plan="standard",
+            )
+
+        app = FastAPI()
+        app.include_router(
+            create_upload_router(mock_uc, get_current_tenant, quota_svc=mock_quota_svc)
+        )
+        register_error_handlers(app)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        resp = client.post(
+            "/v1/documents:upload",
+            data={"kb_id": "kb_test123"},
+            files={"file": ("test.md", b"# Hello\nWorld", "text/markdown")},
+        )
+        assert resp.status_code == 201
+        mock_quota_svc.check_doc_upload.assert_awaited_once_with(
+            "kb_test123", "default", "standard"
+        )
+        mock_uc.execute.assert_awaited_once()
+
+
+class TestQuotaDocumentReindex:
+    """POST /v1/documents/{doc_id}/reindex 前走 check_processing"""
+
+    def test_quota_svc_called(self):
+        """quota_svc 不为 None 时应在 reindex uc.execute 之前被调用。"""
+        from ragnexus.adapters.http.document_router import create_document_router
+
+        mock_query_uc = AsyncMock()
+        mock_delete_uc = AsyncMock()
+        mock_reindex_uc = AsyncMock()
+        mock_reindex_uc.execute.return_value = {"status": "processing"}
+        mock_quota_svc = AsyncMock()
+
+        async def get_current_tenant():
+            return TenantContext(
+                tenant_id="default",
+                tenant_name="默认租户",
+                key_id="test",
+                key_prefix="test",
+                plan="standard",
+            )
+
+        app = FastAPI()
+        app.include_router(
+            create_document_router(
+                mock_query_uc,
+                mock_delete_uc,
+                mock_reindex_uc,
+                get_current_tenant,
+                quota_svc=mock_quota_svc,
+            )
+        )
+        register_error_handlers(app)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        resp = client.post("/v1/documents/doc_abc/reindex")
+        assert resp.status_code == 200
+        mock_quota_svc.check_processing.assert_awaited_once_with("default", "standard")
+        mock_reindex_uc.execute.assert_awaited_once()

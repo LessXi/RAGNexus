@@ -61,6 +61,7 @@ from ragnexus.application.kb_detail_uc import KnowledgeBaseDetailUseCase
 from ragnexus.application.kb_update_uc import KnowledgeBaseUpdateUseCase
 from ragnexus.application.kb_delete_uc import KnowledgeBaseDeleteUseCase
 from ragnexus.services.rate_limit_service import RateLimitService
+from ragnexus.services.quota_service import QuotaService
 from ragnexus.config import get_settings
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import LoggedPool, logger, setup_logging
@@ -543,10 +544,19 @@ async def lifespan(app: FastAPI):
             redis_client = None
             rate_limiter = None
 
+        # --- Quota Service ---
+        quota_svc = QuotaService(pool=cast(Any, repo_pool))
+
         # --- 6. Routers -------------------------------------------------------
-        app.include_router(create_kb_create_router(create_kb_uc, get_current_tenant))
         app.include_router(
-            create_upload_doc_router(upload_doc_uc_wrapped, get_current_tenant)
+            create_kb_create_router(
+                create_kb_uc, get_current_tenant, quota_svc=quota_svc
+            )
+        )
+        app.include_router(
+            create_upload_doc_router(
+                upload_doc_uc_wrapped, get_current_tenant, quota_svc=quota_svc
+            )
         )
         app.include_router(
             create_retrieve_router(retrieve_uc, get_current_tenant, rate_limiter)
@@ -554,7 +564,11 @@ async def lifespan(app: FastAPI):
         app.include_router(create_kb_tree_router(kb_tree_uc, get_current_tenant))
         app.include_router(
             create_document_router(
-                doc_query_uc, doc_delete_uc, doc_reindex_uc, get_current_tenant
+                doc_query_uc,
+                doc_delete_uc,
+                doc_reindex_uc,
+                get_current_tenant,
+                quota_svc=quota_svc,
             )
         )
         app.include_router(
