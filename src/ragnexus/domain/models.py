@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
 from enum import IntEnum
+from typing import Any
 
 
 class DocStatus(IntEnum):
@@ -104,6 +104,8 @@ class RetrieveResult:
     rerank_model: str | None
     degraded: bool
     degraded_reason: str | None
+    log_id: str | None = None
+    trace_id: str | None = None
     # query processing pipeline result (stage 6)
     query_processing: dict | None = None
 
