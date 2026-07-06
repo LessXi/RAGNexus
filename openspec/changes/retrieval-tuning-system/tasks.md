@@ -37,7 +37,7 @@
 
 ## Phase 5: 离线测评脚本
 
-- [ ] 5.1 pyproject.toml optional-dependencies 新增 eval 组（ragas>=0.2.0 + datasets>=2.0.0）
+- [x] 5.1 pyproject.toml optional-dependencies 新增 eval 组（ragas>=0.2.0 + datasets>=2.0.0）
 - [ ] 5.2 新建 eval/datasets/ 和 eval/reports/ 目录，.gitignore 新增 eval/reports/
 - [ ] 5.3 新建 data/ecommerce/ 目录 + 种子文档
 - [ ] 5.4 新建 eval/datasets/_seed_ecommerce.json（5~10 条手工种子）
