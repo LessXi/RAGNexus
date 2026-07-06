@@ -355,7 +355,7 @@ describe('RetrievePage', () => {
   });
 
   // 先切换到 custom 简档以显示高级参数
-  const customTab = screen.getByRole('tab', { name: /custom/i });
+  const customTab = screen.getByRole('tab', { name: /自定义/i });
   await userEvent.click(customTab);
 
   const hybridTab = screen.getByRole('tab', { name: /hybrid/i });

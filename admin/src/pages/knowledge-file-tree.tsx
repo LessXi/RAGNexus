@@ -419,6 +419,11 @@ export default function KnowledgeFileTreePage() {
                   {tenantInfo.plan}
                 </Badge>
               )}
+              {tenantInfo.plan && tenantInfo.usage && (
+                <Badge className="bg-slate-50 text-slate-500 text-xs">
+                  今日检索 {tenantInfo.usage.retrieve_daily_count}/{tenantInfo.limits?.retrieve_daily ?? '?'}
+                </Badge>
+              )}
             </>
           )}
         </div>

@@ -36,6 +36,9 @@ function flattenKBs(tree: TreeItem[]): KbOption[] {
   return result;
 }
 
+
+/** 检索简档中文名映射 */
+const PROFILE_LABELS: Record<string, string> = { speed: '追求速度', balanced: '均衡', quality: '追求质量', custom: '自定义' };
 /* ── 组件 ── */
 
 export default function RetrievePage() {
@@ -65,6 +68,7 @@ export default function RetrievePage() {
 
   /* ── 结果 ── */
   const [results, setResults] = useState<RetrieveResponse | null>(null);
+
   const [retrieving, setRetrieving] = useState(false);
   const [retrieveError, setRetrieveError] = useState<string | null>(null);
 
@@ -238,6 +242,20 @@ export default function RetrievePage() {
               />
             </div>
 
+            {/* 当前套餐 */}
+            {planInfo && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">当前套餐</span>
+                <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${planInfo.plan === 'free' ? 'bg-slate-100 text-slate-600' :
+                  planInfo.plan === 'standard' ? 'bg-blue-50 text-blue-700' :
+                    'bg-purple-50 text-purple-700'
+                  }`}>
+                  {planInfo.plan === 'free' ? '免费' : planInfo.plan === 'standard' ? '标准' : '专业'}
+                  ({planInfo.plan})
+                </span>
+              </div>
+            )}
+
             {/* 检索简档 */}
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
@@ -271,7 +289,7 @@ export default function RetrievePage() {
                             : 'text-muted-foreground hover:text-foreground'
                           }`}
                       >
-                        {p}
+                        {PROFILE_LABELS[p] || p}
                       </button>
                       {isDisabled && (
                         <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-10">
@@ -301,6 +319,7 @@ export default function RetrievePage() {
                         role="tab"
                         type="button"
                         aria-selected={mode === m}
+                        disabled={profile === 'custom' && !!planInfo && !planInfo.features?.hybrid_allowed && m === 'hybrid'}
                         onClick={() => setMode(m)}
                         className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${mode === m
                           ? 'bg-background text-foreground shadow-sm'
@@ -362,6 +381,7 @@ export default function RetrievePage() {
                 <div className="flex items-center gap-3">
                   <Switch.Root
                     checked={rerankEnabled}
+                    disabled={profile === 'custom' && !!planInfo && !planInfo.features?.rerank_allowed}
                     onCheckedChange={setRerankEnabled}
                     className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent bg-muted transition-colors data-[checked]:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
@@ -386,6 +406,7 @@ export default function RetrievePage() {
                 {/* query 改写 */}
                 <div className="flex items-center gap-3">
                   <Switch.Root
+                    disabled={profile === 'custom' && !!planInfo && !planInfo.features?.query_rewrite_allowed}
                     checked={rewriteEnabled}
                     onCheckedChange={setRewriteEnabled}
                     className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent bg-muted transition-colors data-[checked]:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
