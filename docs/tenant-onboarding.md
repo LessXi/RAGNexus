@@ -170,9 +170,19 @@ Free 租户当日检索量超过 500 次：
 }
 ```
 
+
+## 5. 检索反馈
+
+用户可以通过前端五星反馈条对检索结果评分（1-5 分）。
+
+- 反馈数据存储在 Langfuse，通过 trace_id 关联每次检索
+- 仅当 `LANGFUSE_ENABLED=true` 时显示反馈条
+- API: `POST /v1/rag/feedback`
+- 错误码: `20020`（服务不可用）/ `20021`（无权）/ `20022`（评分越界）
+
 ---
 
-## 5. 运维脚本
+## 6. 运维脚本
 
 ### 5.1 创建租户
 
@@ -246,7 +256,7 @@ update_tenant_plan.py: error: argument --plan: invalid choice: 'enterprise' (cho
 
 ---
 
-## 6. 升级路径
+## 7. 升级路径
 
 ### 从 Free 升级到 Standard
 

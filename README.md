@@ -225,3 +225,14 @@ celery -A src.ragnexus.celery_app beat --loglevel=info
 - `DELETE /v1/documents/{doc_id}` — 删除文档（级联清理向量+关键词索引）
 - `POST /v1/documents/{doc_id}/reindex` — 重试失败文档
 - `GET/PATCH/DELETE /v1/knowledge-bases/{kb_id}` — 知识库 CRUD
+
+
+## 离线测评
+
+三步流程评估检索效果:
+
+1. **导出低分案例**: `uv run python scripts/export_eval_cases_from_langfuse.py --max-score 3`
+2. **补充 ground_truth**: 编辑导出的 JSON，填写正确答案
+3. **运行评估**: `uv run python scripts/run_retrieval_eval.py --api-key <KEY>`
+
+评估指标: context_precision（精确率）+ context_recall（召回率）
