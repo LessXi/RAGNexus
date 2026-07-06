@@ -576,7 +576,9 @@ async def lifespan(app: FastAPI):
                 kb_detail_uc, kb_update_uc, kb_delete_uc, get_current_tenant
             )
         )
-        app.include_router(create_auth_router(get_current_tenant))
+        app.include_router(
+            create_auth_router(get_current_tenant, tenant_repo, rate_limiter)
+        )
 
         # Stash references for teardown
         app.state.store = store
