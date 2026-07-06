@@ -44,8 +44,8 @@ class PgDocumentRepository:
         now = datetime.now(UTC)
         await self.pool.execute(
             "INSERT INTO documents (doc_id, kb_id, filename, file_hash, "
-            "file_size, content_type, content, status, uploaded_at, updated_at) "
-            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+            "file_size, content_type, content, status, chunk_count, uploaded_at, updated_at) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
             doc_id,
             kb_id,
             filename,
@@ -54,6 +54,7 @@ class PgDocumentRepository:
             content_type,
             content,
             DocStatus.PROCESSING.value,
+            0,  # chunk_count — 索引完成后由 IndexingService 更新
             now,
             now,
         )
@@ -70,7 +71,9 @@ class PgDocumentRepository:
             updated_at=now,
         )
 
-    async def update_status(self, doc_id, *, status, error_message=None, chunk_count=None) -> None:
+    async def update_status(
+        self, doc_id, *, status, error_message=None, chunk_count=None
+    ) -> None:
         updates = ["status = $1", "updated_at = $2"]
         params: list = [status.value, datetime.now(UTC)]
         idx = 3
