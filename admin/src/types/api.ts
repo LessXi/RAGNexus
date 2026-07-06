@@ -179,6 +179,10 @@ export interface RetrieveResponse {
     hits: RetrieveHit[];
     meta: RetrieveMeta;
   };
+  metadata: {
+    log_id?: string;
+    trace_id?: string;
+  };
 }
 
 /** /auth/me 响应 */
