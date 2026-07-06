@@ -1,0 +1,25 @@
+workflow: full
+phase: build
+context_compression: off
+build_mode: subagent-driven-development
+build_pause: null
+subagent_dispatch: confirmed
+tdd_mode: tdd
+review_mode: thorough
+review_engine: both
+isolation: branch
+verify_mode: null
+auto_transition: true
+base_ref: 2f7d2b722aec9bb44d98bf389303026c8ce75e80
+design_doc: docs/superpowers/specs/2026-07-06-tenant-plan-system-design.md
+plan: docs/superpowers/plans/2026-07-06-tenant-plan-system.md
+verify_result: pending
+verification_report: null
+branch_status: pending
+created_at: 2026-07-06
+verified_at: null
+archived: false
+handoff_context: openspec/changes/tenant-plan-system/.comet/handoff/design-context.json
+handoff_hash: f628057788f83ec2405f38f05b9e5565f70fdfb4752a1b4168b838e2799e70f7
+build_command: uv run pytest tests/ -x -q
+verify_command: docker compose build app
