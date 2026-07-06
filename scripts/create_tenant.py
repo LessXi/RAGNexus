@@ -2,6 +2,7 @@
 
 用法：
     uv run python scripts/create_tenant.py --id my_tenant --name "我的租户"
+    uv run python scripts/create_tenant.py --id my_tenant --name "我的租户" --plan standard
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from ragnexus.config import get_settings  # noqa: E402
 from ragnexus.core.errors import AppError, ErrorCode  # noqa: E402
 
 
-async def _create_tenant(tenant_id: str, tenant_name: str) -> None:
+async def _create_tenant(tenant_id: str, tenant_name: str, plan: str = "free") -> None:
     """在 tenants 表中插入一条租户记录。
 
     若 ID 已存在则抛出 AppError(ErrorCode.RESOURCE_CONFLICT)。
@@ -36,9 +37,10 @@ async def _create_tenant(tenant_id: str, tenant_name: str) -> None:
             )
 
         await conn.execute(
-            "INSERT INTO tenants (id, name) VALUES ($1, $2)",
+            "INSERT INTO tenants (id, name, plan) VALUES ($1, $2, $3)",
             tenant_id,
             tenant_name,
+            plan,
         )
     finally:
         await conn.close()
@@ -48,15 +50,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="注册租户")
     parser.add_argument("--id", required=True, help="租户唯一标识")
     parser.add_argument("--name", required=True, help="租户展示名称")
+    parser.add_argument(
+        "--plan",
+        default="free",
+        choices=["free", "standard", "pro"],
+        help="租户套餐等级",
+    )
     args = parser.parse_args()
 
     try:
-        asyncio.run(_create_tenant(args.id, args.name))
+        asyncio.run(_create_tenant(args.id, args.name, args.plan))
     except AppError as e:
         print(f"错误 [{e.code}]: {e.message}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"租户创建成功：id={args.id}, name={args.name}")
+    print(f"租户创建成功：id={args.id}, name={args.name}, plan={args.plan}")
 
 
 if __name__ == "__main__":
