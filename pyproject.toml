@@ -33,6 +33,10 @@ dev = [
   "pre-commit>=4.0",
   "psycopg2-binary>=2.9",
 ]
+eval = [
+    "ragas>=0.2.0",
+    "datasets>=2.0.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
