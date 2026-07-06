@@ -74,7 +74,7 @@ services:
 
   worker:
     build: .
-    command: celery -A src.ragnexus.celery_app worker --loglevel=info --concurrency=2
+    command: .venv/bin/celery -A src.ragnexus.celery_app worker --loglevel=info --concurrency=2
     env_file: .env
     environment:
       PG_DSN: postgresql://ragnexus:ragnexus@db:5432/ragnexus
@@ -93,7 +93,7 @@ services:
 
   beat:
     build: .
-    command: celery -A src.ragnexus.celery_app beat --loglevel=info
+    command: .venv/bin/celery -A src.ragnexus.celery_app beat --loglevel=info
     env_file: .env
     environment:
       PG_DSN: postgresql://ragnexus:ragnexus@db:5432/ragnexus

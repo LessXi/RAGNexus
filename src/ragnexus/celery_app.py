@@ -30,6 +30,5 @@ app.config_from_object(
     }
 )
 
-# 自动发现 tasks 模块。一旦 ragnexus.tasks 包创建后，移除 contextlib.suppress。
-with contextlib.suppress(ImportError):
-    app.autodiscover_tasks(["ragnexus.tasks"])
+# 显式导入 tasks 模块以注册 Celery tasks
+import ragnexus.tasks.indexing  # noqa: F401 — side-effect: registers @app.task
