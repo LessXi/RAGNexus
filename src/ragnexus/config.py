@@ -2,6 +2,7 @@
 
 from functools import cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -89,6 +90,16 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
     INDEX_TIMEOUT_MINUTES: int = 30
+
+    # Langfuse 可观测配置
+    LANGFUSE_ENABLED: bool = Field(
+        default=False, description="启用 Langfuse trace 记录"
+    )
+    LANGFUSE_HOST: str = Field(
+        default="http://localhost:3000", description="Langfuse 服务地址"
+    )
+    LANGFUSE_PUBLIC_KEY: str = Field(default="", description="Langfuse public key")
+    LANGFUSE_SECRET_KEY: str = Field(default="", description="Langfuse secret key")
 
 
 @cache
