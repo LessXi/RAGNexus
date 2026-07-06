@@ -257,3 +257,19 @@ export interface UploadResult {
   status: string;
   chunk_count: number;
 }
+
+/** 反馈提交请求 */
+export interface FeedbackRequest {
+  trace_id: string;
+  log_id?: string;
+  score: number; // 1-5
+  comment?: string;
+}
+
+/** 反馈数据 */
+export interface FeedbackData {
+  feedback_id: string;
+  trace_id: string;
+  log_id?: string;
+  score: number;
+}
