@@ -34,12 +34,14 @@ for p in sorted(d['paths']): print(' ', list(d['paths'][p].keys())[0].upper(), p
 "
 ```
 
-期望输出 6 个路由：
+期望输出 8 个路由：
 ```
-  GET /health
   GET /v1/auth/me
+  GET /v1/documents/{doc_id}
+  POST /v1/documents/{doc_id}/reindex
   POST /v1/documents:upload
   GET /v1/knowledge-bases/tree
+  GET /v1/knowledge-bases/{kb_id}
   POST /v1/knowledge-bases:create
   POST /v1/rag:retrieve
 ```
@@ -150,21 +152,23 @@ Vite HMR 自动热更新，无需手动重启。如果改动了 `admin/.env`，V
 
 1. 修改 `docs/sql/schema.sql`
 2. 手动重建或创建 Alembic migration
-3. `docker compose down -v` 清除数据卷后重建（或手动执行 DDL）
-
 ## 关键路径速查
 
 | 文件 | 作用 |
 |---|---|
 | `.env` | 后端环境变量（PG_DSN, EMBED_API_KEY, LLM_API_KEY, AUTH_ENABLED 等） |
 | `admin/.env` | 前端环境变量（API_KEY） |
-| `docker-compose.yml` | 服务编排（db, elasticsearch, init-db, app） |
+| `docker-compose.yml` | 服务编排（db, elasticsearch, redis, init-db, app, worker, beat） |
 | `Dockerfile` | app 镜像构建，入口 `ragnexus.composition:build_app` |
 | `scripts/create_api_key.py` | 生成 API Key |
 | `scripts/create_tenant.py` | 创建租户 |
+| `scripts/update_tenant_plan.py` | 修改租户套餐 |
 | `docs/sql/schema.sql` | 数据库初始化 DDL |
+| `docs/tenant-onboarding.md` | 租户套餐接入指南 |
 | `src/ragnexus/config.py` | Settings 定义和默认值 |
 | `src/ragnexus/composition.py` | DI 容器 + FastAPI 组装 |
+| `src/ragnexus/tenant/` | 套餐预设、profile 展开、PlanResolver |
+| `src/ragnexus/services/` | RateLimitService (Redis) + QuotaService (DB) |
 
 ### 上传文档报 403（code 10201: "知识库不属于当前租户"）
 
@@ -207,67 +211,75 @@ curl -s https://dashscope.aliyuncs.com/compatible-mode/v1/models \
 前端上传队列 (`admin/src/utils/upload-queue.ts`) 在 axios 错误消息匹配 `/network/i` 时显示此消息。
 先检查后端是否存活：
 ```bash
-curl -s http://localhost:8000/health
+curl -s http://localhost:8000/openapi.json | head -1
 docker compose logs app --tail 20
 ```
+注意：`/health` 端点不在 FastAPI 路由中，用 `/openapi.json` 验证。
 
-## 开发经验（query-semantic-optimization 变更沉淀）
+## 通用开发经验
 
 ### asyncpg JSONB 返回字符串
 
 asyncpg 查询 JSONB 列返回 Python `str` 而非 `dict`。使用前必须 `json.loads()`：
 
 ```python
-# ❌ 错误 — asyncpg 返回 str, isinstance 判断失败
+# ❌ — asyncpg 返回 str, isinstance 判断永远 False
 kb_settings = getattr(primary_kb, "settings", {}) or {}
-if isinstance(kb_settings, dict):  # 永远是 False
-    ...
+if isinstance(kb_settings, dict): ...
 
-# ✅ 正确
+# ✅
 kb_settings_raw = getattr(primary_kb, "settings", {}) or {}
 kb_settings = json.loads(kb_settings_raw) if isinstance(kb_settings_raw, str) else kb_settings_raw
 ```
 
 ### Docker 容器无热重载
 
-Dockerfile 的 uvicorn 不带 `--reload`。`docker cp` 复制文件后进程不会自动重载。代码变更必须完整重建：
-
+Dockerfile 的 uvicorn 不带 `--reload`。代码变更必须完整重建：
 ```bash
-docker compose build app && docker compose down app && docker compose up -d app
+docker compose build app && docker compose up -d app
 ```
 
 ### uv editable 安装
 
-删除 `.venv` 后必须重新 editable 安装，否则 `uv run` 使用编译包而非源码：
+删除 `.venv` 后：
 ```bash
-uv sync
-uv pip install -e . --no-deps
+uv sync && uv pip install -e . --no-deps
+uv pip show ragnexus | findstr Editable  # 验证
 ```
 
-验证：`uv pip show ragnexus | findstr Editable` 应显示项目路径。
+### openspec 规范
+
+- delta spec 正文 SHALL 含 `SHALL` 或 `MUST`
+- `MODIFIED` 要求目标 header 在主 spec 中已存在；纯新增用 `ADDED`
+- 每个 Requirement 至少一个 Scenario
+- 归档后 change → `openspec/changes/archive/YYYY-MM-DD-<name>/`
+
+### 错误码速查
+
+| 错误码 | HTTP | 含义 |
+|--------|------|------|
+| 10200 | 401 | 缺少 Authorization 头 |
+| 10201 | 403 | 知识库不属于当前租户 |
+| 10500 | 502 | Embedder 失败 |
+| 20005 | 429 | API 限流（原 20002） |
+| 20013 | 403 | 套餐不支持此功能 |
+| 20014 | 429 | 配额超限 |
+
+## 开发经验（query-semantic-optimization）
 
 ### 词表管理
 
 ```bash
-# 覆盖写入
 uv run python scripts/update_kb_settings.py --kb-id kb_xxx --settings-file kb_settings.json
-# 增量合并（去重）
 uv run python scripts/update_kb_settings.py --kb-id kb_xxx --merge --settings-file new.json
-# 删除词组
 uv run python scripts/update_kb_settings.py --kb-id kb_xxx --remove-terms 背调 薪酬
 ```
 
-上传文档后自动触发 LLM 提取术语 → 合并词表。（见 `composition.py` `SynonymSyncUploadUseCase`）
+上传文档后自动触发 LLM 提取术语 → 合并词表（`composition.py` `SynonymSyncUploadUseCase`）。
 
-### openspec archive 验证规则
+## 开发经验（tenant-plan-system）
 
-- delta spec 正文必须含 `SHALL` 或 `MUST`
-- `MODIFIED` 操作要求主 spec 已存在；新 spec 用 `ADDED`
-- proposal requirements 同样需要 SHALL/MUST
-
-## 开发经验（tenant-plan-system 变更沉淀）
-
-### 租户套餐系统架构
+### 架构
 
 ```
 请求 → TenantContext(plan) → Router 层 profile 展开 → uc.execute()
@@ -276,55 +288,27 @@ uv run python scripts/update_kb_settings.py --kb-id kb_xxx --remove-terms 背调
                             QuotaService(DB 库数/文档数/并发)
 ```
 
-核心模块：
-- `src/ragnexus/tenant/plan_presets.py` — 三档 PLAN_PRESETS 常量
-- `src/ragnexus/tenant/retrieve_presets.py` — 四档 profile 展开规则
-- `src/ragnexus/tenant/plan_resolver.py` — PlanContext 纯函数
-- `src/ragnexus/services/rate_limit_service.py` — Redis 限流
-- `src/ragnexus/services/quota_service.py` — DB 配额
+核心模块：`tenant/` + `services/`；Plan 通过 `get_by_hash()` JOIN 带回，零额外 DB 查询。
 
-### Plan 通过 JOIN 带回，零额外查询
-
-```python
-# adapters/tenant/pg.py — get_by_hash()
-SELECT ... t.plan AS tenant_plan
-FROM api_keys ak JOIN tenants t ON t.id = ak.tenant_id
-```
-
-### Redis 限流 Key 格式
+### Redis 限流 Key
 
 ```
-QPS:    rag:ratelimit:retrieve:{tid}:{unix_sec}  TTL 2s
-日配额: rag:quota:retrieve:daily:{tid}:{YYYYMMDD} TTL 25h
+QPS:    rag:ratelimit:retrieve:{tid}:{unix_sec}     TTL 2s
+日配额: rag:quota:retrieve:daily:{tid}:{YYYYMMDD}   TTL 25h
 ```
 
 日配额仅在检索成功后 INCR，失败/拒绝不计数。
 
-### 新增错误码
+### 前端 profile
 
-| 错误码 | HTTP | 含义 |
-|--------|------|------|
-| 20005 | 429 | API 限流（从 20002 改来） |
-| 20013 | 403 | 套餐不支持此功能 |
-| 20014 | 429 | 配额超限 |
+中文名: speed→追求速度, balanced→均衡, quality→追求质量, custom→自定义。
+置灰: Tab 用 `allowed_profiles`；custom 内 hybrid/rerank/rewrite 按 plan ceiling。
+`_FALLBACK_TENANT.plan = "pro"`（AUTH_ENABLED=false）。
 
-### 前端 profile 选择器
-
-检索页 profile Tab 通过 `planInfo.features.allowed_profiles` 控制置灰，custom 模式下 hybrid/rerank/rewrite 按 plan ceiling 单独禁用。
-Profile 中文名映射: speed→追求速度, balanced→均衡, quality→追求质量, custom→自定义。
-
-### 运维脚本
+### 运维
 
 ```bash
 uv run python scripts/update_tenant_plan.py --tenant-id <id> --plan <free|standard|pro>
 ```
 
-### 接入文档
-
-`docs/tenant-onboarding.md` — Plan 对照表、Profile 说明、错误码表、curl 示例。
-
-### openspec 归档注意
-
-- `MODIFIED` 要求 header 在主 spec 中存在；新增内容用 `ADDED`
-- 每个 Requirement 必须至少一个 Scenario
-- 归档后 change 移入 `openspec/changes/archive/YYYY-MM-DD-<name>/`
+接入文档: `docs/tenant-onboarding.md`。
