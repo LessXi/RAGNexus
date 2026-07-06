@@ -22,7 +22,7 @@
 ## Phase 3: 反馈 API
 
 - [x] 3.1 core/errors.py 新增 20020/20021/20022 错误码
-- [ ] 3.2 新增 schemas/feedback.py（FeedbackRequest, FeedbackData）
+- [x] 3.2 新增 schemas/feedback.py（FeedbackRequest, FeedbackData）
 - [ ] 3.3 新增 services/feedback_service.py（校验归属 + Langfuse score 写入，复用 get_langfuse_client()）
 - [ ] 3.4 新增 adapters/http/feedback_router.py（POST /v1/rag/feedback）
 - [ ] 3.5 composition.py 注册 feedback_router
