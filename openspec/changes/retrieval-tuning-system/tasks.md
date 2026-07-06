@@ -39,7 +39,7 @@
 
 - [x] 5.1 pyproject.toml optional-dependencies 新增 eval 组（ragas>=0.2.0 + datasets>=2.0.0）
 - [x] 5.2 新建 eval/datasets/ 和 eval/reports/ 目录，.gitignore 新增 eval/reports/
-- [ ] 5.3 新建 data/ecommerce/ 目录 + 种子文档
+- [x] 5.3 新建 data/ecommerce/ 目录 + 种子文档
 - [ ] 5.4 新建 eval/datasets/_seed_ecommerce.json（5~10 条手工种子）
 - [ ] 5.5 用 create_api_key.py 创建 eval 专用 API Key（租户名 eval_runner）
 - [ ] 5.6 新建 scripts/export_eval_cases_from_langfuse.py（5 个 argparse 参数，--merge 去重，httpx trust_env=False）
