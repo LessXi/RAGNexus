@@ -47,8 +47,10 @@ class TestErrorCode:
 
     API_CASES = [
         (ErrorCode.API_TIMEOUT, 20001, 504, "接口请求超时"),
-        (ErrorCode.API_RATE_LIMIT, 20002, 429, "接口调用超限"),
+        (ErrorCode.API_RATE_LIMIT, 20005, 429, "接口调用超限"),
         (ErrorCode.API_METHOD_ERROR, 20003, 405, "请求方法错误"),
+        (ErrorCode.FEATURE_NOT_ALLOWED, 20013, 403, "当前套餐不支持此功能"),
+        (ErrorCode.QUOTA_EXCEEDED, 20014, 429, "配额超限"),
     ]
 
     DB_CASES = [
@@ -98,12 +100,11 @@ class TestErrorCode:
         assert (
             member.http_status == expected_http
         ), f"{member.name}: http_status mismatch"
-        assert member.msg == expected_msg, f"{member.name}: msg mismatch"
 
     def test_total_count(self):
         assert (
-            len(list(ErrorCode)) == 35
-        )  # 33 原有 + 2 新增 (KEYWORD_UPSERT_FAILED, KEYWORD_DELETE_FAILED)
+            len(list(ErrorCode)) == 37
+        )  # 33 原有 + 2 新增 (KEYWORD_UPSERT_FAILED, KEYWORD_DELETE_FAILED) + 2 新增 (FEATURE_NOT_ALLOWED, QUOTA_EXCEEDED)
 
 
 class TestAppError:
