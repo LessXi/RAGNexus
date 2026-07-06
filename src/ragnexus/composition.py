@@ -63,6 +63,7 @@ from ragnexus.application.kb_delete_uc import KnowledgeBaseDeleteUseCase
 from ragnexus.services.rate_limit_service import RateLimitService
 from ragnexus.services.quota_service import QuotaService
 from ragnexus.config import get_settings
+from ragnexus.observability import get_langfuse_client
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import LoggedPool, logger, setup_logging
 from ragnexus.domain.chunking import heading_aware_split
@@ -659,4 +660,9 @@ def build_app() -> FastAPI:
     register_error_handlers(app)
     app.add_middleware(LoggingMiddleware)
     app.middleware_stack = app.build_middleware_stack()
+
+    # 初始化 langfuse_client 单例（LANGFUSE_ENABLED=false 时返回零开销 disabled 实例）
+    settings = get_settings()
+    app.state.langfuse_client = get_langfuse_client(settings)
+
     return app
