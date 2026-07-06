@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import TYPE_CHECKING
 
 from langfuse import Langfuse
@@ -26,6 +27,11 @@ class RetrieveObservability:
     def __init__(self, enabled: bool, client: Langfuse | None = None) -> None:
         self._enabled = enabled
         self._client = client
+
+    @property
+    def enabled(self) -> bool:
+        """Langfuse 是否可用。"""
+        return self._enabled and self._client is not None
 
     def create_trace(self, name: str, metadata: dict | None = None) -> dict | None:
         """创建 Langfuse trace。
@@ -95,6 +101,34 @@ class RetrieveObservability:
             trace["trace"].update()
         except Exception as e:
             logger.warning(f"Failed to end Langfuse trace: {e}")
+
+    def create_score(
+        self,
+        trace_id: str,
+        name: str,
+        value: float,
+        comment: str | None = None,
+    ) -> str | None:
+        """创建 Langfuse score（如用户反馈评分），自生成 score ID。
+
+        Returns:
+            score id 字符串，失败或 disabled 返回 None。
+        """
+        if not self._enabled or not self._client:
+            return None
+        try:
+            score_id = uuid.uuid4().hex
+            self._client.score(
+                trace_id=trace_id,
+                id=score_id,
+                name=name,
+                value=value,
+                comment=comment,
+            )
+            return score_id
+        except Exception as e:
+            logger.warning(f"Failed to create Langfuse score: {e}")
+            return None
 
 
 def get_langfuse_client(settings: Settings) -> RetrieveObservability:
