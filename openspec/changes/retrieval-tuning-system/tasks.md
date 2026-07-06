@@ -4,7 +4,7 @@
 
 - [x] 1.0 确认 Alembic 已初始化（否则先执行 alembic init）
 - [x] 1.1 docker-compose.yml 新增 langfuse + langfuse-db service（含 NEXTAUTH_SECRET + langfusedata volume）
-- [ ] 1.2 config.py 新增 LANGFUSE_ENABLED/HOST/PUBLIC_KEY/SECRET_KEY 配置项
+- [x] 1.2 config.py 新增 LANGFUSE_ENABLED/HOST/PUBLIC_KEY/SECRET_KEY 配置项
 - [ ] 1.3 .env 和 .env.example 补充 LANGFUSE_* 变量
 - [ ] 1.4 pyproject.toml 新增 langfuse>=2.0.0,<3.0.0 依赖
 - [ ] 1.5 新增 src/ragnexus/observability/__init__.py + langfuse_client.py（RetrieveObservability + get_langfuse_client() + 静默逻辑）
