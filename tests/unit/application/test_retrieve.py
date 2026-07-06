@@ -167,6 +167,15 @@ async def test_retrieve_success(
     await asyncio.sleep(0.01)  # yield to let the fire-and-forget task run
     mock_log_port.log.assert_awaited_once()
 
+    # 验证新增字段传入 log_port.log()
+    log_kwargs = mock_log_port.log.await_args.kwargs
+    assert log_kwargs["log_id"] == ""
+    assert log_kwargs["tenant_id"] == "test-tenant"
+    assert log_kwargs["trace_id"] == ""
+    assert log_kwargs["profile"] == ""
+    assert log_kwargs["search_query"] == "test query"
+    assert log_kwargs["effective_query"] == "test query"
+
 
 @pytest.mark.asyncio
 async def test_retrieve_logs_biz_event(

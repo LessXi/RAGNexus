@@ -1,8 +1,8 @@
 """RetrieveUseCase — 校验查询、嵌入向量、搜索向量库、异步记录日志。"""
 
 import asyncio
-import os
 import json
+import os
 import time
 
 from ragnexus.adapters.rewrite.pipeline import QueryPipeline
@@ -63,6 +63,9 @@ class RetrieveUseCase:
         rerank_enabled: bool | None = None,
         rerank_top_n: int = 5,
         query_options: dict | None = None,
+        log_id: str = "",
+        trace_id: str = "",
+        profile: str = "",
     ) -> RetrieveResult:
         """执行检索：校验 → 改写 → 双路召回 → RRF 融合 → 重排 → 返回 RetrieveResult。
 
@@ -141,6 +144,8 @@ class RetrieveUseCase:
         vector_latency_ms = 0
         keyword_latency_ms = 0
         rrf_pool_size = 0
+        search_query = ""
+        effective_query = ""
         try:
             if self._pipeline is not None:
                 # 全局默认来自环境变量 QUERY_REWRITE_ENABLED，请求级 query_options.enabled 优先
@@ -159,17 +164,20 @@ class RetrieveUseCase:
                     synonyms=synonyms,
                     enabled=enabled,
                 )
-                search_query = process_result.search_query
                 query_processing = _serialize_query_processing(process_result)
+                search_query = process_result.search_query
+                effective_query = process_result.effective_query
             elif self._rewriter is not None:
                 rewrite_result = await self._rewriter.rewrite(
                     query=query, kb_ids=kb_ids
                 )
+                query_processing = None
                 search_query = rewrite_result.effective_query
-                query_processing = None
+                effective_query = rewrite_result.effective_query
             else:
-                search_query = query
                 query_processing = None
+                search_query = query
+                effective_query = query
 
             # 3b. 双 embedding: 改写后 query → 向量搜索，原始 query → rerank 缓存匹配
             vectors = await self._embedder.embed([search_query, original_query])
@@ -284,6 +292,12 @@ class RetrieveUseCase:
                     rrf_pool_size=rrf_pool_size,
                     vector_latency_ms=vector_latency_ms,
                     keyword_latency_ms=keyword_latency_ms,
+                    tenant_id=tenant_id,
+                    log_id=log_id,
+                    trace_id=trace_id,
+                    profile=profile,
+                    search_query=search_query,
+                    effective_query=effective_query,
                 )
             )
             task.add_done_callback(self._background_tasks.discard)
@@ -302,6 +316,12 @@ class RetrieveUseCase:
         rrf_pool_size: int = 0,
         vector_latency_ms: int = 0,
         keyword_latency_ms: int = 0,
+        tenant_id: str = "",
+        log_id: str = "",
+        trace_id: str = "",
+        profile: str = "",
+        search_query: str = "",
+        effective_query: str = "",
     ) -> None:
         """Fire-and-forget log call — 异常被捕获并在 debug 级别记录，不中断主流程。"""
         try:
@@ -311,10 +331,15 @@ class RetrieveUseCase:
                 top_k=top_k,
                 hit_count=hit_count,
                 latency_ms=latency_ms,
+                log_id=log_id,
+                tenant_id=tenant_id,
+                trace_id=trace_id,
+                profile=profile,
+                search_query=search_query,
+                effective_query=effective_query,
             )
         except Exception:
             logger.debug("retrieve 日志写入失败", exc_info=True)
-
         # BIZ_EVENT: 检索完成（用户可感知结果 + 外部副作用）
         try:
             logger.info(
