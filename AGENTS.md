@@ -264,3 +264,67 @@ uv run python scripts/update_kb_settings.py --kb-id kb_xxx --remove-terms 背调
 - delta spec 正文必须含 `SHALL` 或 `MUST`
 - `MODIFIED` 操作要求主 spec 已存在；新 spec 用 `ADDED`
 - proposal requirements 同样需要 SHALL/MUST
+
+## 开发经验（tenant-plan-system 变更沉淀）
+
+### 租户套餐系统架构
+
+```
+请求 → TenantContext(plan) → Router 层 profile 展开 → uc.execute()
+                                   ↓
+                            RateLimitService(Redis QPS+日配额)
+                            QuotaService(DB 库数/文档数/并发)
+```
+
+核心模块：
+- `src/ragnexus/tenant/plan_presets.py` — 三档 PLAN_PRESETS 常量
+- `src/ragnexus/tenant/retrieve_presets.py` — 四档 profile 展开规则
+- `src/ragnexus/tenant/plan_resolver.py` — PlanContext 纯函数
+- `src/ragnexus/services/rate_limit_service.py` — Redis 限流
+- `src/ragnexus/services/quota_service.py` — DB 配额
+
+### Plan 通过 JOIN 带回，零额外查询
+
+```python
+# adapters/tenant/pg.py — get_by_hash()
+SELECT ... t.plan AS tenant_plan
+FROM api_keys ak JOIN tenants t ON t.id = ak.tenant_id
+```
+
+### Redis 限流 Key 格式
+
+```
+QPS:    rag:ratelimit:retrieve:{tid}:{unix_sec}  TTL 2s
+日配额: rag:quota:retrieve:daily:{tid}:{YYYYMMDD} TTL 25h
+```
+
+日配额仅在检索成功后 INCR，失败/拒绝不计数。
+
+### 新增错误码
+
+| 错误码 | HTTP | 含义 |
+|--------|------|------|
+| 20005 | 429 | API 限流（从 20002 改来） |
+| 20013 | 403 | 套餐不支持此功能 |
+| 20014 | 429 | 配额超限 |
+
+### 前端 profile 选择器
+
+检索页 profile Tab 通过 `planInfo.features.allowed_profiles` 控制置灰，custom 模式下 hybrid/rerank/rewrite 按 plan ceiling 单独禁用。
+Profile 中文名映射: speed→追求速度, balanced→均衡, quality→追求质量, custom→自定义。
+
+### 运维脚本
+
+```bash
+uv run python scripts/update_tenant_plan.py --tenant-id <id> --plan <free|standard|pro>
+```
+
+### 接入文档
+
+`docs/tenant-onboarding.md` — Plan 对照表、Profile 说明、错误码表、curl 示例。
+
+### openspec 归档注意
+
+- `MODIFIED` 要求 header 在主 spec 中存在；新增内容用 `ADDED`
+- 每个 Requirement 必须至少一个 Scenario
+- 归档后 change 移入 `openspec/changes/archive/YYYY-MM-DD-<name>/`
