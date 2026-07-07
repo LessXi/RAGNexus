@@ -155,6 +155,10 @@ def _patched_lifespan(cfg_overrides: dict[str, Any] | None = None):
         patch("ragnexus.composition.asyncpg.create_pool", mock_create_pool),
         patch("ragnexus.composition.PgVectorStore", return_value=store_inner),
         patch("ragnexus.composition.get_settings", return_value=cfg),
+        patch(
+            "ragnexus.composition.get_langfuse_client",
+            return_value=MagicMock(enabled=False),
+        ),
         patch("ragnexus.composition.setup_logging", return_value=log_listener),
         patch("ragnexus.composition.OpenAICompatEmbedder", return_value=mock_embedder),
         patch(

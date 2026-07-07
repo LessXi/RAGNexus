@@ -1,6 +1,5 @@
 """Celery 应用实例 — 供 Worker 和 Beat 进程使用。"""
 
-import contextlib
 
 from celery import Celery
 

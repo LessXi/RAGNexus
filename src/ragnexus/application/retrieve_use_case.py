@@ -1,8 +1,8 @@
 """RetrieveUseCase — 校验查询、嵌入向量、搜索向量库、异步记录日志。"""
 
 import asyncio
-import os
 import json
+import os
 import time
 
 from ragnexus.adapters.rewrite.pipeline import QueryPipeline

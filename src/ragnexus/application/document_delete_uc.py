@@ -5,8 +5,8 @@ from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import DocStatus
 from ragnexus.domain.ports import (
     DocumentPort,
-    KnowledgeBasePort,
     KeywordSearchPort,
+    KnowledgeBasePort,
     VectorStorePort,
 )
 

@@ -4,6 +4,7 @@
 """
 
 import json
+
 import asyncpg
 from nanoid import generate as nanoid_generate
 

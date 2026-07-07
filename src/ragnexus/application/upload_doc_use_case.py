@@ -19,12 +19,12 @@ from typing import TYPE_CHECKING
 
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import logger
-from ragnexus.domain.models import Chunk, DocStatus, UploadResult
+from ragnexus.domain.models import DocStatus, UploadResult
 from ragnexus.domain.ports import (
     DocumentPort,
     EmbedderPort,
-    KnowledgeBasePort,
     KeywordSearchPort,
+    KnowledgeBasePort,
     ParserPort,
     VectorStorePort,
 )

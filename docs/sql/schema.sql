@@ -49,7 +49,13 @@ CREATE TABLE IF NOT EXISTS retrieve_logs (
     top_k        INTEGER NOT NULL,
     hit_count    INTEGER NOT NULL,
     latency_ms   INTEGER NOT NULL,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    log_id          VARCHAR(24) UNIQUE,
+    tenant_id       TEXT,
+    trace_id        VARCHAR(64),
+    profile         VARCHAR(32),
+    search_query    TEXT,
+    effective_query TEXT
 );
 
 CREATE INDEX IF NOT EXISTS retrieve_logs_created_at_idx ON retrieve_logs (created_at DESC);

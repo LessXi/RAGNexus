@@ -3,10 +3,10 @@
 含 plan 策略层：profile 校验 → profile 展开 → QPS 限流 → 检索 → 日计数 +1。
 """
 
-from nanoid import generate as nanoid_generate
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
+from nanoid import generate as nanoid_generate
 from pydantic import BaseModel, Field
 
 from ragnexus.core.auth import TenantContext
