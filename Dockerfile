@@ -13,6 +13,8 @@ COPY . .
 
 # Install the project package
 RUN uv pip install --python .venv/bin/python -e . --no-deps
+# Install parsers optional dependencies (mammoth for .docx, pymupdf for .pdf)
+RUN uv pip install --python .venv/bin/python ".[parsers]"
 ENV PYTHONPATH=/app/src
 
 EXPOSE 8000

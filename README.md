@@ -27,6 +27,15 @@ psql -U your_user -d your_db -f docs/sql/schema.sql
 ```bash
 uv sync
 ```
+>
+> **可选依赖**：如需解析 `.docx` / `.pdf` 格式文档，额外安装：
+> ```bash
+> uv sync --extra parsers
+> ```
+> 或使用 pip：
+> ```bash
+> pip install -e ".[parsers]"
+> ```
 
 ### 4. 配置环境变量
 
