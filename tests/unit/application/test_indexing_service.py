@@ -12,6 +12,8 @@ def _make_doc(
     doc_id: str = "doc_abc",
     status: DocStatus = DocStatus.PROCESSING,
     content: str = "# Title\n\nContent.",
+    source_file_path: str | None = None,
+    source_filename: str | None = None,
 ) -> Document:
     """工厂：构造测试用 Document。"""
     return Document(
@@ -23,6 +25,8 @@ def _make_doc(
         content_type="text/markdown",
         content=content,
         status=status,
+        source_file_path=source_file_path,
+        source_filename=source_filename,
     )
 
 
@@ -482,3 +486,55 @@ class TestPurgeDocumentChunks:
         await purge_document_chunks("doc_abc", store, ks)
 
         ks.delete_by_document.assert_awaited_once_with("doc_abc")
+
+
+# ── _prepare_and_parse 路径 ─────────────────────────────────────────────
+
+
+class TestPrepareAndParse:
+    """_prepare_and_parse 路径测试。"""
+
+    @pytest.mark.asyncio
+    async def test_binary_file_path_taken(
+        self, mock_doc_repo, mock_parser, mock_embedder, mock_chunker, mock_store
+    ):
+        """source_file_path 存在且 content 为空时走 _prepare_and_parse。"""
+        mock_registry = MagicMock()
+        mock_registry.get_parser = MagicMock(return_value=mock_parser)
+        mock_fs = MagicMock()
+        mock_fs.read = AsyncMock(return_value=b"fake binary")
+        mock_doc_repo.update_content = AsyncMock()
+
+        doc = _make_doc(
+            doc_id="doc_bin",
+            status=DocStatus.PROCESSING,
+            source_file_path="/data/doc_bin/report.docx",
+            source_filename="report.docx",
+        )
+        doc.content = ""  # 空 content 触发二进制路径
+        mock_doc_repo.get.return_value = doc
+        mock_parser.parse.return_value = ParsedDocument(
+            filename="report.docx",
+            sections=[Section(heading="Ch1", level=1, content="Hello")],
+            raw_text="Hello",
+            source_type="docx",
+        )
+        mock_chunker.return_value = [
+            {"text": "Hello", "heading": "Ch1", "heading_level": 1}
+        ]
+        mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
+
+        svc = IndexingService(
+            doc_repo=mock_doc_repo,
+            parser=mock_parser,
+            embedder=mock_embedder,
+            chunker=mock_chunker,
+            store=mock_store,
+            parser_registry=mock_registry,
+            file_storage=mock_fs,
+        )
+        await svc.execute("doc_bin")
+
+        mock_fs.read.assert_awaited_once_with("/data/doc_bin/report.docx")
+        mock_registry.get_parser.assert_called_once_with("report.docx")
+        mock_doc_repo.update_content.assert_awaited_once()
