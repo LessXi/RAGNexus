@@ -1,4 +1,4 @@
-"""DocumentReindexUseCase — 重新索引文档（仅 FAILED 状态允许）。"""
+"""DocumentReindexUseCase — 重新索引文档（SUCCESS/FAILED 允许，PROCESSING 拒绝）。"""
 
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import DocStatus
@@ -18,10 +18,10 @@ class DocumentReindexUseCase:
         kb = await self._kb_repo.get(doc.kb_id)
         if kb is None or kb.tenant_id != tenant_id:
             raise AppError(ErrorCode.NOT_FOUND, "文档不存在")
-        if doc.status != DocStatus.FAILED:
+        if doc.status == DocStatus.PROCESSING:
             raise AppError(
                 ErrorCode.RESOURCE_CONFLICT,
-                "仅 FAILED 状态的文档允许重新索引",
+                "文档正在处理中，请稍后重试",
                 errors=[{"field": "status", "reason": f"当前状态: {doc.status.name}"}],
             )
         await self._doc_repo.update_status(
