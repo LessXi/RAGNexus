@@ -36,6 +36,8 @@ class ParsedDocument:
     filename: str
     sections: list[Section]
     raw_text: str  # full text for fallback splitting
+    source_type: str = "text"  # 新增: text | markdown | docx | pdf
+    metadata: dict = field(default_factory=dict)  # 新增: parser 元信息
 
 
 @dataclass
@@ -82,6 +84,8 @@ class Document:
     content: str
     status: DocStatus = DocStatus.PROCESSING
     chunk_count: int = 0
+    source_file_path: str | None = None  # 新增 — 原文件磁盘路径
+    source_filename: str | None = None  # 新增 — 原始文件名
     error_message: str | None = None
     uploaded_at: datetime | None = None
     updated_at: datetime | None = None

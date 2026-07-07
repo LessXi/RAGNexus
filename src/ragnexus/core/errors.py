@@ -67,6 +67,7 @@ class ErrorCode(IntEnum):
     FEEDBACK_SERVICE_UNAVAILABLE = (20020, 503, "反馈服务不可用")
     FEEDBACK_UNAUTHORIZED = (20021, 403, "无权操作该反馈记录")
     FEEDBACK_INVALID_SCORE = (20022, 422, "评分超出允许范围")
+    DOCUMENT_PARSE_FAILED = (20023, 422, "文档解析失败")
     # 数据库与存储 (30000~30999)
     DB_ERROR = (30001, 500, "数据库操作失败")
     DB_CONNECTION_ERROR = (30002, 503, "数据库连接失败")
