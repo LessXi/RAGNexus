@@ -43,8 +43,13 @@ class Settings(BaseSettings):
     # Chunking
     CHUNK_MAX_CHARS: int = 1500
     CHUNK_OVERLAP: int = 50
-    MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
-
+    DOCUMENT_STORAGE_PATH: str = Field(
+        default="./data/uploads", description="上传文件存储根目录"
+    )
+    DOCUMENT_MAX_SIZE_MB: int = Field(
+        default=20, description="单个文档最大体积（MB），与 MAX_FILE_SIZE 联动"
+    )
+    MAX_FILE_SIZE: int = 20 * 1024 * 1024  # 20MB（由 DOCUMENT_MAX_SIZE_MB 换算）
     # LLM 通用配置（被 Rerank 和 Rewrite 共享）
     LLM_BASE_URL: str = "https://opencode.ai/zen/v1"
     LLM_API_KEY: str = ""

@@ -102,7 +102,9 @@ class TestUploadDocument:
         assert result.doc_id == expected_hash
 
         # Celery task 已投递
-        mock_task.apply_async.assert_called_once_with(args=[expected_hash], ignore_result=True)
+        mock_task.apply_async.assert_called_once_with(
+            args=[expected_hash], ignore_result=True
+        )
 
         # store.upsert 在 IndexingService 中异步调用，此处不验证
 
@@ -139,7 +141,7 @@ class TestUploadDocument:
     @pytest.mark.asyncio
     async def test_file_too_large(self, use_case):
         """File exceeding MAX_FILE_SIZE raises PayloadTooLargeError."""
-        file_bytes = b"x" * (10 * 1024 * 1024 + 1)
+        file_bytes = b"x" * (20 * 1024 * 1024 + 1)
         with pytest.raises(AppError) as exc:
             await use_case.execute(
                 kb_id="kb_test123",

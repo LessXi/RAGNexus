@@ -44,7 +44,7 @@ class UploadDocumentUseCase:
         embedder: EmbedderPort,
         chunker: Callable[..., list[dict]],
         store: VectorStorePort,
-        max_file_size: int = 10 * 1024 * 1024,
+        max_file_size: int = 20 * 1024 * 1024,  # 20MB（原 10 * 1024 * 1024）
         allowed_exts: tuple[str, ...] = (".md", ".txt"),
         chunk_max_chars: int = 1500,
         chunk_overlap: int = 50,

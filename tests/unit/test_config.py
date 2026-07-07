@@ -16,6 +16,9 @@ def test_defaults(monkeypatch):
     monkeypatch.delenv("REWRITE_ENABLED", raising=False)
     monkeypatch.delenv("AUTH_ENABLED", raising=False)
     monkeypatch.delenv("EMBED_BATCH_SIZE", raising=False)
+    monkeypatch.delenv("MAX_FILE_SIZE", raising=False)
+    monkeypatch.delenv("DOCUMENT_STORAGE_PATH", raising=False)
+    monkeypatch.delenv("DOCUMENT_MAX_SIZE_MB", raising=False)
     s = Settings(_env_file=None)  # type: ignore[call-arg]  # 跳过 .env，仅测试默认值
 
     # ---- 现有字段 ----
@@ -34,7 +37,9 @@ def test_defaults(monkeypatch):
     assert s.EMBED_MAX_RETRIES == 3
     assert s.CHUNK_MAX_CHARS == 1500
     assert s.CHUNK_OVERLAP == 50
-    assert s.MAX_FILE_SIZE == 10 * 1024 * 1024  # 10MB
+    assert s.DOCUMENT_STORAGE_PATH == "./data/uploads"
+    assert s.DOCUMENT_MAX_SIZE_MB == 20
+    assert s.MAX_FILE_SIZE == 20 * 1024 * 1024  # 20MB
     assert s.EMBED_REQUEST_TIMEOUT == 30.0
     assert s.EMBED_CONNECT_TIMEOUT == 5.0
     assert s.EMBED_RETRY_BACKOFF_BASE == 2.0
