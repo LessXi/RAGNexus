@@ -78,6 +78,7 @@ services:
       - NEXTAUTH_URL=http://localhost:3000
       - NEXTAUTH_SECRET=2132220172f966cf1c69ba2603d3c79a31c6f6a29a6019288b3b66f01f019409
       - ENCRYPTION_KEY=032486f1f3a54ad8e573ebd3ed40381acaacf048dbdebaf4c84c8e8c7d896b09
+      - SALT=032486f1f3a54ad8e573ebd3ed40381acaacf048dbdebaf4c84c8e8c7d896b09
     depends_on:
       langfuse-db:
         condition: service_healthy

@@ -10,7 +10,7 @@ class FeedbackRequest(BaseModel):
 
     trace_id: str = Field(..., description="Langfuse trace ID，必填")
     log_id: str | None = Field(None, description="检索日志 ID，建议提供")
-    score: int = Field(..., ge=1, le=5, description="评分 1~5")
+    score: int = Field(..., description="评分 1~5")
     comment: str | None = Field(None, max_length=1000, description="备注，可选")
 
 

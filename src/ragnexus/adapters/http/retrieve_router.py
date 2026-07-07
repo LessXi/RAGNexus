@@ -178,6 +178,7 @@ def create_router(
                 rerank_top_n=effective_rerank_top_n,
                 query_options=effective_query_options_dict,
                 log_id=log_id,
+                trace_id=trace["id"] if trace else "",
             )
 
             # ── Langfuse Spans (fire-and-forget) ───────────────────────────

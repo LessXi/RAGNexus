@@ -64,6 +64,7 @@ class RetrieveUseCase:
         rerank_top_n: int = 5,
         query_options: dict | None = None,
         log_id: str = "",
+        trace_id: str = "",
     ) -> RetrieveResult:
         """执行检索：校验 → 改写 → 双路召回 → RRF 融合 → 重排 → 返回 RetrieveResult。
 
@@ -286,8 +287,8 @@ class RetrieveUseCase:
                     vector_latency_ms=vector_latency_ms,
                     keyword_latency_ms=keyword_latency_ms,
                     log_id=log_id,
-                    tenant_id="",
-                    trace_id="",
+                    tenant_id=tenant_id,
+                    trace_id=trace_id,
                     profile="",
                     search_query="",
                     effective_query="",
@@ -310,8 +311,8 @@ class RetrieveUseCase:
         vector_latency_ms: int = 0,
         keyword_latency_ms: int = 0,
         log_id: str = "",
-        tenant_id: str = "",
         trace_id: str = "",
+        tenant_id: str = "",
         profile: str = "",
         search_query: str = "",
         effective_query: str = "",
