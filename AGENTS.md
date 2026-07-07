@@ -264,6 +264,9 @@ uv pip show ragnexus | findstr Editable  # 验证
 | 20005 | 429 | API 限流（原 20002） |
 | 20013 | 403 | 套餐不支持此功能 |
 | 20014 | 429 | 配额超限 |
+| 20020 | 503 | 反馈服务不可用 (Langfuse) |
+| 20021 | 403 | 反馈无权操作 |
+| 20022 | 422 | 反馈评分越界 (1-5) |
 
 ## 开发经验（query-semantic-optimization）
 
@@ -312,3 +315,92 @@ uv run python scripts/update_tenant_plan.py --tenant-id <id> --plan <free|standa
 ```
 
 接入文档: `docs/tenant-onboarding.md`。
+
+## 开发经验（retrieval-tuning-system）
+
+### 架构
+
+```
+请求 → Router (trace + log_id 预生成) → UseCase → LogPort → retrieve_logs
+  │                                                    │
+  └─ Langfuse (旁路, fire-and-forget)                   └─ FeedbackService (校验归属)
+```
+
+### Langfuse 自托管
+
+```bash
+docker compose up -d langfuse  # 独立 Postgres + langfuse/langfuse:2
+```
+
+**必须配置的环境变量**: `NEXTAUTH_URL`, `NEXTAUTH_SECRET`, `ENCRYPTION_KEY`, **`SALT`**（v2 版本必需，与 ENCRYPTION_KEY 同值即可）。
+
+首次使用需浏览器访问 `http://localhost:3000` 注册账户 → 创建 Org → 创建 Project → 获取 API Keys。
+
+### trace_id + tenant_id 全链路传递
+
+```
+Router:  trace = langfuse_client.create_trace()  → trace["id"]
+         uc.execute(trace_id=trace["id"], ...)
+UseCase: _safe_log(trace_id=trace_id, tenant_id=tenant_id, ...)
+LogPort: INSERT INTO retrieve_logs (trace_id, tenant_id, ...)
+```
+
+**教训**: 每个环节都必须显式传递，不能依赖默认空值。feedback API 通过 `WHERE log_id=$1 AND tenant_id=$2 AND trace_id=$3` 校验归属，任一字段为空都会导致 20021。
+
+### feedback schema 设计取舍
+
+`FeedbackRequest.score` 的 `ge=1, le=5` 校验有两种实现位置：
+- **Pydantic schema 层**: 快速失败，返回 422/10001
+- **Service 层**: 返回业务错误码 20022 (FEEDBACK_INVALID_SCORE)
+
+选择 service 层校验（schema 不加 ge/le），确保错误码一致性。Pydantic 拦截会先于 service 生效，使得 20022 永不可达。
+
+### 容器重建
+
+修改 `src/` 下任何 Python 代码后：
+```bash
+docker compose build app && docker compose up -d app
+```
+
+### 数据库迁移
+
+Docker 容器内没有 `alembic` CLI，migration 通过 `init-db` 服务在首次启动时执行。如需手动加列：
+```bash
+docker exec ragnexus-db-1 psql -U ragnexus -d ragnexus -c "ALTER TABLE ..."
+```
+
+### 预置测试失败处理原则
+
+从第一性原理判断测试是否测试了正确的抽象层级：
+- **同层修复**: mock 名变了但行为不变 → 更新 mock (如 `delay()` → `apply_async()`)
+- **层级错位**: 测试了不该在此层测的行为 → 删除，标注应测的层级 (如双写逻辑在 IndexingService 而非 UploadUseCase)
+- **skip 是技术债务**: 必须写清楚原因和待办
+
+### 新增错误码
+
+```python
+FEEDBACK_SERVICE_UNAVAILABLE = 20020  # Langfuse 不可用
+FEEDBACK_UNAUTHORIZED = 20021         # 租户无权
+FEEDBACK_INVALID_SCORE = 20022        # 评分越界 (1-5)
+```
+
+### 新增路由
+
+| 方法 | 路径 | 文件 |
+|------|------|------|
+| POST | /v1/rag/feedback | `adapters/http/feedback_router.py` |
+| - | /v1/rag:retrieve (扩展) | `adapters/http/retrieve_router.py` |
+
+### 新增脚本
+
+| 脚本 | 用途 |
+|------|------|
+| `scripts/export_eval_cases_from_langfuse.py` | 导出低分反馈为 golden set |
+| `scripts/run_retrieval_eval.py` | RAGAS 评估 context_precision + context_recall |
+
+### Comet 归档后注意事项
+
+- 归档脚本会 `git add -f` openspec 和 docs/superpowers（这些目录在 .gitignore 中）
+- 归档后 change 目录移动到 `openspec/changes/archive/YYYY-MM-DD-<name>/`
+- Design doc 和 plan 会被标注 `archived-with` 元数据
+- 归档成功后不要对原 change 名运行 guard
