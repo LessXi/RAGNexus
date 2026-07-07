@@ -17,7 +17,7 @@ def _make_doc(
     return Document(
         doc_id=doc_id,
         kb_id="kb_test",
-        filename="test.md",
+        filename="test.txt",
         file_hash="abc123",
         file_size=100,
         content_type="text/markdown",

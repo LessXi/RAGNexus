@@ -623,6 +623,19 @@ export default function RetrievePage() {
                       )}
                     </div>
 
+
+                    {/* 结构化切块元信息 */}
+                    {(hit.metadata?.heading_path || hit.metadata?.chunk_type) && (
+                      <div className="mb-2 flex gap-4 rounded bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground">
+                        {hit.metadata.heading_path && (
+                          <span>所属章节：{hit.metadata.heading_path}</span>
+                        )}
+                        {hit.metadata.chunk_type && (
+                          <span>块类型：{hit.metadata.chunk_type}</span>
+                        )}
+                      </div>
+                    )}
+
                     {/* 内容 */}
                     <div className="mb-2">
                       <p className="whitespace-pre-wrap text-sm text-muted-foreground leading-relaxed">

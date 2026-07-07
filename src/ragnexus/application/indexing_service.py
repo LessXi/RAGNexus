@@ -25,8 +25,9 @@ class IndexingService:
         self,
         doc_repo: DocumentPort,
         parser: ParserPort,
-        chunker: Callable[..., list[dict]] | None = None,
+        embedder: EmbedderPort,
         store: VectorStorePort,
+        chunker: Callable[..., list[dict]] | None = None,
         keyword_store: KeywordSearchPort | None = None,
         es_enabled: bool = False,
         chunk_max_chars: int = 1500,
@@ -58,6 +59,7 @@ class IndexingService:
             )
             return
 
+        try:
             # 1. Parse — 仅 .txt 需要预解析
             if doc.filename.endswith(".md"):
                 parsed = None
@@ -72,28 +74,37 @@ class IndexingService:
             # 2. Chunk — 按扩展名分流
             if doc.filename.endswith(".md"):
                 from ragnexus.infra.structchunk_bridge import chunk_markdown
+
                 chunk_dicts = chunk_markdown(
                     doc.content,
                     max_chars=self._chunk_max_chars,
                     table_max_rows=self._table_max_rows_per_chunk,
                 )
             else:
-                # .txt 回退: fixed_size_split
-                from ragnexus.domain.chunking import fixed_size_split
-                texts = fixed_size_split(
-                    parsed.raw_text, self._chunk_max_chars, self._chunk_overlap
-                )
-                chunk_dicts = [
-                    {
-                        "text": t,
-                        "heading_path": "",
-                        "chunk_type": "text",
-                        "heading": None,
-                        "heading_level": 0,
-                    }
-                    for t in texts
-                    if t.strip()
-                ]
+                # .txt 回退: 优先用注入的 chunker，否则用 fixed_size_split
+                if self._chunker is not None:
+                    chunk_dicts = self._chunker(
+                        parsed,
+                        max_chars=self._chunk_max_chars,
+                        overlap=self._chunk_overlap,
+                    )
+                else:
+                    from ragnexus.domain.chunking import fixed_size_split
+
+                    texts = fixed_size_split(
+                        parsed.raw_text, self._chunk_max_chars, self._chunk_overlap
+                    )
+                    chunk_dicts = [
+                        {
+                            "text": t,
+                            "heading_path": "",
+                            "chunk_type": "text",
+                            "heading": None,
+                            "heading_level": 0,
+                        }
+                        for t in texts
+                        if t.strip()
+                    ]
 
             if not chunk_dicts:
                 await self._doc_repo.update_status(
@@ -126,7 +137,11 @@ class IndexingService:
                         "chunk_type": cd.get("chunk_type", "section"),
                         "heading": cd.get("heading"),
                         "heading_level": cd.get("heading_level", 0),
-                        **({"table_part": cd["table_part"]} if cd.get("table_part") else {}),
+                        **(
+                            {"table_part": cd["table_part"]}
+                            if cd.get("table_part")
+                            else {}
+                        ),
                     },
                 )
                 for i, cd in enumerate(chunk_dicts)

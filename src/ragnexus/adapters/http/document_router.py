@@ -41,10 +41,10 @@ def create_document_router(
         return {"code": 0, "data": None, "message": "ok"}
 
     @router.post("/v1/documents/{doc_id}/reindex")
-        """重新索引文档 — SUCCESS/FAILED 状态允许，PROCESSING 拒绝重入。"""
     async def reindex_document(
         doc_id: str, current_tenant: TenantContext = Depends(get_current_tenant)
     ):
+        """重新索引文档 — SUCCESS/FAILED 状态允许，PROCESSING 拒绝重入。"""
         if quota_svc:
             await quota_svc.check_processing(
                 current_tenant.tenant_id, current_tenant.plan
