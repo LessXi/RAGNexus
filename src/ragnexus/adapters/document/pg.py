@@ -16,7 +16,8 @@ class PgDocumentRepository:
     async def get(self, doc_id: str) -> Document | None:
         row = await self.pool.fetchrow(
             "SELECT doc_id, kb_id, filename, file_hash, file_size, "
-            "content_type, content, status, chunk_count, "
+            "content_type, content, source_file_path, source_filename, "
+            "status, chunk_count, "
             "error_message, uploaded_at, updated_at "
             "FROM documents WHERE doc_id = $1",
             doc_id,
@@ -33,19 +34,32 @@ class PgDocumentRepository:
             content=row["content"] or "",
             status=DocStatus(row["status"]),
             chunk_count=row["chunk_count"] or 0,
+            source_file_path=row["source_file_path"],
+            source_filename=row["source_filename"],
             error_message=row["error_message"],
             uploaded_at=row["uploaded_at"],
             updated_at=row["updated_at"],
         )
 
     async def create(
-        self, *, doc_id, kb_id, filename, file_hash, file_size, content_type, content
+        self,
+        *,
+        doc_id,
+        kb_id,
+        filename,
+        file_hash,
+        file_size,
+        content_type,
+        content,
+        source_file_path=None,
+        source_filename=None,
     ) -> Document:
         now = datetime.now(UTC)
         await self.pool.execute(
             "INSERT INTO documents (doc_id, kb_id, filename, file_hash, "
-            "file_size, content_type, content, status, chunk_count, uploaded_at, updated_at) "
-            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+            "file_size, content_type, content, source_file_path, source_filename, "
+            "status, chunk_count, uploaded_at, updated_at) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
             doc_id,
             kb_id,
             filename,
@@ -53,6 +67,8 @@ class PgDocumentRepository:
             file_size,
             content_type,
             content,
+            source_file_path,
+            source_filename,
             DocStatus.PROCESSING.value,
             0,  # chunk_count — 索引完成后由 IndexingService 更新
             now,
@@ -66,6 +82,8 @@ class PgDocumentRepository:
             file_size=file_size,
             content_type=content_type,
             content=content,
+            source_file_path=source_file_path,
+            source_filename=source_filename,
             status=DocStatus.PROCESSING,
             uploaded_at=now,
             updated_at=now,
@@ -108,7 +126,8 @@ class PgDocumentRepository:
     async def get_by_kb(self, kb_id: str) -> list[Document]:
         rows = await self.pool.fetch(
             "SELECT doc_id, kb_id, filename, file_hash, file_size, "
-            "content_type, content, status, chunk_count, "
+            "content_type, content, source_file_path, source_filename, "
+            "status, chunk_count, "
             "error_message, uploaded_at, updated_at "
             "FROM documents WHERE kb_id = $1 ORDER BY uploaded_at DESC",
             kb_id,
@@ -124,9 +143,20 @@ class PgDocumentRepository:
                 content=r["content"] or "",
                 status=DocStatus(r["status"]),
                 chunk_count=r["chunk_count"] or 0,
+                source_file_path=r["source_file_path"],
+                source_filename=r["source_filename"],
                 error_message=r["error_message"],
                 uploaded_at=r["uploaded_at"],
                 updated_at=r["updated_at"],
             )
             for r in rows
         ]
+
+    async def update_content(self, doc_id: str, content: str) -> None:
+        """更新文档 content 字段 — 供 _prepare_content 延迟解析后回写。"""
+        await self.pool.execute(
+            "UPDATE documents SET content = $1, updated_at = $2 WHERE doc_id = $3",
+            content,
+            datetime.now(UTC),
+            doc_id,
+        )

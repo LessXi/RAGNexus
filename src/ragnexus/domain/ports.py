@@ -192,7 +192,11 @@ class DocumentPort(Protocol):
         file_size: int,
         content_type: str,
         content: str,
+        source_file_path: str | None = None,
+        source_filename: str | None = None,
     ) -> "Document": ...
+
+    async def update_content(self, doc_id: str, content: str) -> None: ...
 
     async def update_status(
         self,

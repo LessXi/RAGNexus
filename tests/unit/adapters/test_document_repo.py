@@ -54,6 +54,8 @@ class TestGet:
             content="# Title",
             status=1,
             chunk_count=5,
+            source_file_path=None,
+            source_filename=None,
             error_message=None,
             uploaded_at=now,
             updated_at=now,
@@ -218,6 +220,8 @@ class TestGetByKb:
                 content="# A",
                 status=1,
                 chunk_count=2,
+                source_file_path=None,
+                source_filename=None,
                 error_message=None,
                 uploaded_at=now,
                 updated_at=now,
@@ -232,6 +236,8 @@ class TestGetByKb:
                 content="# B",
                 status=2,
                 chunk_count=0,
+                source_file_path=None,
+                source_filename=None,
                 error_message=None,
                 uploaded_at=now,
                 updated_at=now,
@@ -244,3 +250,80 @@ class TestGetByKb:
         assert result[0].doc_id == "doc_1"
         assert result[1].doc_id == "doc_2"
         assert result[1].status == DocStatus.PROCESSING
+
+
+# ── create with source fields ──────────────────────────────────────────
+
+
+class TestCreateWithSourceFields:
+    """PgDocumentRepository.create() 携带 source_file_path/source_filename 测试。"""
+
+    @pytest.mark.asyncio
+    async def test_create_with_source_fields(self, repo, mock_pool):
+        """创建文档时传递 source_file_path/source_filename。"""
+        result = await repo.create(
+            doc_id="doc_src",
+            kb_id="kb_test",
+            filename="test.md",
+            file_hash="abc123",
+            file_size=1024,
+            content_type="text/markdown",
+            content="# Content",
+            source_file_path="/data/uploads/test.md",
+            source_filename="original.md",
+        )
+
+        assert isinstance(result, Document)
+        assert result.doc_id == "doc_src"
+        assert result.source_file_path == "/data/uploads/test.md"
+        assert result.source_filename == "original.md"
+        mock_pool.execute.assert_awaited_once()
+
+
+# ── get returns source fields ─────────────────────────────────────────
+
+
+class TestGetReturnsSourceFields:
+    """PgDocumentRepository.get() 返回 source_file_path/source_filename 测试。"""
+
+    @pytest.mark.asyncio
+    async def test_get_returns_source_fields(self, repo, mock_pool):
+        """get 返回文档时包含 source_file_path/source_filename。"""
+        now = datetime(2025, 1, 1)
+        mock_pool.fetchrow.return_value = _row(
+            doc_id="doc_src",
+            kb_id="kb_test",
+            filename="test.md",
+            file_hash="abc123",
+            file_size=1024,
+            content_type="text/markdown",
+            content="# Content",
+            status=1,
+            chunk_count=5,
+            source_file_path="/data/uploads/test.md",
+            source_filename="original.md",
+            error_message=None,
+            uploaded_at=now,
+            updated_at=now,
+        )
+
+        result = await repo.get("doc_src")
+
+        assert isinstance(result, Document)
+        assert result.doc_id == "doc_src"
+        assert result.source_file_path == "/data/uploads/test.md"
+        assert result.source_filename == "original.md"
+
+
+# ── update_content ─────────────────────────────────────────────────────
+
+
+class TestUpdateContent:
+    """PgDocumentRepository.update_content() 测试。"""
+
+    @pytest.mark.asyncio
+    async def test_update_content(self, repo, mock_pool):
+        """更新文档 content 字段。"""
+        await repo.update_content("doc_abc", "new content")
+
+        mock_pool.execute.assert_awaited_once()
