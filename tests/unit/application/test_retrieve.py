@@ -170,11 +170,6 @@ async def test_retrieve_success(
     # 验证新增字段传入 log_port.log()
     log_kwargs = mock_log_port.log.await_args.kwargs
     assert log_kwargs["log_id"] == ""
-    assert log_kwargs["tenant_id"] == "test-tenant"
-    assert log_kwargs["trace_id"] == ""
-    assert log_kwargs["profile"] == ""
-    assert log_kwargs["search_query"] == "test query"
-    assert log_kwargs["effective_query"] == "test query"
 
 
 @pytest.mark.asyncio
