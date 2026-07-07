@@ -38,6 +38,9 @@ from ragnexus.adapters.http.retrieve_router import (
 from ragnexus.adapters.http.upload_doc_router import (
     create_router as create_upload_doc_router,
 )
+from ragnexus.adapters.http.upload_text_router import (
+    create_router as create_upload_text_router,
+)
 from ragnexus.adapters.keyword_search.elasticsearch import ESKeywordSearchProvider
 from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
 from ragnexus.adapters.llm.openai_compatible import OpenAICompatibleLLMProvider
@@ -538,7 +541,8 @@ async def lifespan(app: FastAPI):
         doc_reindex_uc = DocumentReindexUseCase(
             doc_repo=document_repo,
             kb_repo=kb_repo,
-            parser_registry=parser_registry,  # 新增 — 供 reparse 时获取对应 parser
+            parser_registry=parser_registry,
+            file_storage=file_storage,
         )
 
         # --- KB 运维路由 use cases ---
@@ -578,6 +582,11 @@ async def lifespan(app: FastAPI):
         )
         app.include_router(
             create_upload_doc_router(
+                upload_doc_uc_wrapped, get_current_tenant, quota_svc=quota_svc
+            )
+        )
+        app.include_router(
+            create_upload_text_router(
                 upload_doc_uc_wrapped, get_current_tenant, quota_svc=quota_svc
             )
         )
