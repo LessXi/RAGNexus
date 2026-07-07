@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS documents (
     uploaded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     status        INTEGER NOT NULL DEFAULT 2,
     content       TEXT NOT NULL DEFAULT '',
+    source_file_path TEXT,              -- 新增：上传源文件路径
+    source_filename  TEXT,              -- 新增：上传源文件名
     error_message TEXT,
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
