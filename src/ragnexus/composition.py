@@ -542,7 +542,6 @@ async def lifespan(app: FastAPI):
             doc_repo=document_repo,
             kb_repo=kb_repo,
             parser_registry=parser_registry,
-            file_storage=file_storage,
         )
 
         # --- KB 运维路由 use cases ---

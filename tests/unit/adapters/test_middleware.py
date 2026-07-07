@@ -582,6 +582,7 @@ class TestCacheInvalidatingUploadUseCase:
             file_content=b"hello",
             filename="f.txt",
             content_type="text/plain",
+            text_content=None,
         )
         reranker.clear_cache.assert_awaited_once_with("kb-1")
         rewriter.clear_cache.assert_awaited_once_with("kb-1")
