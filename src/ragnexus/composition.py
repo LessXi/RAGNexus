@@ -15,12 +15,19 @@ import asyncpg
 import redis.asyncio as aioredis
 from fastapi import FastAPI
 
+from ragnexus.adapters.document.pg import PgDocumentRepository
 from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
+from ragnexus.adapters.http.auth_router import create_auth_router
 from ragnexus.adapters.http.create_kb_router import (
     create_router as create_kb_create_router,
 )
+from ragnexus.adapters.http.deps import make_get_current_tenant
+from ragnexus.adapters.http.document_router import create_document_router
 from ragnexus.adapters.http.error_handlers import register_error_handlers
-from ragnexus.adapters.http.health_router import create_router as create_health_router
+from ragnexus.adapters.http.feedback_router import (
+    create_router as create_feedback_router,
+)
+from ragnexus.adapters.http.kb_router import create_kb_router
 from ragnexus.adapters.http.kb_tree_router import (
     create_kb_tree_router,
 )
@@ -42,32 +49,28 @@ from ragnexus.adapters.rewrite.llm import LLMRewriteProvider
 from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
 from ragnexus.adapters.rewrite.pipeline import QueryPipeline
 from ragnexus.adapters.rewrite.synonym_expander import SynonymExpander
-from ragnexus.adapters.vector_store.pgvector import PgVectorStore
-from ragnexus.adapters.http.auth_router import create_auth_router
-from ragnexus.adapters.http.deps import make_get_current_tenant
-from ragnexus.adapters.document.pg import PgDocumentRepository
 from ragnexus.adapters.tenant.pg import PgApiKeyRepository, PgTenantRepository
-from ragnexus.adapters.http.document_router import create_document_router
-from ragnexus.adapters.http.kb_router import create_kb_router
-
+from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
+from ragnexus.application.document_delete_uc import DocumentDeleteUseCase
+from ragnexus.application.document_query_uc import DocumentQueryUseCase
+from ragnexus.application.document_reindex_uc import DocumentReindexUseCase
+from ragnexus.application.kb_delete_uc import KnowledgeBaseDeleteUseCase
+from ragnexus.application.kb_detail_uc import KnowledgeBaseDetailUseCase
 from ragnexus.application.kb_tree_use_case import GetKnowledgeBaseTreeUseCase
+from ragnexus.application.kb_update_uc import KnowledgeBaseUpdateUseCase
 from ragnexus.application.retrieve_use_case import RetrieveUseCase
 from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
-from ragnexus.application.document_query_uc import DocumentQueryUseCase
-from ragnexus.application.document_delete_uc import DocumentDeleteUseCase
-from ragnexus.application.document_reindex_uc import DocumentReindexUseCase
-from ragnexus.application.kb_detail_uc import KnowledgeBaseDetailUseCase
-from ragnexus.application.kb_update_uc import KnowledgeBaseUpdateUseCase
-from ragnexus.application.kb_delete_uc import KnowledgeBaseDeleteUseCase
-from ragnexus.services.rate_limit_service import RateLimitService
-from ragnexus.services.quota_service import QuotaService
 from ragnexus.config import get_settings
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import LoggedPool, logger, setup_logging
 from ragnexus.domain.chunking import heading_aware_split
 from ragnexus.domain.models import DocStatus, UploadResult
 from ragnexus.domain.ports import RerankPort, RewritePort
+from ragnexus.observability import get_langfuse_client
+from ragnexus.services.feedback_service import FeedbackService
+from ragnexus.services.quota_service import QuotaService
+from ragnexus.services.rate_limit_service import RateLimitService
 
 
 class CacheInvalidatingUploadUseCase:
@@ -230,7 +233,6 @@ class SynonymSyncUploadUseCase:
             if added > 0:
                 merged = dict(existing)
                 merged["synonyms"] = existing_syns
-                import json as _json
 
                 await self._kb_repo.update_settings(kb_id, merged)
                 logger.info(
@@ -580,6 +582,13 @@ async def lifespan(app: FastAPI):
             create_auth_router(get_current_tenant, tenant_repo, rate_limiter)
         )
 
+        # 初始化 langfuse_client 单例（LANGFUSE_ENABLED=false 时返回零开销 disabled 实例）
+        app.state.langfuse_client = get_langfuse_client(cfg)
+        feedback_service = FeedbackService(
+            pool=repo_pool, langfuse_client=app.state.langfuse_client
+        )
+        app.include_router(create_feedback_router(get_current_tenant, feedback_service))
+
         # Stash references for teardown
         app.state.store = store
         app.state.repo_pool = repo_pool
@@ -659,4 +668,5 @@ def build_app() -> FastAPI:
     register_error_handlers(app)
     app.add_middleware(LoggingMiddleware)
     app.middleware_stack = app.build_middleware_stack()
+
     return app

@@ -8,7 +8,7 @@ from __future__ import annotations
 from enum import IntEnum
 
 # ============================================================================
-# ErrorCode 枚举 —— 37 个成员，按业务区间分类
+# ErrorCode 枚举 —— 40 个成员，按业务区间分类
 # ============================================================================
 
 
@@ -62,6 +62,11 @@ class ErrorCode(IntEnum):
     API_METHOD_ERROR = (20003, 405, "请求方法错误")
     FEATURE_NOT_ALLOWED = (20013, 403, "当前套餐不支持此功能")
     QUOTA_EXCEEDED = (20014, 429, "配额超限")
+
+    # 反馈 (20020~20029)
+    FEEDBACK_SERVICE_UNAVAILABLE = (20020, 503, "反馈服务不可用")
+    FEEDBACK_UNAUTHORIZED = (20021, 403, "无权操作该反馈记录")
+    FEEDBACK_INVALID_SCORE = (20022, 422, "评分超出允许范围")
     # 数据库与存储 (30000~30999)
     DB_ERROR = (30001, 500, "数据库操作失败")
     DB_CONNECTION_ERROR = (30002, 503, "数据库连接失败")

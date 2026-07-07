@@ -1,7 +1,7 @@
 """Tests for HTTP routers (create_kb, upload_doc, retrieve) and error handlers."""
 
 from datetime import datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -15,9 +15,16 @@ from ragnexus.adapters.http.retrieve_router import (
 from ragnexus.adapters.http.upload_doc_router import (
     create_router as create_upload_router,
 )
-from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.auth import TenantContext
-from ragnexus.domain.models import DocStatus, KnowledgeBase, SearchHit, UploadResult
+from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.domain.models import (
+    DocStatus,
+    KnowledgeBase,
+    RetrieveResult,
+    SearchHit,
+    UploadResult,
+)
+from ragnexus.observability import RetrieveObservability
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -54,6 +61,7 @@ def app(mock_kb_uc, mock_upload_uc, mock_retrieve_uc):
     app.include_router(
         create_retrieve_router(mock_retrieve_uc, mock_get_current_tenant)
     )
+    app.state.langfuse_client = RetrieveObservability(enabled=False)
     register_error_handlers(app)
     return app
 
@@ -224,6 +232,88 @@ class TestRetrieve:
         data = resp.json()
         assert data["code"] == 20013
         mock_retrieve_uc.execute.assert_not_called()
+
+
+class TestRetrieveLangfuse:
+    """Langfuse trace 集成 — fire-and-forget 可观测。"""
+
+    def test_disabled_retrieve_succeeds(self, client, app, mock_retrieve_uc):
+        """LANGFUSE_ENABLED=false → 正常检索，无 Langfuse 交互。"""
+        app.state.langfuse_client = RetrieveObservability(enabled=False)
+        mock_retrieve_uc.execute.return_value = RetrieveResult(
+            hits=[
+                SearchHit(
+                    chunk_id="doc_hash:0",
+                    kb_id="kb_test123",
+                    doc_id="doc_hash",
+                    score=0.823456,
+                    text="chunk content",
+                    metadata={},
+                )
+            ],
+            total=1,
+            latency_ms=42,
+            mode="hybrid",
+            vector_count=0,
+            bm25_count=0,
+            fused_count=1,
+            rerank_model=None,
+            degraded=False,
+            degraded_reason=None,
+        )
+        resp = client.post(
+            "/v1/rag:retrieve",
+            json={"query": "test query", "kb_ids": ["kb_test123"], "top_k": 5},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 0
+
+    def test_enabled_trace_created(self, client, app, mock_retrieve_uc):
+        """LANGFUSE_ENABLED=true → create_trace 被调用，metadata 正确。"""
+        mock_client = MagicMock(spec=RetrieveObservability)
+        mock_client.create_trace.return_value = {"id": "trace-1", "trace": MagicMock()}
+        mock_client.create_span.return_value = {"id": "span-1", "span": MagicMock()}
+        app.state.langfuse_client = mock_client
+
+        mock_retrieve_uc.execute.return_value = RetrieveResult(
+            hits=[
+                SearchHit(
+                    chunk_id="doc_hash:0",
+                    kb_id="kb_test123",
+                    doc_id="doc_hash",
+                    score=0.823456,
+                    text="chunk content",
+                    metadata={},
+                )
+            ],
+            total=1,
+            latency_ms=42,
+            mode="hybrid",
+            vector_count=0,
+            bm25_count=0,
+            fused_count=1,
+            rerank_model=None,
+            degraded=False,
+            degraded_reason=None,
+        )
+        resp = client.post(
+            "/v1/rag:retrieve",
+            json={"query": "test query", "kb_ids": ["kb_test123"], "top_k": 5},
+        )
+        assert resp.status_code == 200
+
+        mock_client.create_trace.assert_called_once_with(
+            name="rag_retrieve",
+            metadata={
+                "tenant_id": "default",
+                "kb_ids": ["kb_test123"],
+                "profile": "balanced",
+                "plan": "standard",
+                "search_query": "test query",
+            },
+        )
+        assert mock_client.create_span.call_count == 3
+        mock_client.end_trace.assert_called_once()
 
 
 # ── Error Handler ─────────────────────────────────────────────────────────

@@ -64,8 +64,6 @@ class RetrieveUseCase:
         rerank_top_n: int = 5,
         query_options: dict | None = None,
         log_id: str = "",
-        trace_id: str = "",
-        profile: str = "",
     ) -> RetrieveResult:
         """执行检索：校验 → 改写 → 双路召回 → RRF 融合 → 重排 → 返回 RetrieveResult。
 
@@ -292,12 +290,7 @@ class RetrieveUseCase:
                     rrf_pool_size=rrf_pool_size,
                     vector_latency_ms=vector_latency_ms,
                     keyword_latency_ms=keyword_latency_ms,
-                    tenant_id=tenant_id,
                     log_id=log_id,
-                    trace_id=trace_id,
-                    profile=profile,
-                    search_query=search_query,
-                    effective_query=effective_query,
                 )
             )
             task.add_done_callback(self._background_tasks.discard)
@@ -316,12 +309,7 @@ class RetrieveUseCase:
         rrf_pool_size: int = 0,
         vector_latency_ms: int = 0,
         keyword_latency_ms: int = 0,
-        tenant_id: str = "",
         log_id: str = "",
-        trace_id: str = "",
-        profile: str = "",
-        search_query: str = "",
-        effective_query: str = "",
     ) -> None:
         """Fire-and-forget log call — 异常被捕获并在 debug 级别记录，不中断主流程。"""
         try:
@@ -332,11 +320,6 @@ class RetrieveUseCase:
                 hit_count=hit_count,
                 latency_ms=latency_ms,
                 log_id=log_id,
-                tenant_id=tenant_id,
-                trace_id=trace_id,
-                profile=profile,
-                search_query=search_query,
-                effective_query=effective_query,
             )
         except Exception:
             logger.debug("retrieve 日志写入失败", exc_info=True)
@@ -357,6 +340,7 @@ class RetrieveUseCase:
                     "rrf_pool_size": rrf_pool_size,
                     "vector_latency_ms": vector_latency_ms,
                     "keyword_latency_ms": keyword_latency_ms,
+                    "log_id": log_id,
                 },
             )
         except Exception:

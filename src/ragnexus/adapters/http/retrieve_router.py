@@ -5,12 +5,14 @@
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from nanoid import generate as nanoid_generate
 from pydantic import BaseModel, Field
 
 from ragnexus.core.auth import TenantContext
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.models import SearchHit
+from ragnexus.observability import RetrieveObservability
 from ragnexus.tenant.plan_resolver import resolve_plan
 from ragnexus.tenant.retrieve_presets import RETRIEVE_PROFILE_PRESETS
 
@@ -91,6 +93,7 @@ def create_router(
     @router.post("/v1/rag:retrieve")
     async def retrieve(
         req: _RetrieveRequest,
+        request: Request,
         current_tenant: TenantContext = Depends(get_current_tenant),
     ):
         # ── Step 1: 解析 plan ───────────────────────────────────────────
@@ -143,61 +146,150 @@ def create_router(
             await rate_limiter.check_retrieve(
                 current_tenant.tenant_id, current_tenant.plan
             )
-
-        # ── Step 5: 调用检索管道 ──────────────────────────────────────
-        result = await uc.execute(
-            query=req.query,
-            kb_ids=req.kb_ids,
-            tenant_id=current_tenant.tenant_id,
-            top_k=effective_top_k,
-            mode=effective_mode,
-            vector_top_k=req.vector_top_k,
-            bm25_top_k=req.bm25_top_k,
-            rrf_k=req.rrf_k,
-            rerank_enabled=effective_rerank_enabled,
-            rerank_top_n=effective_rerank_top_n,
-            query_options=effective_query_options_dict,
+        # ── Langfuse Trace ──────────────────────────────────────────────────
+        langfuse_client: RetrieveObservability = getattr(
+            request.app.state, "langfuse_client", RetrieveObservability(enabled=False)
         )
+        trace = langfuse_client.create_trace(
+            name="rag_retrieve",
+            metadata={
+                "tenant_id": current_tenant.tenant_id,
+                "kb_ids": req.kb_ids,
+                "profile": profile_name,
+                "plan": current_tenant.plan,
+                "search_query": req.query,
+            },
+        )
+        try:
+            # ── Step 5: 预生成 log_id ──────────────────────────────────────
+            log_id = f"log_{nanoid_generate(size=12)}"
 
-        # ── Step 6: 日计数 +1（仅在检索成功后）─────────────────────────
-        if rate_limiter:
-            await rate_limiter.record_retrieve_success(current_tenant.tenant_id)
+            # ── Step 6: 调用检索管道 ──────────────────────────────────────
+            result = await uc.execute(
+                query=req.query,
+                kb_ids=req.kb_ids,
+                tenant_id=current_tenant.tenant_id,
+                top_k=effective_top_k,
+                mode=effective_mode,
+                vector_top_k=req.vector_top_k,
+                bm25_top_k=req.bm25_top_k,
+                rrf_k=req.rrf_k,
+                rerank_enabled=effective_rerank_enabled,
+                rerank_top_n=effective_rerank_top_n,
+                query_options=effective_query_options_dict,
+                log_id=log_id,
+            )
 
-        # ── 构建 query_processing 字段 ─────────────────────────────────
-        qp = result.query_processing
-        query_processing = None
-        if qp and (qp.get("strategy") != "noop" or qp.get("synonym_applied")):
-            query_processing = qp
+            # ── Langfuse Spans (fire-and-forget) ───────────────────────────
+            if trace:
+                # 1. query_processing span — 记录 query 变换
+                qp_span = langfuse_client.create_span(
+                    trace,
+                    name="query_processing",
+                    input_data={"query": req.query},
+                )
+                if qp_span:
+                    effective_query = (
+                        result.query_processing.get("effective_query", req.query)
+                        if result.query_processing
+                        else req.query
+                    )
+                    langfuse_client.update_span(
+                        qp_span,
+                        output_data={"effective_query": effective_query},
+                    )
 
-        return {
-            "code": 0,
-            "data": {
-                "query": req.query,
-                "hits": [_serialize_hit(h) for h in result.hits],
-                "meta": {
-                    "query_processing": query_processing,
-                    "total": result.total,
-                    "latency_ms": result.latency_ms,
-                    "mode": result.mode,
-                    "vector_count": result.vector_count,
-                    "bm25_count": result.bm25_count,
-                    "fused_count": result.fused_count,
-                    "rerank_model": result.rerank_model,
-                    "degraded": result.degraded,
-                    "degraded_reason": result.degraded_reason,
-                    "tenant_policy": {
-                        "plan": current_tenant.plan,
-                        "retrieve_profile": profile_name,
-                        "effective_mode": effective_mode,
-                        "effective_rerank": effective_rerank_enabled or False,
-                        "effective_query_rewrite": bool(
-                            effective_query_options_dict
-                            and effective_query_options_dict.get("enabled")
-                        ),
+                # 2. retrieval span — 只存 chunk_id + score 摘要
+                hits_summary = [
+                    {"chunk_id": h.chunk_id, "score": h.score} for h in result.hits
+                ]
+                retrieval_span = langfuse_client.create_span(
+                    trace,
+                    name="retrieval",
+                    input_data={
+                        "kb_ids": req.kb_ids,
+                        "top_k": effective_top_k,
+                        "mode": effective_mode,
+                    },
+                )
+                if retrieval_span:
+                    langfuse_client.update_span(
+                        retrieval_span,
+                        output_data={
+                            "total": result.total,
+                            "hits": hits_summary,
+                        },
+                    )
+
+                # 3. rerank span — 记录重排前后
+                rerank_span = langfuse_client.create_span(
+                    trace,
+                    name="rerank",
+                    input_data={
+                        "rerank_enabled": effective_rerank_enabled,
+                        "rerank_top_n": effective_rerank_top_n,
+                    },
+                )
+                if rerank_span:
+                    rerank_hits = [
+                        {
+                            "chunk_id": h.chunk_id,
+                            "score": h.score,
+                            "rerank_score": h.metadata.get("_rerank_score"),
+                        }
+                        for h in result.hits
+                    ]
+                    langfuse_client.update_span(
+                        rerank_span,
+                        output_data={
+                            "rerank_model": result.rerank_model,
+                            "hits": rerank_hits,
+                        },
+                    )
+
+            # ── Step 6: 日计数 +1（仅在检索成功后）─────────────────────────
+            if rate_limiter:
+                await rate_limiter.record_retrieve_success(current_tenant.tenant_id)
+
+            # ── 构建 query_processing 字段 ─────────────────────────────────
+            qp = result.query_processing
+            query_processing = None
+            if qp and (qp.get("strategy") != "noop" or qp.get("synonym_applied")):
+                query_processing = qp
+
+            return {
+                "code": 0,
+                "data": {
+                    "query": req.query,
+                    "hits": [_serialize_hit(h) for h in result.hits],
+                    "meta": {
+                        "query_processing": query_processing,
+                        "log_id": log_id,
+                        "trace_id": trace["id"] if trace else None,
+                        "total": result.total,
+                        "latency_ms": result.latency_ms,
+                        "mode": result.mode,
+                        "vector_count": result.vector_count,
+                        "bm25_count": result.bm25_count,
+                        "fused_count": result.fused_count,
+                        "rerank_model": result.rerank_model,
+                        "degraded": result.degraded,
+                        "degraded_reason": result.degraded_reason,
+                        "tenant_policy": {
+                            "plan": current_tenant.plan,
+                            "retrieve_profile": profile_name,
+                            "effective_mode": effective_mode,
+                            "effective_rerank": effective_rerank_enabled or False,
+                            "effective_query_rewrite": bool(
+                                effective_query_options_dict
+                                and effective_query_options_dict.get("enabled")
+                            ),
+                        },
                     },
                 },
-            },
-            "message": "ok",
-        }
+                "message": "ok",
+            }
+        finally:
+            langfuse_client.end_trace(trace)
 
     return router

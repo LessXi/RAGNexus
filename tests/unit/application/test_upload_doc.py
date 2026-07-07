@@ -102,7 +102,7 @@ class TestUploadDocument:
         assert result.doc_id == expected_hash
 
         # Celery task 已投递
-        mock_task.delay.assert_called_once_with(expected_hash)
+        mock_task.apply_async.assert_called_once_with(args=[expected_hash], ignore_result=True)
 
         # store.upsert 在 IndexingService 中异步调用，此处不验证
 
@@ -283,4 +283,4 @@ class TestUploadDocument:
 
         assert isinstance(result, UploadResult)
         assert result.status == DocStatus.PROCESSING
-        mock_task.delay.assert_called_once()
+        mock_task.apply_async.assert_called_once()

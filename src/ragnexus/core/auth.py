@@ -6,9 +6,9 @@ Depends 工厂函数见同文件后续追加（Task 1.5b）。
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from fastapi import Depends, Header
+from fastapi import Header
 
 from ragnexus.core.errors import AppError, ErrorCode
 
@@ -118,7 +118,7 @@ def make_get_current_tenant(
 
         # 6. Key 已过期
         expires_at = key_record.get("expires_at")
-        if expires_at is not None and expires_at < datetime.now(timezone.utc):
+        if expires_at is not None and expires_at < datetime.now(UTC):
             raise AppError(
                 ErrorCode.UNAUTHORIZED,
                 "API Key 已过期",

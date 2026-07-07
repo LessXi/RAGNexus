@@ -94,11 +94,6 @@ class RetrieveLogPort(Protocol):
         hit_count: int,
         latency_ms: int,
         log_id: str = "",
-        tenant_id: str = "",
-        trace_id: str = "",
-        profile: str = "",
-        search_query: str = "",
-        effective_query: str = "",
     ) -> None: ...
 
 

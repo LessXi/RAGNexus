@@ -1,6 +1,7 @@
 """工厂函数: create_kb_router — GET/PATCH/DELETE /v1/knowledge-bases/{kb_id}。"""
 
 from fastapi import APIRouter, Body, Depends
+
 from ragnexus.core.auth import TenantContext
 
 

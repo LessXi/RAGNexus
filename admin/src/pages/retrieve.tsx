@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Switch } from '@base-ui/react/switch';
 import { fetchTree } from '@/services/api';
-import { retrieve } from '@/services/ragService';
+import { retrieve, submitFeedback } from '@/services/ragService';
 import { fetchAuthMe } from '@/services/authService';
 import type { TreeItem, KBItem, RetrieveResponse, AuthMeData } from '@/types/api';
-import { Search, Loader2, ChevronDown, ChevronRight, AlertTriangle, Info } from 'lucide-react';
+import { Search, Loader2, ChevronDown, ChevronRight, AlertTriangle, Info, CheckCircle, XCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 /* ── 类型 ── */
 
@@ -72,6 +73,12 @@ export default function RetrievePage() {
   const [retrieving, setRetrieving] = useState(false);
   const [retrieveError, setRetrieveError] = useState<string | null>(null);
 
+  /* ── 反馈 ── */
+  const [selectedScore, setSelectedScore] = useState<number>(0);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [feedbackResult, setFeedbackResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   /* ── 折叠 ── */
   const [configExpanded, setConfigExpanded] = useState(true);
   const [expandedHits, setExpandedHits] = useState<Set<string>>(new Set());
@@ -122,7 +129,9 @@ export default function RetrievePage() {
 
     setRetrieving(true);
     setRetrieveError(null);
-    setResults(null);
+    setSelectedScore(0);
+    setComment('');
+    setFeedbackResult(null);
 
     try {
       const body: Parameters<typeof retrieve>[0] = {
@@ -153,6 +162,26 @@ export default function RetrievePage() {
       setRetrieveError(err instanceof Error ? err.message : '检索请求失败');
     } finally {
       setRetrieving(false);
+    }
+  };
+
+  /* ── 提交反馈 ── */
+  const handleSubmitFeedback = async () => {
+    if (!results?.metadata?.trace_id || selectedScore === 0) return;
+    setSubmitting(true);
+    setFeedbackResult(null);
+    try {
+      await submitFeedback({
+        trace_id: results.metadata.trace_id,
+        log_id: results.metadata.log_id,
+        score: selectedScore,
+        comment: comment.trim() || undefined,
+      });
+      setFeedbackResult({ type: 'success', message: `已评 ${selectedScore} 分` });
+    } catch {
+      setFeedbackResult({ type: 'error', message: '提交失败，请重试' });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -486,6 +515,73 @@ export default function RetrievePage() {
             </div>
           )}
 
+
+          {/* 反馈区 */}
+          {results && (
+            results.metadata.trace_id ? (
+              <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+                <p className="text-sm font-medium text-foreground">检索效果如何？</p>
+
+                {/* 星级选择 */}
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <Button
+                      key={star}
+                      variant={selectedScore >= star ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setSelectedScore(star);
+                        setFeedbackResult(null);
+                      }}
+                    >
+                      ★
+                    </Button>
+                  ))}
+                </div>
+
+                {/* 备注输入 */}
+                <textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="补充说明（选填）..."
+                  rows={2}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground resize-none focus:border-primary focus:ring-2 focus:ring-ring/20"
+                />
+
+                {/* 提交按钮 + 状态 */}
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSubmitFeedback}
+                    disabled={selectedScore === 0 || submitting}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        提交中...
+                      </>
+                    ) : (
+                      '提交反馈'
+                    )}
+                  </button>
+
+                  {feedbackResult && (
+                    <span className={`inline-flex items-center gap-1 text-sm ${feedbackResult.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {feedbackResult.type === 'success' ? (
+                        <CheckCircle className="size-4" />
+                      ) : (
+                        <XCircle className="size-4" />
+                      )}
+                      {feedbackResult.message}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Langfuse 未启用，反馈不可用</p>
+            )
+          )}
           {/* 结果列表 */}
           {hits.length > 0 && (
             <div className="space-y-3">

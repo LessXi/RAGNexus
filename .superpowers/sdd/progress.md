@@ -1,18 +1,23 @@
-# Progress Ledger — async-indexing-lifecycle
-Base: 2ef29c697acf5ec10c0eda7218010e8ec9de1ba9
-Started: 2026-07-05T16:46:00+08:00
-Task 1.1: complete (commits 2ef29c6..aabfe55, review clean)
-Task 1.2: complete (commits aabfe55..4185b19, review clean)
-Task 1.3: complete (commits 4185b19..8a74d23, review clean)
-Task 1.4: complete (commits 8a74d23..931d4de, review clean)
-Task 1.5: complete (commits 931d4de..29d9779, review clean)
-Task 1.1: complete (commits 2ef29c6..aabfe55, review clean)
-Task 1.2: complete (commits aabfe55..4185b19, review clean)
-Task 1.3: complete (commits 4185b19..8a74d23, review clean)
-Task 1.4: complete (commits 8a74d23..931d4de, review clean)
-Task 1.5: complete (commits 931d4de..29d9779, review clean)
-Task 2.1-2.8: complete (Phase 2 领域层, review clean)
-Task 3.1-3.6: complete (Phase 3 异步索引核心, review clean)
-Task 4.1-4.7: complete (Phase 4 运维 API + 路由注册, review clean)
-Task 5.1-5.9: complete (Phase 5 前端适配, review clean)
-Task 6.1-6.7: complete (Phase 6 测试与文档, 71 单元测试通过)
+# SDD Progress Ledger — retrieval-tuning-system
+
+Base ref: 899d015
+Branch: feature/20260706/retrieval-tuning-system
+Started: 2026-07-06
+
+---
+
+(No tasks completed yet)
+Task 1.0: complete (commits 268cb3f..HEAD, review clean — verification-only task)
+Task 1.1: complete (commit 2800dc5, +29 lines docker-compose.yml, review pending batch B1)
+Task 1.2: complete (commit 27651dc, config.py +11 lines, review clean)
+Batch B1 review: PASS (tasks 1.0-1.2, 3 files +43 lines, no issues)
+Task 1.3: complete (commit 77c8a36, .env + .env.example +5 lines each, review pending batch B2)
+Task 1.4: complete (commit f5dfa64, langfuse 2.60.10, review clean)
+Task 1.5: complete (commit TBD, 18 tests, 4 files, review clean)
+Batch B2 review: PASS (tasks 1.3-1.5, 3 files +10 lines + 4 new test files, 18/18 tests)
+Task 1.6: complete (commit abfc066, composition.py, review pending batch B3)
+Phase 1 COMPLETE (7/7 tasks, 18 tests, 7 commits)
+Task 2.1: complete (commit 8700ef3, retrieve_router + test_http, 18 tests)
+Task 2.2: complete (commit TBD, 4 files, log_id nanoid, 28 tests)
+Task 2.3: complete (commit f0439c6, RetrieveResult +log_id+trace_id)
+Task 2.4: complete (commit TBD, migration 0008, 6 columns + UNIQUE)

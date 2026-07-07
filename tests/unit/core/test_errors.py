@@ -103,7 +103,7 @@ class TestErrorCode:
 
     def test_total_count(self):
         assert (
-            len(list(ErrorCode)) == 37
+            len(list(ErrorCode)) == 40
         )  # 33 原有 + 2 新增 (KEYWORD_UPSERT_FAILED, KEYWORD_DELETE_FAILED) + 2 新增 (FEATURE_NOT_ALLOWED, QUOTA_EXCEEDED)
 
 

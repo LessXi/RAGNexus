@@ -67,3 +67,5 @@ config/mcporter.json
 
 # Generated HTML reports (agent output in workspace root)
 babysitter-*.html
+# API keys / credentials (local-only)
+docs/creds/

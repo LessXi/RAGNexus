@@ -3,8 +3,8 @@
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.domain.ports import (
     DocumentPort,
-    KnowledgeBasePort,
     KeywordSearchPort,
+    KnowledgeBasePort,
     VectorStorePort,
 )
 
