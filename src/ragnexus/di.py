@@ -9,6 +9,11 @@ from ragnexus.adapters.embedder.openai_compat import OpenAICompatEmbedder
 from ragnexus.adapters.keyword_search.elasticsearch import ESKeywordSearchProvider
 from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
 from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
+from ragnexus.adapters.file_storage.local import LocalFileStorage
+from ragnexus.adapters.parsers.docx import DocxParser
+from ragnexus.adapters.parsers.pdf import PdfParser
+from ragnexus.adapters.parsers.registry import register as register_parser
+import ragnexus.adapters.parsers.registry as parser_registry
 from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 from ragnexus.application.indexing_service import IndexingService
 from ragnexus.config import Settings, get_settings
@@ -29,6 +34,13 @@ async def _async_build_services(cfg: Settings):
     repo_pool = await asyncpg.create_pool(
         cfg.PG_DSN, min_size=1, max_size=3, command_timeout=cfg.PG_COMMAND_TIMEOUT
     )
+    # --- Parser Registry + File Storage（新增）---
+    file_storage = LocalFileStorage(base_path=cfg.DOCUMENT_STORAGE_PATH)
+    # 注册所有 parser
+    register_parser("docx", DocxParser())
+    register_parser("pdf", PdfParser())
+    register_parser("md", MarkdownAndTextParser())
+    register_parser("txt", MarkdownAndTextParser())
     logged_repo_pool = LoggedPool(repo_pool)
     kb_repo = PgKnowledgeBaseRepository(pool=cast(Any, logged_repo_pool))
     doc_repo = PgDocumentRepository(pool=cast(Any, logged_repo_pool))
@@ -69,6 +81,8 @@ async def _async_build_services(cfg: Settings):
         es_enabled=cfg.ES_ENABLED,
         chunk_max_chars=cfg.CHUNK_MAX_CHARS,
         chunk_overlap=cfg.CHUNK_OVERLAP,
+        parser_registry=parser_registry,  # 传入模块引用，IndexingService 调用 .get_parser()
+        file_storage=file_storage,
     )
     indexing_svc._store_pool = store_pool  # type: ignore[attr-defined]
     indexing_svc._repo_pool = repo_pool  # type: ignore[attr-defined]

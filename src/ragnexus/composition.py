@@ -42,6 +42,11 @@ from ragnexus.adapters.keyword_search.elasticsearch import ESKeywordSearchProvid
 from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
 from ragnexus.adapters.llm.openai_compatible import OpenAICompatibleLLMProvider
 from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
+from ragnexus.adapters.file_storage.local import LocalFileStorage
+from ragnexus.adapters.parsers.docx import DocxParser
+from ragnexus.adapters.parsers.pdf import PdfParser
+from ragnexus.adapters.parsers.registry import register as register_parser
+import ragnexus.adapters.parsers.registry as parser_registry
 from ragnexus.adapters.rerank.llm import LLMRerankProvider
 from ragnexus.adapters.rerank.noop import NoopRerankProvider
 from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
@@ -97,6 +102,7 @@ class CacheInvalidatingUploadUseCase:
         file_content: bytes,
         filename: str,
         content_type: str,
+        text_content: str | None = None,  # 新增 — JSON 上传路径
     ) -> UploadResult:
         """执行上传并清空双缓存。"""
         result = await self._inner.execute(
@@ -105,6 +111,7 @@ class CacheInvalidatingUploadUseCase:
             file_content=file_content,
             filename=filename,
             content_type=content_type,
+            text_content=text_content,  # 透传 text_content
         )
         # 清空对应 KB 的重排缓存和查询改写缓存
         await self._reranker.clear_cache(kb_id)
@@ -136,8 +143,8 @@ class SynonymSyncUploadUseCase:
         kb_id: str,
         tenant_id: str,
         file_content: bytes,
-        filename: str,
         content_type: str,
+        text_content: str | None = None,  # 新增 — JSON 上传路径
     ) -> "UploadResult":
         result = await self._inner.execute(
             kb_id=kb_id,
@@ -145,6 +152,7 @@ class SynonymSyncUploadUseCase:
             file_content=file_content,
             filename=filename,
             content_type=content_type,
+            text_content=text_content,  # 透传 text_content
         )
         # 异步索引模式：仅在同步成功时触发词表同步
         # (Worker 进程独立于 API 进程，词表同步将在 IndexingService.execute SUCCESS 后触发)
@@ -390,6 +398,13 @@ async def lifespan(app: FastAPI):
         else:
             reranker = NoopRerankProvider()
         parser = MarkdownAndTextParser()
+        # --- Parser Registry + File Storage（新增）---
+        file_storage = LocalFileStorage(base_path=cfg.DOCUMENT_STORAGE_PATH)
+        # 注册所有 parser
+        register_parser("docx", DocxParser())
+        register_parser("pdf", PdfParser())
+        register_parser("md", MarkdownAndTextParser())
+        register_parser("txt", MarkdownAndTextParser())
 
         # --- Rewrite Provider ---
         if cfg.REWRITE_ENABLED:
@@ -483,6 +498,8 @@ async def lifespan(app: FastAPI):
             chunk_overlap=cfg.CHUNK_OVERLAP,
             keyword_store=keyword_store,
             es_enabled=cfg.ES_ENABLED,
+            allowed_exts=(".md", ".txt", ".docx", ".pdf"),  # 扩展允许列表，支持多格式
+            file_storage=file_storage,  # 新增 — 供二进制文件暂存
         )
 
         # 包装上传：缓存清理 → 词表同步
@@ -518,7 +535,11 @@ async def lifespan(app: FastAPI):
             store=cast(Any, store),
             keyword_store=keyword_store,
         )
-        doc_reindex_uc = DocumentReindexUseCase(doc_repo=document_repo, kb_repo=kb_repo)
+        doc_reindex_uc = DocumentReindexUseCase(
+            doc_repo=document_repo,
+            kb_repo=kb_repo,
+            parser_registry=parser_registry,  # 新增 — 供 reparse 时获取对应 parser
+        )
 
         # --- KB 运维路由 use cases ---
         kb_detail_uc = KnowledgeBaseDetailUseCase(kb_repo=kb_repo)
