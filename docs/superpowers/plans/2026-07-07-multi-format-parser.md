@@ -6,7 +6,7 @@ base-ref: 48004700b67fd7fb06a0fabf69e5fef224656ca6
 
 # 多格式文档解析 — 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 在 RAGNexus 文档处理流水线前增加插件化解析层，支持 `.docx`（Word，mammoth）和 `.pdf`（PyMuPDF）二进制格式的直传与自动解析，输出统一 `ParsedDocument` 无缝接入现有 `heading_aware_split` → embed → ES+pgvector 双写流水线。
 
@@ -36,7 +36,7 @@ base-ref: 48004700b67fd7fb06a0fabf69e5fef224656ca6
 **Interfaces:**
 - Produces: `ParsedDocument.source_type: str`, `ParsedDocument.metadata: dict`; `Document.source_file_path: str | None`, `Document.source_filename: str | None`; `FileStoragePort` protocol with `save`/`read`/`delete`; `ErrorCode.DOCUMENT_PARSE_FAILED = (20023, 422, "文档解析失败")`
 
-- [ ] **Step 1: 扩展 ParsedDocument**
+- [x] **Step 1: 扩展 ParsedDocument**
 
 ```python
 # src/ragnexus/domain/models.py — ParsedDocument dataclass (line 35)
@@ -49,7 +49,7 @@ class ParsedDocument:
     metadata: dict = field(default_factory=dict)  # 新增: parser 元信息
 ```
 
-- [ ] **Step 2: 扩展 Document**
+- [x] **Step 2: 扩展 Document**
 
 ```python
 # src/ragnexus/domain/models.py — Document dataclass (line 73)
@@ -72,7 +72,7 @@ class Document:
     source_filename: str | None = None     # 新增 — 原始文件名
 ```
 
-- [ ] **Step 3: 新增 FileStoragePort**
+- [x] **Step 3: 新增 FileStoragePort**
 
 ```python
 # src/ragnexus/domain/ports.py — 在 ParserPort 之后新增
@@ -84,7 +84,7 @@ class FileStoragePort(Protocol):
     async def delete(self, path: str) -> None: ...
 ```
 
-- [ ] **Step 4: 新增 DOCUMENT_PARSE_FAILED 错误码**
+- [x] **Step 4: 新增 DOCUMENT_PARSE_FAILED 错误码**
 
 ```python
 # src/ragnexus/core/errors.py — 在反馈区间后、数据库区间前插入
@@ -95,7 +95,7 @@ FEEDBACK_INVALID_SCORE = (20022, 422, "评分超出允许范围")
 DOCUMENT_PARSE_FAILED = (20023, 422, "文档解析失败")  # 新增
 ```
 
-- [ ] **Step 5: 更新现有测试以兼容新字段**
+- [x] **Step 5: 更新现有测试以兼容新字段**
 
 ```python
 # tests/unit/domain/test_models.py — 新增测试
@@ -124,14 +124,14 @@ def test_document_new_fields_default_none():
 Run: `pytest tests/unit/domain/test_models.py -v`
 Expected: 新增 2 tests PASS，原有 tests 仍需 PASS（可能需要更新 parser mock 返回的 ParsedDocument）
 
-- [ ] **Step 6: 更新 ParserPort mock 以包含新字段**
+- [x] **Step 6: 更新 ParserPort mock 以包含新字段**
 
 检查 `tests/unit/application/test_upload_doc.py` 中的 mock_parser fixture — `ParsedDocument` 构造需加上 `source_type` 和 `metadata`（如果默认值生效则无需改）。同样检查 `tests/unit/application/test_indexing_service.py`。
 
 Run: `pytest tests/unit/application/test_upload_doc.py tests/unit/application/test_indexing_service.py tests/unit/adapters/test_parser.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/ragnexus/domain/models.py src/ragnexus/domain/ports.py src/ragnexus/core/errors.py tests/unit/domain/test_models.py
@@ -148,7 +148,7 @@ git commit -m "feat: extend domain models for multi-format parsing"
 **Interfaces:**
 - Produces: `Settings.DOCUMENT_STORAGE_PATH`, `Settings.DOCUMENT_MAX_SIZE_MB`; `Settings.MAX_FILE_SIZE` 语义不变但值由 `DOCUMENT_MAX_SIZE_MB` 换算
 
-- [ ] **Step 1: 新增配置字段**
+- [x] **Step 1: 新增配置字段**
 
 ```python
 # src/ragnexus/config.py — 在 CHUNK_OVERLAP 之后
@@ -160,7 +160,7 @@ MAX_FILE_SIZE: int = 20 * 1024 * 1024  # 20MB（由 DOCUMENT_MAX_SIZE_MB 换算�
 
 注意：`MAX_FILE_SIZE` 字段名保留不变，值改为 20 * 1024 * 1024（与 DOCUMENT_MAX_SIZE_MB 默认值一致）。`DOCUMENT_MAX_SIZE_MB` 作为面向用户的配置入口。
 
-- [ ] **Step 2: 更新 composition.py 上传 use case 构造**
+- [x] **Step 2: 更新 composition.py 上传 use case 构造**
 
 ```python
 # src/ragnexus/composition.py — upload_doc_uc 构造（约 line 474）
@@ -179,7 +179,7 @@ upload_doc_uc = UploadDocumentUseCase(
 )
 ```
 
-- [ ] **Step 3: 更新 UploadDocumentUseCase 默认值**
+- [x] **Step 3: 更新 UploadDocumentUseCase 默认值**
 
 ```python
 # src/ragnexus/application/upload_doc_use_case.py — __init__ 签名
@@ -187,12 +187,12 @@ max_file_size: int = 20 * 1024 * 1024,  # 20MB（原 10 * 1024 * 1024）
 allowed_exts: tuple[str, ...] = (".md", ".txt"),  # 本期暂不改，Task 9 扩展
 ```
 
-- [ ] **Step 4: 验证现有测试不回归**
+- [x] **Step 4: 验证现有测试不回归**
 
 Run: `pytest tests/unit/application/test_upload_doc.py tests/unit/test_config.py -v`
 Expected: ALL PASS（MAX_FILE_SIZE 值变化不影响已有测试逻辑，仅大小校验边界值可能需调整）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/ragnexus/config.py src/ragnexus/composition.py src/ragnexus/application/upload_doc_use_case.py
@@ -209,7 +209,7 @@ git commit -m "feat: add DOCUMENT_STORAGE_PATH and DOCUMENT_MAX_SIZE_MB config"
 - Consumes: `Document.source_file_path`, `Document.source_filename` (Task 1)
 - Produces: `documents` 表新增 `source_file_path TEXT`、`source_filename TEXT` 列
 
-- [ ] **Step 1: 创建 Alembic 迁移**
+- [x] **Step 1: 创建 Alembic 迁移**
 
 ```bash
 cd alembic && alembic revision -m "add source file fields to documents"
@@ -217,7 +217,7 @@ cd alembic && alembic revision -m "add source file fields to documents"
 
 重命名生成的文件为 `0009_add_document_source_fields.py`（按现有命名约定 `000N_` 前缀）。
 
-- [ ] **Step 2: 编写迁移 SQL**
+- [x] **Step 2: 编写迁移 SQL**
 
 ```python
 # alembic/versions/0009_add_document_source_fields.py
@@ -249,7 +249,7 @@ def downgrade() -> None:
 
 > **关键决策**：不新增 `source_type` 列 — 复用已有 `content_type` 字段。`.docx` 上传时 `content_type` 存 MIME type `application/vnd.openxmlformats-officedocument.wordprocessingml.document`，API 响应时按需映射为 `docx`。
 
-- [ ] **Step 3: 更新 schema.sql**
+- [x] **Step 3: 更新 schema.sql**
 
 ```sql
 -- docs/sql/schema.sql — documents 表定义（line 13-26），在 error_message 前插入新列
@@ -271,7 +271,7 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 ```
 
-- [ ] **Step 4: 验证迁移**
+- [x] **Step 4: 验证迁移**
 
 ```bash
 alembic upgrade head
@@ -283,7 +283,7 @@ pytest tests/integration/test_documents_table.py -v
 ```
 Expected: PASS（表结构验证测试应包含新列存在性检查）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add alembic/versions/0009_add_document_source_fields.py docs/sql/schema.sql
@@ -301,7 +301,7 @@ git commit -m "feat: add source_file_path and source_filename to documents table
 - Consumes: 迁移后 `source_file_path`/`source_filename` 列 (Task 3)
 - Produces: `DocumentPort.create()` 新增 `source_file_path`/`source_filename` 可选参数；`get()`/`get_by_kb()` 返回带新字段的 `Document`
 
-- [ ] **Step 1: 扩展 DocumentPort.create 签名**
+- [x] **Step 1: 扩展 DocumentPort.create 签名**
 
 ```python
 # src/ragnexus/domain/ports.py — DocumentPort.create (line 175)
@@ -320,7 +320,7 @@ async def create(
 ) -> "Document": ...
 ```
 
-- [ ] **Step 2: 更新 PgDocumentRepository.create — INSERT**
+- [x] **Step 2: 更新 PgDocumentRepository.create — INSERT**
 
 ```python
 # src/ragnexus/adapters/document/pg.py:41-61 — create 方法
@@ -348,7 +348,7 @@ async def create(
     )
 ```
 
-- [ ] **Step 3: 更新 PgDocumentRepository.get — SELECT**
+- [x] **Step 3: 更新 PgDocumentRepository.get — SELECT**
 
 ```python
 # src/ragnexus/adapters/document/pg.py:16-39 — get 方法
@@ -369,11 +369,11 @@ return Document(
 )
 ```
 
-- [ ] **Step 4: 同样更新 get_by_kb 的 SELECT 和 Document 构造**
+- [x] **Step 4: 同样更新 get_by_kb 的 SELECT 和 Document 构造**
 
 `get_by_kb` 方法与 `get` 共享相同的行映射模式，同步增加 `source_file_path`/`source_filename` 字段。
 
-- [ ] **Step 5: 新增 update_content 方法（供 IndexingService._prepare_content 使用）**
+- [x] **Step 5: 新增 update_content 方法（供 IndexingService._prepare_content 使用）**
 
 ```python
 # src/ragnexus/adapters/document/pg.py — PgDocumentRepository 新增方法
@@ -391,7 +391,7 @@ async def update_content(self, doc_id: str, content: str) -> None:
 async def update_content(self, doc_id: str, content: str) -> None: ...
 ```
 
-- [ ] **Step 6: 更新单元测试**
+- [x] **Step 6: 更新单元测试**
 
 ```python
 # tests/unit/adapters/test_document_repo.py — 新增测试
@@ -429,7 +429,7 @@ class TestCreateWithSourceFields:
 Run: `pytest tests/unit/adapters/test_document_repo.py -v`
 Expected: 新测试 PASS，原有测试 PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/ragnexus/adapters/document/pg.py src/ragnexus/domain/ports.py tests/unit/adapters/test_document_repo.py
@@ -447,7 +447,7 @@ git commit -m "feat: extend PgDocumentRepository with source file fields and upd
 - Consumes: `FileStoragePort` (Task 1), `Settings.DOCUMENT_STORAGE_PATH` (Task 2)
 - Produces: `LocalFileStorage` 实现 `FileStoragePort`
 
-- [ ] **Step 1: 创建 `__init__.py`**
+- [x] **Step 1: 创建 `__init__.py`**
 
 ```python
 # src/ragnexus/adapters/file_storage/__init__.py
@@ -457,7 +457,7 @@ from ragnexus.adapters.file_storage.local import LocalFileStorage
 __all__ = ["LocalFileStorage"]
 ```
 
-- [ ] **Step 2: 实现 LocalFileStorage**
+- [x] **Step 2: 实现 LocalFileStorage**
 
 ```python
 # src/ragnexus/adapters/file_storage/local.py
@@ -499,7 +499,7 @@ class LocalFileStorage:
             file_path.unlink()
 ```
 
-- [ ] **Step 3: 编写单元测试**
+- [x] **Step 3: 编写单元测试**
 
 ```python
 # tests/unit/adapters/test_file_storage.py
@@ -561,7 +561,7 @@ class TestLocalFileStorage:
 Run: `pytest tests/unit/adapters/test_file_storage.py -v`
 Expected: 4 tests PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/ragnexus/adapters/file_storage/ tests/unit/adapters/test_file_storage.py
@@ -584,7 +584,7 @@ git commit -m "feat: add LocalFileStorage adapter implementing FileStoragePort"
 - Consumes: `ParsedDocument.source_type` (Task 1), `ParserPort.parse` 签名
 - Produces: `register(ext, parser)`, `get_parser(filename)`; `DocxParser`, `PdfParser` 实现 `ParserPort`
 
-- [ ] **Step 1: 创建 registry.py**
+- [x] **Step 1: 创建 registry.py**
 
 ```python
 # src/ragnexus/adapters/parsers/registry.py
@@ -612,7 +612,7 @@ def get_parser(filename: str) -> ParserPort:
     return parser
 ```
 
-- [ ] **Step 2: 创建 DocxParser**
+- [x] **Step 2: 创建 DocxParser**
 
 ```python
 # src/ragnexus/adapters/parsers/docx.py
@@ -653,7 +653,7 @@ class DocxParser:
         )
 ```
 
-- [ ] **Step 3: 创建 PdfParser**
+- [x] **Step 3: 创建 PdfParser**
 
 ```python
 # src/ragnexus/adapters/parsers/pdf.py
@@ -703,7 +703,7 @@ class PdfParser:
         )
 ```
 
-- [ ] **Step 4: 微调 MarkdownAndTextParser**
+- [x] **Step 4: 微调 MarkdownAndTextParser**
 
 ```python
 # src/ragnexus/adapters/parsers/md_and_txt.py — parse 方法（约 line 14-19）
@@ -730,7 +730,7 @@ def _parse_markdown(self, text: str, filename: str) -> ParsedDocument:
     )
 ```
 
-- [ ] **Step 5: 更新 parsers/__init__.py**
+- [x] **Step 5: 更新 parsers/__init__.py**
 
 ```python
 # src/ragnexus/adapters/parsers/__init__.py
@@ -749,7 +749,7 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 6: 编写 registry 单元测试**
+- [x] **Step 6: 编写 registry 单元测试**
 
 ```python
 # tests/unit/adapters/test_parser_registry.py
@@ -802,7 +802,7 @@ class TestParserRegistry:
 Run: `pytest tests/unit/adapters/test_parser_registry.py -v`
 Expected: 4 tests PASS
 
-- [ ] **Step 7: 编写 DocxParser 单元测试 (mock mammoth)**
+- [x] **Step 7: 编写 DocxParser 单元测试 (mock mammoth)**
 
 ```python
 # tests/unit/adapters/test_docx_parser.py
@@ -870,7 +870,7 @@ class TestDocxParser:
 Run: `pytest tests/unit/adapters/test_docx_parser.py -v`
 Expected: 3 tests PASS
 
-- [ ] **Step 8: 编写 PdfParser 单元测试 (mock PyMuPDF)**
+- [x] **Step 8: 编写 PdfParser 单元测试 (mock PyMuPDF)**
 
 ```python
 # tests/unit/adapters/test_pdf_parser.py
@@ -928,14 +928,14 @@ class TestPdfParser:
 Run: `pytest tests/unit/adapters/test_pdf_parser.py -v`
 Expected: 2 tests PASS
 
-- [ ] **Step 9: 更新现有 parser 测试（source_type 变更）**
+- [x] **Step 9: 更新现有 parser 测试（source_type 变更）**
 
 检查 `tests/unit/adapters/test_parser.py` — `ParsedDocument` 构造需含 `source_type`（由于默认值 `"text"` 已生效，`.txt` 测试不需要改；`.md` 测试需验证 `source_type="markdown"`）。
 
 Run: `pytest tests/unit/adapters/test_parser.py -v`
 Expected: ALL PASS（若 MarkdownAndTextParser._parse_markdown 返回了 `source_type="markdown"` 需断言）
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/ragnexus/adapters/parsers/ tests/unit/adapters/test_parser_registry.py tests/unit/adapters/test_docx_parser.py tests/unit/adapters/test_pdf_parser.py
@@ -952,7 +952,7 @@ git commit -m "feat: add parser registry, DocxParser, PdfParser and markdown sou
 - Consumes: `FileStoragePort` (Task 5), parser registry (Task 6), `DocumentPort.update_content` (Task 4)
 - Produces: `IndexingService.__init__` 新增 `parser_registry`/`file_storage` 参数；新增 `_prepare_and_parse` 方法
 
-- [ ] **Step 1: 扩展 IndexingService.__init__**
+- [x] **Step 1: 扩展 IndexingService.__init__**
 
 ```python
 # src/ragnexus/application/indexing_service.py — __init__ 签名 (line 24)
@@ -978,7 +978,7 @@ class IndexingService:
         self._file_storage = file_storage
 ```
 
-- [ ] **Step 2: 重构 execute 方法**
+- [x] **Step 2: 重构 execute 方法**
 
 ```python
 # src/ragnexus/application/indexing_service.py — execute 方法 (line 47)
@@ -1017,7 +1017,7 @@ async def execute(self, doc_id: str) -> None:
         # ... 后续逻辑与现有代码一致 ...
 ```
 
-- [ ] **Step 3: 实现 _prepare_and_parse 方法**
+- [x] **Step 3: 实现 _prepare_and_parse 方法**
 
 ```python
 # src/ragnexus/application/indexing_service.py — 新增方法
@@ -1052,7 +1052,7 @@ async def _prepare_and_parse(self, doc: Document) -> ParsedDocument:
         )
 ```
 
-- [ ] **Step 4: 更新单元测试**
+- [x] **Step 4: 更新单元测试**
 
 ```python
 # tests/unit/application/test_indexing_service.py — 新增测试类
@@ -1104,7 +1104,7 @@ class TestPrepareAndParse:
 Run: `pytest tests/unit/application/test_indexing_service.py -v`
 Expected: 新测试 PASS，原有测试 PASS（原有 svc fixture 不传入 parser_registry/file_storage 时走 else 分支——现有文本路径不变）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/ragnexus/application/indexing_service.py tests/unit/application/test_indexing_service.py
@@ -1121,7 +1121,7 @@ git commit -m "feat: add _prepare_and_parse for binary document indexing"
 - Consumes: registry (Task 6), LocalFileStorage (Task 5), IndexingService 新参数 (Task 7)
 - Produces: composition.py 和 di.py 中完整装配 parser registry + file_storage 依赖
 
-- [ ] **Step 1: 更新 di.py (_async_build_services)**
+- [x] **Step 1: 更新 di.py (_async_build_services)**
 
 ```python
 # src/ragnexus/di.py — 新增 import
@@ -1176,7 +1176,7 @@ indexing_svc = IndexingService(
 )
 ```
 
-- [ ] **Step 2: 更新 composition.py**
+- [x] **Step 2: 更新 composition.py**
 
 ```python
 # src/ragnexus/composition.py — 新增 import（在现有 import 块末尾）
@@ -1221,7 +1221,7 @@ doc_reindex_uc = DocumentReindexUseCase(
 )
 ```
 
-- [ ] **Step 3: 更新 CacheInvalidatingUploadUseCase 和 SynonymSyncUploadUseCase**
+- [x] **Step 3: 更新 CacheInvalidatingUploadUseCase 和 SynonymSyncUploadUseCase**
 
 需要透传 `file_storage` 参数（如果 upload use case 需要）——查看 `CacheInvalidatingUploadUseCase.execute` 签名，它当前透传 `(self, kb_id, tenant_id, file_content, filename, content_type)`。JSON 上传需要额外参数，因此需要扩展签名。
 
@@ -1248,7 +1248,7 @@ async def execute(
 
 `SynonymSyncUploadUseCase.execute` 同样扩展。
 
-- [ ] **Step 4: 验证 composition 导入**
+- [x] **Step 4: 验证 composition 导入**
 
 ```bash
 python -c "from ragnexus.composition import build_app; print('composition import OK')"
@@ -1256,7 +1256,7 @@ python -c "from ragnexus.composition import build_app; print('composition import
 
 Expected: 无 ImportError。若有循环导入问题，将 registry import 延迟到 lifespan 内。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/ragnexus/composition.py src/ragnexus/di.py
@@ -1277,7 +1277,7 @@ git commit -m "feat: wire parser registry and file_storage into DI/composition"
 - Consumes: `FileStoragePort` (Task 5), `allowed_exts` 扩展 (Task 8)
 - Produces: `POST /v1/documents:upload-text` 路由；multipart upload 支持 .docx/.pdf
 
-- [ ] **Step 1: 扩展 UploadDocumentUseCase.execute 支持双模式**
+- [x] **Step 1: 扩展 UploadDocumentUseCase.execute 支持双模式**
 
 ```python
 # src/ragnexus/application/upload_doc_use_case.py — execute 方法
@@ -1346,7 +1346,7 @@ async def execute(
 
 注意：`file_content` 参数对于 JSON 上传为空 bytes `b""`，`text_content` 提供实际内容。
 
-- [ ] **Step 2: 创建 JSON 文本上传路由**
+- [x] **Step 2: 创建 JSON 文本上传路由**
 
 ```python
 # src/ragnexus/adapters/http/upload_text_router.py
@@ -1405,7 +1405,7 @@ def create_router(uc, get_current_tenant, quota_svc=None) -> APIRouter:
     return router
 ```
 
-- [ ] **Step 3: 注册新路由到 composition.py**
+- [x] **Step 3: 注册新路由到 composition.py**
 
 ```python
 # src/ragnexus/composition.py — import 区
@@ -1421,11 +1421,11 @@ app.include_router(
 )
 ```
 
-- [ ] **Step 4: 更新 multipart upload 路由 — content_type 处理**
+- [x] **Step 4: 更新 multipart upload 路由 — content_type 处理**
 
 现有 `upload_doc_router.py` 不需要改（它透传 `file.content_type`）。但需确认 `.docx` 的 MIME type 为 `application/vnd.openxmlformats-officedocument.wordprocessingml.document`，这在 `content_type` 字段中自然存储。
 
-- [ ] **Step 5: 更新单元测试**
+- [x] **Step 5: 更新单元测试**
 
 ```python
 # tests/unit/application/test_upload_doc.py — 新增测试
@@ -1467,7 +1467,7 @@ class TestBinaryUpload:
 Run: `pytest tests/unit/application/test_upload_doc.py -v`
 Expected: 新测试 PASS，原有测试也需 PASS（`.txt`/`.md` 走文本路径）
 
-- [ ] **Step 6: 更新 HTTP 路由测试**
+- [x] **Step 6: 更新 HTTP 路由测试**
 
 ```python
 # tests/unit/adapters/test_http.py — 新增 upload-text 测试
@@ -1492,7 +1492,7 @@ class TestUploadText:
 Run: `pytest tests/unit/adapters/test_http.py -v -k "upload"`
 Expected: 新测试 PASS，已有 upload 测试 PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/ragnexus/adapters/http/upload_text_router.py src/ragnexus/adapters/http/upload_doc_router.py src/ragnexus/application/upload_doc_use_case.py src/ragnexus/composition.py tests/unit/application/test_upload_doc.py tests/unit/adapters/test_http.py
@@ -1510,7 +1510,7 @@ git commit -m "feat: add JSON text upload route and binary file multipart suppor
 - Consumes: `parser_registry` (Task 6), `DocumentPort.update_content` (Task 4), `FileStoragePort` (Task 5)
 - Produces: `DocumentReindexUseCase` 支持 `reparse=True`; `POST /v1/documents/{doc_id}/reindex?reparse=true`
 
-- [ ] **Step 1: 扩展 DocumentReindexUseCase**
+- [x] **Step 1: 扩展 DocumentReindexUseCase**
 
 ```python
 # src/ragnexus/application/document_reindex_uc.py
@@ -1560,7 +1560,7 @@ class DocumentReindexUseCase:
         return {"doc_id": doc_id, "status": "processing"}
 ```
 
-- [ ] **Step 2: 扩展 document_router.py reindex 端点**
+- [x] **Step 2: 扩展 document_router.py reindex 端点**
 
 ```python
 # src/ragnexus/adapters/http/document_router.py — reindex_document（约 line 43）
@@ -1581,7 +1581,7 @@ async def reindex_document(
     return {"code": 0, "data": result, "message": "ok"}
 ```
 
-- [ ] **Step 3: 更新 composition.py 的 doc_reindex_uc 构造**
+- [x] **Step 3: 更新 composition.py 的 doc_reindex_uc 构造**
 
 ```python
 # src/ragnexus/composition.py — line 521
@@ -1593,7 +1593,7 @@ doc_reindex_uc = DocumentReindexUseCase(
 )
 ```
 
-- [ ] **Step 4: 编写 reindex 测试**
+- [x] **Step 4: 编写 reindex 测试**
 
 ```python
 # tests/unit/adapters/test_http.py — 或在 application test 中
@@ -1622,7 +1622,7 @@ async def test_reindex_with_reparse(self, mock_task):
 Run: `pytest tests/unit/application/ -v -k "reindex"`
 Expected: 新测试 PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/ragnexus/application/document_reindex_uc.py src/ragnexus/adapters/http/document_router.py src/ragnexus/composition.py
@@ -1641,7 +1641,7 @@ git commit -m "feat: add reparse support to DocumentReindexUseCase and reindex e
 - Consumes: 无后端依赖
 - Produces: 文件选择器接受 .pdf/.docx；新增 `uploadDocJson` API 函数
 
-- [ ] **Step 1: 扩展 file-filter.ts**
+- [x] **Step 1: 扩展 file-filter.ts**
 
 ```typescript
 // frontend/src/lib/file-filter.ts
@@ -1661,7 +1661,7 @@ export function validateFile(file: File): string | null {
 }
 ```
 
-- [ ] **Step 2: 扩展 api.ts**
+- [x] **Step 2: 扩展 api.ts**
 
 ```typescript
 // frontend/src/lib/api.ts — 新增 uploadDocJson
@@ -1684,7 +1684,7 @@ export async function uploadDocJson(
 }
 ```
 
-- [ ] **Step 3: 扩展 upload-doc.tsx — 文件选择器 accept 属性**
+- [x] **Step 3: 扩展 upload-doc.tsx — 文件选择器 accept 属性**
 
 ```tsx
 // frontend/src/components/upload-doc.tsx
@@ -1696,7 +1696,7 @@ export async function uploadDocJson(
 />
 ```
 
-- [ ] **Step 4: （可选）DocRow 展示 source_type badge**
+- [x] **Step 4: （可选）DocRow 展示 source_type badge**
 
 如果 API 响应中 `content_type` 可映射为格式 label，在文档列表行中展示：
 
@@ -1714,14 +1714,14 @@ function FormatBadge({ contentType }: { contentType: string }) {
 }
 ```
 
-- [ ] **Step 5: 验证前端构建**
+- [x] **Step 5: 验证前端构建**
 
 ```bash
 cd frontend && npm run build
 ```
 Expected: 无 TypeScript 编译错误
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/lib/file-filter.ts frontend/src/lib/api.ts frontend/src/components/upload-doc.tsx
@@ -1739,7 +1739,7 @@ git commit -m "feat: frontend support for .docx/.pdf upload and JSON text upload
 - Consumes: 无
 - Produces: `pip install ".[parsers]"` 可安装 mammoth + PyMuPDF
 
-- [ ] **Step 1: 更新 pyproject.toml**
+- [x] **Step 1: 更新 pyproject.toml**
 
 ```toml
 # pyproject.toml — 在 [project.optional-dependencies] 块中新增
@@ -1764,7 +1764,7 @@ parsers = [
 
 注意：`pymupdf` 的包名是 `pymupdf`（全小写），import 名是 `fitz`。
 
-- [ ] **Step 2: 验证依赖安装**
+- [x] **Step 2: 验证依赖安装**
 
 ```bash
 uv pip install ".[parsers]"
@@ -1773,14 +1773,14 @@ python -c "import mammoth; import fitz; print('OK')"
 
 Expected: 无 ImportError
 
-- [ ] **Step 3: 更新 Dockerfile**
+- [x] **Step 3: 更新 Dockerfile**
 
 ```dockerfile
 # Dockerfile — pip install 行改为安装 parsers extra
 RUN pip install --no-cache-dir ".[parsers]"
 ```
 
-- [ ] **Step 4: 更新 README.md**
+- [x] **Step 4: 更新 README.md**
 
 ```markdown
 ## 安装
@@ -1797,7 +1797,7 @@ pip install -e ".[dev,parsers]"
 ```
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pyproject.toml Dockerfile README.md
@@ -1818,7 +1818,7 @@ git commit -m "feat: add mammoth and PyMuPDF as optional parsers dependencies"
 - Consumes: 所有前述 Task 的产出
 - Produces: 集成测试覆盖 docx/pdf 上传→索引→检索全链路
 
-- [ ] **Step 1: 生成测试 fixture 文件**
+- [x] **Step 1: 生成测试 fixture 文件**
 
 使用 Python 脚本生成最小 .docx 和 .pdf：
 
@@ -1878,7 +1878,7 @@ except ImportError:
 
 Run: `python scripts/generate_test_fixtures.py`
 
-- [ ] **Step 2: 集成测试 — 上传链路**
+- [x] **Step 2: 集成测试 — 上传链路**
 
 ```python
 # tests/integration/test_multi_format_upload.py
@@ -1914,7 +1914,7 @@ class TestDocxUpload:
             assert data["data"]["status"] == "processing"
 ```
 
-- [ ] **Step 3: 集成测试 — 索引链路（需 Celery worker 运行）**
+- [x] **Step 3: 集成测试 — 索引链路（需 Celery worker 运行）**
 
 ```python
 # tests/integration/test_multi_format_indexing.py
@@ -1954,7 +1954,7 @@ class TestDocxIndexing:
             await conn.close()
 ```
 
-- [ ] **Step 4: 扫描件 PDF 测试**
+- [x] **Step 4: 扫描件 PDF 测试**
 
 ```python
 class TestScannedPdf:
@@ -1968,7 +1968,7 @@ class TestScannedPdf:
         # 验证 error_message 含 "扫描件" 或 "OCR"
 ```
 
-- [ ] **Step 5: 回归测试**
+- [x] **Step 5: 回归测试**
 
 ```bash
 # 运行现有全套测试确认零破坏
@@ -1977,7 +1977,7 @@ pytest tests/ -v --ignore=tests/e2e -x
 
 Expected: 319+ 测试 ALL PASS（含新增测试），无 regression
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add tests/fixtures/ tests/integration/test_multi_format_upload.py tests/integration/test_multi_format_indexing.py scripts/generate_test_fixtures.py
@@ -1994,7 +1994,7 @@ git commit -m "test: add integration tests for multi-format upload and indexing"
 - Consumes: 完整功能链路
 - Produces: 一键验证脚本，exit 0 表示全部通过
 
-- [ ] **Step 1: 创建 E2E 验证脚本**
+- [x] **Step 1: 创建 E2E 验证脚本**
 
 ```python
 #!/usr/bin/env python3
@@ -2108,7 +2108,7 @@ if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
 ```
 
-- [ ] **Step 2: 运行 E2E 验证**
+- [x] **Step 2: 运行 E2E 验证**
 
 ```bash
 # 前提：API 服务 + Celery Worker 已启动
@@ -2117,7 +2117,7 @@ python scripts/verify_multi_format.py --api-key rk_your_key --kb-id kb_existing
 
 Expected: exit 0，所有格式上传→索引→检索通过
 
-- [ ] **Step 3: 运行完整测试套件**
+- [x] **Step 3: 运行完整测试套件**
 
 ```bash
 pytest tests/ -v --ignore=tests/e2e --tb=short
@@ -2125,7 +2125,7 @@ pytest tests/ -v --ignore=tests/e2e --tb=short
 
 Expected: ALL PASS，零回归
 
-- [ ] **Step 4: Final commit**
+- [x] **Step 4: Final commit**
 
 ```bash
 git add scripts/verify_multi_format.py
