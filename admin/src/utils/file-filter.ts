@@ -1,7 +1,6 @@
-import type { SkippedFile } from '@/types/api';
+import { MAX_UPLOAD_SIZE } from '@/constants';
 
-const ALLOWED_EXTS = ['.md', '.txt'];
-const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+const ALLOWED_EXTS = ['.md', '.txt', '.pdf', '.docx'];
 
 export interface FilterResult {
   valid: File[];
@@ -18,7 +17,7 @@ export function preFilterFiles(files: File[] | FileList): FilterResult {
       skipped.push({ name: file.name, size: 0, reason: '文件为空' });
       continue;
     }
-    if (file.size > MAX_SIZE) {
+    if (file.size > MAX_UPLOAD_SIZE) {
       skipped.push({ name: file.name, size: file.size, reason: '超过 10MB 限制' });
       continue;
     }
