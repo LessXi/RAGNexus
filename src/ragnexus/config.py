@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     # Chunking
     CHUNK_MAX_CHARS: int = 1500
     CHUNK_OVERLAP: int = 50
+    TABLE_MAX_ROWS_PER_CHUNK: int = 10  # 大表每组最多数据行数，不含表头
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
 
     # LLM 通用配置（被 Rerank 和 Rewrite 共享）

@@ -1,4 +1,12 @@
-"""文本分块策略 — .md 按标题分割，.txt 固定窗口分割。"""
+"""文本分块策略 — .md 使用 structchunk 结构化切块，.txt 固定窗口分割。
+
+.. deprecated::
+   ``heading_aware_split`` 已废弃，请使用
+   :func:`ragnexus.infra.structchunk_bridge.chunk_markdown` 代替。
+   此函数将在结构化切块稳定后移除。
+"""
+
+import warnings
 
 from ragnexus.domain.models import ParsedDocument
 
@@ -6,10 +14,12 @@ from ragnexus.domain.models import ParsedDocument
 def heading_aware_split(
     parsed: ParsedDocument, max_chars: int = 1500, overlap: int = 50
 ) -> list[dict]:
-    """按 # 标题分割；章节超过 max_chars 时回退到固定窗口分割。
-
-    返回 dict 列表，每个含 ``text``、``heading``、``heading_level``。
-    过滤空块。"""
+    """[DEPRECATED] 按 # 标题分割 — 请使用 chunk_markdown 代替。"""
+    warnings.warn(
+        "heading_aware_split is deprecated, use chunk_markdown instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if not any(s.heading for s in parsed.sections):
         return [
             {"text": c, "heading": None, "heading_level": 0}
