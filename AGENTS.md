@@ -404,3 +404,125 @@ FEEDBACK_INVALID_SCORE = 20022        # 评分越界 (1-5)
 - 归档后 change 目录移动到 `openspec/changes/archive/YYYY-MM-DD-<name>/`
 - Design doc 和 plan 会被标注 `archived-with` 元数据
 - 归档成功后不要对原 change 名运行 guard
+
+## 开发经验（structured-markdown-chunking）
+
+### 架构
+
+```
+文档上传 → UploadDocumentUseCase → Celery Worker
+                                        ↓
+                              IndexingService.execute(doc_id)
+                                        ↓ 按扩展名分流
+                    .md → structchunk.chunk()     .txt → fixed_size_split()
+                              ↓                           ↓
+                    chunk_markdown() bridge        chunker fallback
+                    · heading_path 映射            · chunk_type="text"
+                    · chunk_type 映射              · heading_path=""
+                    · table_part 后处理
+                              ↓
+                    list[dict] → Embedding → Chunk dataclass
+                              ↓
+                    双写 pgvector + ES → metadata 透传新字段
+```
+
+核心模块：`src/ragnexus/infra/structchunk/` (structchunk 库) + `structchunk_bridge.py` (映射层)。
+
+### chunk metadata 新字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `heading_path` | str | 标题层级路径，如 `"平台交易规则 / 退款时效"` |
+| `chunk_type` | str | `section` / `table` / `code` / `list` / `text` |
+| `table_part` | int | 大表分组序号 (仅表格 chunk) |
+
+保留 `heading` / `heading_level` 向后兼容。
+
+### 配置
+
+```bash
+# .env
+CHUNK_MAX_CHARS=1500
+TABLE_MAX_ROWS_PER_CHUNK=10  # 大表每组最多数据行数
+```
+
+### chunk 诊断
+
+```bash
+# 查看文档的 chunk 类型分布
+docker exec ragnexus-db-1 psql -U ragnexus -d ragnexus -c "
+SELECT metadata->>'chunk_type' AS type, count(*)
+FROM chunks WHERE document_id = '<doc_id>' GROUP BY 1"
+
+# 查看 heading_path
+docker exec ragnexus-db-1 psql -U ragnexus -d ragnexus -c "
+SELECT metadata->>'heading_path' AS path,
+       metadata->>'chunk_type' AS type,
+       LEFT(content, 60)
+FROM chunks WHERE document_id = '<doc_id>'
+ORDER BY metadata->>'chunk_index'"
+```
+
+### 切块策略升级后 reindex
+
+```bash
+# 对整个知识库 reindex
+uv run python scripts/reindex_knowledge_base.py --kb-id <kb_id>
+
+# 仅 reindex 指定文档
+uv run python scripts/reindex_knowledge_base.py --kb-id <kb_id> --document-id <doc_id>
+```
+
+- reindex 期间文档暂时不可检索，建议低峰期执行
+- 脚本结束后打印 success/failed/skipped 统计
+- 单文档 reindex: `POST /v1/documents/{id}/reindex` 现在允许 SUCCESS 状态
+
+### structchunk 集成注意事项
+
+- structchunk 核心文件拷贝到 `src/ragnexus/infra/structchunk/`
+- `_models.py` 的 `_default_node_id()` 使用 `os.uname()` (Unix only)，Windows 替换为 `os.environ.get("COMPUTERNAME", ...)`
+- 库的 `__init__.py` 使用相对导入 (`from ._models import ...`)，在任意包深度均可工作
+
+## 通用开发经验（补充）
+
+### Pydantic Field(description=...) 不生成验证
+
+`Field(..., description="评分 1~5")` 仅写入 JSON Schema description，**不拦截非法值**。需要实际约束时必须显式添加 `ge=/le=`:
+
+```python
+# ❌ — description 只写文档，score=0 也会通过
+score: int = Field(..., description="评分 1~5")
+
+# ✅
+score: int = Field(..., ge=1, le=5, description="评分 1~5")
+```
+
+### Python 参数顺序规则
+
+有默认值的参数之后的所有参数也必须有默认值：
+
+```python
+# ❌ SyntaxError: non-default argument follows default argument
+def __init__(self, chunker=None, store: VectorStorePort):
+
+# ✅ — required params 在前
+def __init__(self, store: VectorStorePort, chunker=None):
+```
+
+### OpenSpec MODIFIED 要求精确 header 匹配
+
+归档时 `## MODIFIED Requirements` 下的每个 `### Requirement:` header 必须在主 spec 中存在完全相同的 header。不存在时归档失败。纯新增内容用 `## ADDED Requirements`。
+
+### Windows 上运行 Comet 脚本
+
+嵌入式 `bash` 命令会路由到 WSL，无法解析 Windows 路径。必须使用 Git Bash 完整路径：
+
+```bash
+# ❌ — 路由到 WSL，路径 `\\?\C:\Users\...` 无法解析
+bash comet-guard.sh ...
+
+# ✅ — 使用 Git Bash 显式路径
+"E:\Software\Git\bin\bash.exe" -c 'COMET_ENV="..."; . "$COMET_ENV"; "$COMET_GUARD" ...'
+```
+
+同时注意路径分隔符：Git Bash 中使用 `/f/learnAgent/...` 而非 `F:/learnAgent/...`。
