@@ -17,12 +17,12 @@
 
 ### New Capabilities
 
+- `retrieve-api-chunk-metadata`: 检索响应 chunk metadata 新增 heading_path 和 chunk_type 字段，调试台据此展示章节和块类型
 - `structured-chunking`: 结构化 Markdown 切块能力 — 沿标题边界分节、表格整块保留表头、每 chunk 携带 `heading_path` 和 `chunk_type` 元数据
 - `batch-reindex`: 批量重建索引能力 — 脚本对指定知识库下所有已索引文档跑 purge + 重新索引，打印进度和统计
 
 ### Modified Capabilities
 
-- `retrieve-api`: 检索响应中 chunk 的 metadata 新增 `heading_path` 和 `chunk_type` 字段，前端调试台据此展示章节和块类型信息
 
 ## Impact
 

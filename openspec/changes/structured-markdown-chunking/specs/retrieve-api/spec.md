@@ -1,6 +1,6 @@
 # retrieve-api Specification (Delta)
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: 检索响应 chunk metadata 包含结构化切块信息
 
