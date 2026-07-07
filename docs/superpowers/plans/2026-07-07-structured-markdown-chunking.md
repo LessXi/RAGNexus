@@ -1,6 +1,6 @@
 # 结构化 Markdown 切块 — 实施计划
 
-> **For agentic workers:** 使用 subagent-driven-development 或 executing-plans 按任务执行。步骤使用 `- [ ]` 勾选语法。
+> **For agentic workers:** 使用 subagent-driven-development 或 executing-plans 按任务执行。步骤使用 `- [x]` 勾选语法。
 
 **Goal:** 将 RAGNexus 索引侧从固定字符切块升级为结构化 Markdown 切块，集成 structchunk 库，扩展 reindex 能力，增强调试台展示。
 
@@ -51,13 +51,13 @@
 **Interfaces:**
 - Produces: `src/ragnexus/infra.structchunk.chunk(content, algorithm="hierarchical", max_chars=1500)` → `list[MarkdownChunk]`
 
-- [ ] **Step 1: 拷贝 structchunk 核心模块**
+- [x] **Step 1: 拷贝 structchunk 核心模块**
 
 ```bash
 cp -r .tmp/structchunk_audit/src/structchunk/* src/ragnexus/infra/structchunk/
 ```
 
-- [ ] **Step 2: 创建 infra 包初始化文件**
+- [x] **Step 2: 创建 infra 包初始化文件**
 
 `src/ragnexus/infra/__init__.py`:
 ```python
@@ -65,20 +65,20 @@ cp -r .tmp/structchunk_audit/src/structchunk/* src/ragnexus/infra/structchunk/
 ```
 
 
-- [ ] **Step 2b: 运行 structchunk 自有测试验证兼容性**
+- [x] **Step 2b: 运行 structchunk 自有测试验证兼容性**
 
 ```bash
 uv run pytest src/ragnexus/infra/structchunk/ -v --tb=short 2>&1 | tail -20
 ```
 Expected: 全部通过或仅有少量与项目环境无关的 skip
-- [ ] **Step 3: 验证 structchunk 可导入**
+- [x] **Step 3: 验证 structchunk 可导入**
 
 ```bash
 uv run python -c "from ragnexus.infra.structchunk import chunk, MarkdownChunk; print('OK')"
 ```
 Expected: `OK`
 
-- [ ] **Step 4: 验证 structchunk 基本功能**
+- [x] **Step 4: 验证 structchunk 基本功能**
 
 ```bash
 uv run python -c "
@@ -89,7 +89,7 @@ print(len(chunks), chunks[0].metadata.header_breadcrumb)
 ```
 Expected: 输出 chunk 数量和面包屑列表
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/ragnexus/infra/
@@ -107,7 +107,7 @@ git commit -m "feat(chunking): integrate structchunk library into infra layer"
 - Produces: `chunk_markdown(content: str, max_chars: int = 1500, table_max_rows: int = 10) -> list[dict]`
 - 每个 dict 含: `text`, `heading_path`, `chunk_type`, `table_part`(可选), `heading`, `heading_level`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `tests/unit/infra/test_structchunk_bridge.py`:
 ```python
@@ -172,14 +172,14 @@ class TestChunkMarkdown:
             assert "---" not in c["text"] or c["heading_path"]  # --- 可能与分隔线混淆，至少不出现在正文孤立
 ```
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 ```bash
 uv run pytest tests/unit/infra/test_structchunk_bridge.py -v
 ```
 Expected: FAIL (chunk_markdown 尚未实现)
 
-- [ ] **Step 3: 实现 chunk_markdown**
+- [x] **Step 3: 实现 chunk_markdown**
 
 `src/ragnexus/infra/structchunk_bridge.py`:
 ```python
@@ -270,14 +270,14 @@ def chunk_markdown(
     return result
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 ```bash
 uv run pytest tests/unit/infra/test_structchunk_bridge.py -v
 ```
 Expected: ALL PASS (7 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/ragnexus/infra/structchunk_bridge.py tests/unit/infra/test_structchunk_bridge.py
@@ -294,7 +294,7 @@ git commit -m "feat(chunking): add chunk_markdown bridge with metadata mapping"
 **Interfaces:**
 - Produces: `Settings.TABLE_MAX_ROWS_PER_CHUNK: int = 10`
 
-- [ ] **Step 1: 添加配置项**
+- [x] **Step 1: 添加配置项**
 
 在 `src/ragnexus/config.py` 的 `Settings` 类中新增:
 
@@ -303,14 +303,14 @@ git commit -m "feat(chunking): add chunk_markdown bridge with metadata mapping"
 TABLE_MAX_ROWS_PER_CHUNK: int = 10  # 大表每组最多数据行数
 ```
 
-- [ ] **Step 2: 验证配置可读取**
+- [x] **Step 2: 验证配置可读取**
 
 ```bash
 uv run python -c "from ragnexus.config import get_settings; s = get_settings(); print(s.TABLE_MAX_ROWS_PER_CHUNK)"
 ```
 Expected: `10`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/ragnexus/config.py
@@ -328,7 +328,7 @@ git commit -m "feat(chunking): add TABLE_MAX_ROWS_PER_CHUNK config"
 - 保留: `fixed_size_split(text, max_chars, overlap) -> list[str]`
 - 废弃: `heading_aware_split(parsed, max_chars, overlap) -> list[dict]`
 
-- [ ] **Step 1: 标记 heading_aware_split 为废弃**
+- [x] **Step 1: 标记 heading_aware_split 为废弃**
 
 在 `heading_aware_split` 函数上方添加 deprecation warning:
 
@@ -350,7 +350,7 @@ def heading_aware_split(
     # ... 保留原有实现 ...
 ```
 
-- [ ] **Step 2: 验证 fixed_size_split 仍可正常工作**
+- [x] **Step 2: 验证 fixed_size_split 仍可正常工作**
 
 ```bash
 uv run python -c "
@@ -363,7 +363,7 @@ print('OK')
 ```
 Expected: `OK`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/ragnexus/domain/chunking.py
@@ -383,7 +383,7 @@ git commit -m "refactor(chunking): deprecate heading_aware_split, retain fixed_s
 - Consumes: `fixed_size_split(text, max_chars, overlap) -> list[str]`
 - Modifies: `IndexingService.execute()` 内 chunker 调用
 
-- [ ] **Step 1: 更新测试**
+- [x] **Step 1: 更新测试**
 
 修改 `tests/unit/application/test_indexing_service.py` 中 chunker 相关测试，mock 改为返回含新字段的 dict:
 
@@ -411,14 +411,14 @@ def mock_md_chunks():
 
 更新测试用例验证 metadata 透传 `heading_path` 和 `chunk_type`。
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 ```bash
 uv run pytest tests/unit/application/test_indexing_service.py -v -x
 ```
 Expected: FAIL（IndexingService 尚未调用新 chunker）
 
-- [ ] **Step 3: 实现分流逻辑**
+- [x] **Step 3: 实现分流逻辑**
 
 修改 `IndexingService.execute()` 中 chunker 调用部分:
 
@@ -482,14 +482,14 @@ chunks = [
 ]
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 ```bash
 uv run pytest tests/unit/application/test_indexing_service.py -v -x
 ```
 Expected: ALL PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/ragnexus/application/indexing_service.py tests/unit/application/test_indexing_service.py
@@ -503,7 +503,7 @@ git commit -m "feat(chunking): route .md to structchunk, .txt to fixed_size_spli
 **Files:**
 - Modify: `src/ragnexus/di.py`
 
-- [ ] **Step 1: 切换 chunker 注入**
+- [x] **Step 1: 切换 chunker 注入**
 
 将 `_async_build_services()` 中的 chunker 注入从 `heading_aware_split` 改为使用 `IndexingService` 内部的分流逻辑（chunker 参数不再需要外部传入，IndexingService 内部自行决策）。
 
@@ -532,7 +532,7 @@ def __init__(
 ) -> None:
 ```
 
-- [ ] **Step 2: 验证 Worker 可正常启动**
+- [x] **Step 2: 验证 Worker 可正常启动**
 
 ```bash
 uv run python -c "
@@ -546,7 +546,7 @@ asyncio.run(test())
 "
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/ragnexus/di.py
@@ -561,7 +561,7 @@ git commit -m "refactor(chunking): update DI container for structchunk routing"
 - Modify: `src/ragnexus/application/document_reindex_uc.py`
 - Modify: `tests/unit/application/test_document_reindex_uc.py`
 
-- [ ] **Step 1: 更新测试**
+- [x] **Step 1: 更新测试**
 
 `tests/unit/application/test_document_reindex_uc.py` 新增:
 
@@ -599,14 +599,14 @@ class TestReindexSuccessDoc:
         assert exc.value.code == ErrorCode.RESOURCE_CONFLICT
 ```
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 ```bash
 uv run pytest tests/unit/application/test_document_reindex_uc.py -v -x
 ```
 Expected: FAIL (test_success_doc_can_reindex 应失败，当前仅允许 FAILED)
 
-- [ ] **Step 3: 放宽状态检查**
+- [x] **Step 3: 放宽状态检查**
 
 ```python
 # 旧代码
@@ -622,14 +622,14 @@ if doc.status == DocStatus.PROCESSING:
     )
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 ```bash
 uv run pytest tests/unit/application/test_document_reindex_uc.py -v -x
 ```
 Expected: ALL PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/ragnexus/application/document_reindex_uc.py tests/unit/application/test_document_reindex_uc.py
@@ -646,7 +646,7 @@ git commit -m "feat(reindex): allow SUCCESS documents to force reindex"
 **Interfaces:**
 - Consumes: `DocumentReindexUseCase` (已扩展)
 
-- [ ] **Step 1: 更新路由描述和响应说明**
+- [x] **Step 1: 更新路由描述和响应说明**
 
 在 `POST /documents/{id}/reindex` 路由的 docstring 和响应模型中，将"仅 FAILED 状态允许"改为"SUCCESS 和 FAILED 状态允许，PROCESSING 拒绝"。
 
@@ -665,7 +665,7 @@ async def reindex_document(
     return {"code": 0, "data": result, "message": "ok"}
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 - Consumes: `index_document_task` from Celery
 ```
@@ -681,7 +681,7 @@ async def reindex_document(
 - CLI: `--kb-id` (必填), `--tenant-id` (可选), `--document-id` (可多次, 可选)
 - Consumes: `index_document_task` from Celery
 
-- [ ] **Step 1: 创建脚本**
+- [x] **Step 1: 创建脚本**
 
 `scripts/reindex_knowledge_base.py`:
 ```python
@@ -798,14 +798,14 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-- [ ] **Step 2: 验证脚本语法正确**
+- [x] **Step 2: 验证脚本语法正确**
 
 ```bash
 uv run python -c "import py_compile; py_compile.compile('scripts/reindex_knowledge_base.py', doraise=True); print('OK')"
 ```
 Expected: `OK`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/reindex_knowledge_base.py
@@ -819,7 +819,7 @@ git commit -m "feat(reindex): add batch reindex script for knowledge bases"
 **Files:**
 - Modify: `admin/src/pages/retrieve.tsx`
 
-- [ ] **Step 1: 添加 chunk 元信息展示行**
+- [x] **Step 1: 添加 chunk 元信息展示行**
 
 在 `retrieve.tsx` 中找到渲染 chunk content 的区域，在 content 折叠区上方新增:
 
@@ -846,13 +846,13 @@ git commit -m "feat(reindex): add batch reindex script for knowledge bases"
 )}
 ```
 
-- [ ] **Step 2: 验证前端编译通过**
+- [x] **Step 2: 验证前端编译通过**
 
 ```bash
 cd admin && npx tsc --noEmit --pretty 2>&1 | tail -5
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add admin/src/pages/retrieve.tsx
@@ -869,7 +869,7 @@ git commit -m "feat(ui): display heading_path and chunk_type in retrieve debug p
 **Interfaces:**
 - Consumes: `fixed_size_split` from `ragnexus.domain.chunking`
 
-- [ ] **Step 1: 编写/更新测试**
+- [x] **Step 1: 编写/更新测试**
 
 验证 `fixed_size_split` 行为不变，`heading_aware_split` 触发 deprecation warning：
 
@@ -910,14 +910,14 @@ class TestHeadingAwareSplitDeprecated:
             heading_aware_split(parsed, max_chars=500, overlap=50)
 ```
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 ```bash
 uv run pytest tests/unit/domain/test_chunking.py -v
 ```
 Expected: ALL PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/unit/domain/test_chunking.py
@@ -932,7 +932,7 @@ git commit -m "test(chunking): add unit tests for fixed_size_split and deprecati
 - Modify: `README.md`
 - Modify: `AGENTS.md`
 
-- [ ] **Step 1: README 新增 reindex 小节**
+- [x] **Step 1: README 新增 reindex 小节**
 
 在 README.md 运维部分新增:
 
@@ -954,7 +954,7 @@ uv run python scripts/reindex_knowledge_base.py --kb-id <kb_id> --document-id <d
 - 脚本结束后打印 success/failed/skipped 统计
 ```
 
-- [ ] **Step 2: AGENTS.md 补充诊断信息**
+- [x] **Step 2: AGENTS.md 补充诊断信息**
 
 ```markdown
 ### 结构化切块相关诊断
@@ -972,7 +972,7 @@ SELECT metadata->>'heading_path' AS path, metadata->>'chunk_type' AS type, LEFT(
 FROM chunks WHERE document_id = '<doc_id>' ORDER BY metadata->>'chunk_index'"
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add README.md AGENTS.md
@@ -986,14 +986,14 @@ git commit -m "docs: add reindex usage guide and chunking diagnostics"
 **Files:**
 - 无新建文件
 
-- [ ] **Step 1: 运行全部单元测试**
+- [x] **Step 1: 运行全部单元测试**
 
 ```bash
 uv run pytest tests/unit/ -v -x --tb=short
 ```
 Expected: ALL PASS
 
-- [ ] **Step 2: 如果有 Docker 环境，构建并验证**
+- [x] **Step 2: 如果有 Docker 环境，构建并验证**
 
 ```bash
 docker compose build app && docker compose up -d app
@@ -1001,7 +1001,7 @@ curl -s http://localhost:8000/openapi.json | python3 -c "import json,sys; print(
 ```
 Expected: 路由数不变（新增字段不影响路由）
 
-- [ ] **Step 3: Commit 最终状态**
+- [x] **Step 3: Commit 最终状态**
 
 ```bash
 git add -A
