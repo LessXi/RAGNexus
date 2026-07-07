@@ -13,7 +13,6 @@ from ragnexus.adapters.vector_store.pgvector import PgVectorStore
 from ragnexus.application.indexing_service import IndexingService
 from ragnexus.config import Settings, get_settings
 from ragnexus.core.logger import LoggedPool
-from ragnexus.domain.chunking import heading_aware_split
 
 
 async def _async_build_services(cfg: Settings):
@@ -63,14 +62,14 @@ async def _async_build_services(cfg: Settings):
         doc_repo=doc_repo,
         parser=parser,
         embedder=embedder,
-        chunker=heading_aware_split,
+        chunker=None,  # IndexingService 内部按扩展名自行分流
         store=store,
         keyword_store=keyword_store,
         es_enabled=cfg.ES_ENABLED,
         chunk_max_chars=cfg.CHUNK_MAX_CHARS,
         chunk_overlap=cfg.CHUNK_OVERLAP,
+        table_max_rows_per_chunk=cfg.TABLE_MAX_ROWS_PER_CHUNK,
     )
-    indexing_svc._store_pool = store_pool  # type: ignore[attr-defined]
     indexing_svc._repo_pool = repo_pool  # type: ignore[attr-defined]
     return indexing_svc, doc_repo, kb_repo
 
