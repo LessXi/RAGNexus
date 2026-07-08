@@ -374,6 +374,53 @@ class RetrieveUseCase:
                 f"部分知识库不属于当前租户（请求 {len(unique_ids)} 个，归属 {count} 个）",
             )
 
+    async def _retrieve_per_kb(
+        self,
+        kb_id: str,
+        search_vector: list[float],
+        original_query: str,
+        per_kb_top_k: int,
+        rrf_k: int,
+        use_vector: bool,
+        use_bm25: bool,
+    ) -> list[SearchHit]:
+        """单库召回：vector + BM25 → 库内 RRF，返回 rank-ordered hits。
+
+        降级策略：
+        - BM25 失败（返回空）→ 纯向量降级
+        - 向量检索失败（返回空）→ 纯 BM25 降级
+        - 两路都失败 → 返回 []
+        """
+        vec_hits: list[SearchHit] = []
+        kw_hits: list[SearchHit] = []
+
+        if use_vector:
+            vec_hits = (
+                await self._store.search_by_vector(search_vector, per_kb_top_k, [kb_id])
+                or []
+            )
+            # 分数标记：向量分写入 metadata
+            for hit in vec_hits:
+                hit.metadata["_vector_score"] = hit.score
+
+        if use_bm25 and self._keyword_store is not None:
+            kw_hits = (
+                await self._keyword_store.search_by_keyword(
+                    kb_id, original_query, per_kb_top_k
+                )
+                or []
+            )
+            # 分数标记：BM25 分写入 metadata
+            for hit in kw_hits:
+                hit.metadata["_bm25_score"] = hit.score
+
+        # 两路都失败 → 返回空列表
+        if not vec_hits and not kw_hits:
+            return []
+
+        # 库内 RRF 融合（rrf_fuse 本身已支持空列表降级）
+        return rrf_fuse(vec_hits, kw_hits, k=rrf_k)
+
 
 def _serialize_query_processing(result: QueryProcessResult) -> dict:
     """将 QueryProcessResult 序列化为 query_processing dict。"""
