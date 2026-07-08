@@ -82,6 +82,16 @@ class ParserPort(Protocol):
     async def parse(self, content: bytes, filename: str) -> ParsedDocument: ...
 
 
+class FileStoragePort(Protocol):
+    """文件存储端口 — 二进制文件暂存与读取。"""
+
+    async def save(
+        self, tenant_id: str, doc_id: str, filename: str, content: bytes
+    ) -> str: ...
+    async def read(self, path: str) -> bytes: ...
+    async def delete(self, path: str) -> None: ...
+
+
 class RetrieveLogPort(Protocol):
     """retrieve 日志（fire-and-forget）。骨架实现: PgRetrieveLogRepository。"""
 
@@ -182,7 +192,11 @@ class DocumentPort(Protocol):
         file_size: int,
         content_type: str,
         content: str,
+        source_file_path: str | None = None,
+        source_filename: str | None = None,
     ) -> "Document": ...
+
+    async def update_content(self, doc_id: str, content: str) -> None: ...
 
     async def update_status(
         self,

@@ -35,6 +35,19 @@ export async function uploadDoc(
   return data;
 }
 
+/** 以 JSON 方式上传文档文本内容 */
+export async function uploadDocJson(
+  kbId: string,
+  title: string,
+  content: string,
+): Promise<UploadDocResponse> {
+  const { data } = await api.post<UploadDocResponse>(
+    '/v1/documents:upload-text',
+    { kb_id: kbId, title, content },
+  );
+  return data;
+}
+
 /** 执行检索 */
 export async function retrieve(params: RetrieveRequest): Promise<RetrieveResponse> {
   const { data } = await api.post<RetrieveResponse>(

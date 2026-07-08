@@ -5,7 +5,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ragnexus.core.logger import logger
-from ragnexus.domain.models import Chunk, DocStatus
+from ragnexus.core.errors import AppError, ErrorCode
+from ragnexus.domain.models import Chunk, DocStatus, Document, ParsedDocument
 from ragnexus.domain.ports import (
     DocumentPort,
     EmbedderPort,
@@ -32,6 +33,8 @@ class IndexingService:
         es_enabled: bool = False,
         chunk_max_chars: int = 1500,
         chunk_overlap: int = 50,
+        parser_registry=None,  # 新增 — registry 用于二进制文件解析
+        file_storage=None,  # 新增 — FileStoragePort 读取暂存文件
     ) -> None:
         self._doc_repo = doc_repo
         self._parser = parser
@@ -43,6 +46,8 @@ class IndexingService:
         self._es_enabled = es_enabled
         self._chunk_max_chars = chunk_max_chars
         self._chunk_overlap = chunk_overlap
+        self._parser_registry = parser_registry
+        self._file_storage = file_storage
 
     async def execute(self, doc_id: str) -> None:
         """执行索引流水线。幂等保护：非 PROCESSING 跳过。"""
@@ -58,8 +63,13 @@ class IndexingService:
             return
 
         try:
-            # 1. Parse
-            parsed = await self._parser.parse(doc.content.encode(), doc.filename)
+            # 1. Parse — 分路径
+            if doc.source_file_path and not doc.content.strip():
+                # 二进制文件：registry parse → 更新 content
+                parsed = await self._prepare_and_parse(doc)
+            else:
+                # 文本文件：现有行为
+                parsed = await self._parser.parse(doc.content.encode(), doc.filename)
             if not parsed.sections and not parsed.raw_text:
                 await self._doc_repo.update_status(
                     doc_id, status=DocStatus.FAILED, error_message="文件内容为空"
@@ -171,6 +181,36 @@ class IndexingService:
                 doc_id, status=DocStatus.FAILED, error_message=str(exc)[:500]
             )
             raise
+
+    async def _prepare_and_parse(self, doc: Document) -> ParsedDocument:
+        """从原始文件读取并解析二进制文档。
+
+        1. 从 file_storage 读取原始字节
+        2. 通过 registry 选择对应 parser
+        3. 解析后更新 doc.content（供持久化查询）
+        4. 返回 ParsedDocument
+        """
+        try:
+            file_bytes = await self._file_storage.read(doc.source_file_path)
+            parser = self._parser_registry.get_parser(doc.source_filename)
+            parsed = await parser.parse(file_bytes, doc.source_filename)
+
+            if not parsed.sections and not parsed.raw_text:
+                raise AppError(ErrorCode.DOCUMENT_PARSE_FAILED, "解析结果为空")
+
+            # 回写 content 供后续持久化查询
+            await self._doc_repo.update_content(
+                doc_id=doc.doc_id,
+                content=parsed.raw_text,
+            )
+            return parsed
+        except AppError:
+            raise
+        except Exception as e:
+            raise AppError(
+                ErrorCode.DOCUMENT_PARSE_FAILED,
+                f"文档解析失败: {e}",
+            )
 
 
 async def purge_document_chunks(

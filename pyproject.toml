@@ -37,6 +37,10 @@ eval = [
     "ragas>=0.2.0",
     "datasets>=2.0.0",
 ]
+parsers = [
+    "mammoth>=1.8.0",
+    "pymupdf>=1.24.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

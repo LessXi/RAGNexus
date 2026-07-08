@@ -6,10 +6,10 @@ function makeFile(name: string, size: number): File {
 }
 
 describe('preFilterFiles', () => {
-  it('应将 .md 和 .txt 文件归类为有效', () => {
-    const files = [makeFile('doc.md', 1000), makeFile('notes.txt', 500)];
+  it('应将 .md、.txt、.pdf、.docx 文件归类为有效', () => {
+    const files = [makeFile('doc.md', 1000), makeFile('notes.txt', 500), makeFile('report.pdf', 2000), makeFile('proposal.docx', 3000)];
     const result = preFilterFiles(files);
-    expect(result.valid).toHaveLength(2);
+    expect(result.valid).toHaveLength(4);
     expect(result.skipped).toHaveLength(0);
   });
 
@@ -30,7 +30,7 @@ describe('preFilterFiles', () => {
   });
 
   it('应跳过不支持的扩展名', () => {
-    const files = [makeFile('doc.pdf', 1000), makeFile('image.png', 500)];
+    const files = [makeFile('image.png', 1000), makeFile('photo.jpg', 500)];
     const result = preFilterFiles(files);
     expect(result.valid).toHaveLength(0);
     expect(result.skipped).toHaveLength(2);
@@ -47,7 +47,7 @@ describe('preFilterFiles', () => {
   it('应正确混合有效和无效文件', () => {
     const files = [
       makeFile('doc1.md', 5000),
-      makeFile('bad.pdf', 2000),
+      makeFile('bad.png', 2000),
       makeFile('doc2.txt', 3000),
       makeFile('empty.md', 0),
       makeFile('big.md', 20 * 1024 * 1024),

@@ -98,3 +98,33 @@ def test_api_key_revoked():
         status="revoked",
     )
     assert ak.status == "revoked"
+
+
+def test_parsed_document_defaults():
+    """ParsedDocument 默认 source_type='text', metadata={}"""
+    from ragnexus.domain.models import ParsedDocument, Section
+
+    doc = ParsedDocument(
+        filename="test.txt",
+        sections=[],
+        raw_text="hello",
+    )
+    assert doc.source_type == "text"
+    assert doc.metadata == {}
+
+
+def test_document_new_fields_default_none():
+    """Document 新字段 source_file_path/source_filename 默认为 None"""
+    from ragnexus.domain.models import Document
+
+    doc = Document(
+        doc_id="d1",
+        kb_id="k1",
+        filename="f.txt",
+        file_hash="h",
+        file_size=10,
+        content_type="text/plain",
+        content="",
+    )
+    assert doc.source_file_path is None
+    assert doc.source_filename is None

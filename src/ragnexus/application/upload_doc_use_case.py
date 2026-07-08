@@ -44,12 +44,13 @@ class UploadDocumentUseCase:
         embedder: EmbedderPort,
         chunker: Callable[..., list[dict]],
         store: VectorStorePort,
-        max_file_size: int = 10 * 1024 * 1024,
+        max_file_size: int = 20 * 1024 * 1024,  # 20MB（原 10 * 1024 * 1024）
         allowed_exts: tuple[str, ...] = (".md", ".txt"),
         chunk_max_chars: int = 1500,
         chunk_overlap: int = 50,
         keyword_store: KeywordSearchPort | None = None,
         es_enabled: bool = False,
+        file_storage=None,  # 新增 — FileStoragePort 用于二进制文件解析
     ) -> None:
         self._kb_repo = kb_repo
         self._doc_repo = doc_repo
@@ -64,6 +65,7 @@ class UploadDocumentUseCase:
         self._chunk_overlap = chunk_overlap
         self._keyword_store = keyword_store
         self._es_enabled = es_enabled
+        self._file_storage = file_storage  # 新增 — FileStoragePort
 
     async def execute(
         self,
@@ -72,6 +74,7 @@ class UploadDocumentUseCase:
         file_content: bytes,
         filename: str,
         content_type: str,
+        text_content: str | None = None,  # 新增 — JSON 上传路径（自定义处理器使用）
     ) -> UploadResult:
         """运行同步校验流水线，提交异步索引任务。
 

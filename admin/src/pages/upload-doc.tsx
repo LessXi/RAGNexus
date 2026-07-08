@@ -213,7 +213,7 @@ export default function UploadDocPage() {
   <div>
    <h1 className="text-xl font-semibold mb-1">📤 文档上传</h1>
    <p className="text-slate-400 text-sm mb-6">
-    向已有知识库上传 Markdown (.md) 或纯文本 (.txt) 文档。支持单文件选择和文件夹批量上传。
+    向已有知识库上传 Markdown (.md)、纯文本 (.txt)、PDF (.pdf) 或 Word (.docx) 文档。支持单文件选择和文件夹批量上传。
    </p>
 
    {/* Toast 通知 */}
@@ -332,7 +332,7 @@ export default function UploadDocPage() {
       ref={fileInputRef}
       type="file"
       multiple
-      accept=".md,.txt"
+      accept=".md,.txt,.pdf,.docx"
       className="hidden"
       onChange={(e) => handleFiles(e.target.files)}
      />
@@ -346,7 +346,7 @@ export default function UploadDocPage() {
      />
     </div>
     <p className="text-slate-500 text-xs">
-     支持 .md / .txt 格式，单文件不超过 10MB。文件夹上传将逐个顺序上传。
+     支持 .md / .txt / .pdf / .docx 格式，单文件不超过 10MB。文件夹上传将逐个顺序上传。
     </p>
 
     {/* 已选文件预览 */}

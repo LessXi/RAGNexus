@@ -16,7 +16,12 @@ class MarkdownAndTextParser:
         text = content.decode("utf-8", errors="replace")
         if filename.lower().endswith(".md"):
             return self._parse_markdown(text, filename)
-        return ParsedDocument(filename=filename, sections=[], raw_text=text)
+        return ParsedDocument(
+            filename=filename,
+            sections=[],
+            raw_text=text,
+            source_type="text",
+        )
 
     def _parse_markdown(self, text: str, filename: str) -> ParsedDocument:
         """按标题级别将 Markdown 文本拆分为章节。
@@ -76,6 +81,11 @@ class MarkdownAndTextParser:
                 )
             )
 
-        # Remove completely empty sections (heading-only with no content)
+        # 移除完全空的 section（只有标题没有内容）
         sections = [s for s in sections if s.content or s.heading]
-        return ParsedDocument(filename=filename, sections=sections, raw_text=text)
+        return ParsedDocument(
+            filename=filename,
+            sections=sections,
+            raw_text=text,
+            source_type="markdown",
+        )
