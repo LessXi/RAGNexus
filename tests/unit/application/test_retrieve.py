@@ -908,3 +908,57 @@ async def test_scenario_12_10_enabled_false_priority(
     assert result.query_processing["synonym_applied"] is False
     # needs_rewrite 为 false（未执行改写）
     assert result.query_processing["needs_rewrite"] is False
+
+
+
+# ═══════════════════════════════════════════════════════════════════
+# RetrieveResult 鲁棒性字段测试 — Phase 10
+# ═══════════════════════════════════════════════════════════════════
+
+
+def test_retrieve_result_robustness_fields_defaults():
+    """构造 RetrieveResult 时，新增鲁棒性字段应有正确的默认值。"""
+    from ragnexus.domain.models import RetrieveResult, SearchHit
+
+    result = RetrieveResult(
+        hits=[],
+        total=0,
+        latency_ms=0,
+        mode="test",
+        vector_count=0,
+        bm25_count=0,
+        fused_count=0,
+        rerank_model=None,
+        degraded=False,
+        degraded_reason=None,
+    )
+
+    # 默认值断言
+    assert result.failed_kb_ids == []
+    assert result.partial_kb_success is False
+    assert result.empty_reason is None
+
+
+def test_retrieve_result_robustness_fields_explicit():
+    """可以显式设置鲁棒性字段。"""
+    from ragnexus.domain.models import RetrieveResult
+
+    result = RetrieveResult(
+        hits=[],
+        total=0,
+        latency_ms=0,
+        mode="test",
+        vector_count=0,
+        bm25_count=0,
+        fused_count=0,
+        rerank_model=None,
+        degraded=False,
+        degraded_reason=None,
+        failed_kb_ids=["kb_a", "kb_b"],
+        partial_kb_success=True,
+        empty_reason="no_indexed_chunks",
+    )
+
+    assert result.failed_kb_ids == ["kb_a", "kb_b"]
+    assert result.partial_kb_success is True
+    assert result.empty_reason == "no_indexed_chunks"

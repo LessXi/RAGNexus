@@ -96,7 +96,7 @@ class Document:
 class RetrieveResult:
     """检索结果 — 封装一次检索操作的完整响应。
 
-    包含多路检索的计数统计、融合信息、延迟和降级标记。
+    包含多路检索的计数统计、融合信息、延迟、降级标记和鲁棒性状态。
     """
 
     hits: list[SearchHit]
@@ -110,6 +110,12 @@ class RetrieveResult:
     degraded: bool
     degraded_reason: str | None
     degraded_kb_ids: list[str] = field(default_factory=list)
+    # 因异常完全失败的 KB ID 列表（连接超时、认证失败等无法恢复的错误）
+    failed_kb_ids: list[str] = field(default_factory=list)
+    # 是否为部分成功（至少一个 KB 失败或降级）
+    partial_kb_success: bool = False
+    # 空结果原因：no_indexed_chunks（无索引数据）、no_chunks_matched（无匹配 chunk）或 None（非空）
+    empty_reason: str | None = None
     log_id: str | None = None
     trace_id: str | None = None
     # query processing pipeline result (stage 6)
