@@ -228,6 +228,14 @@ class RetrieveUseCase:
 
             # 3d. 跨库 RRF 融合
             hits = cross_kb_rrf_fuse(valid_groups, k=rrf_k)
+
+            # 3d.5 批量预加载 kb_name（跨库 RRF 融合后、rerank 前）
+            rows = await self._kb_repo.pool.fetch(
+                "SELECT id, name FROM knowledge_bases WHERE id = ANY($1)", kb_ids
+            )
+            kb_names_map: dict[str, str] = {row["id"]: row["name"] for row in rows}
+            for hit in hits:
+                hit.kb_name = kb_names_map.get(hit.kb_id, hit.kb_id[:8])
             rrf_pool_size = len(hits)  # 融合后去重数
 
             # 3e. 重排：用原始 query + 原始 query embedding（对齐 BM25 和缓存）

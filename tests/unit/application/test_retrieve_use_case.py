@@ -472,6 +472,140 @@ async def test_execute_uses_per_kb_top_k(
 
 
 # ══════════════════════════════════════════════════════════════════════
+# Task 1.5 测试 — kb_name 预加载与填充
+# ══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_kb_name_populated(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_reranker,
+):
+    """跨库 RRF 融合后 hit.kb_name 从 DB 批量填充。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        # 模拟 pool.fetch 返回 kb_id → name 映射
+        mock_kb_repo.pool.fetch.return_value = [
+            {"id": "kb1", "name": "知识库 Alpha"},
+            {"id": "kb2", "name": "知识库 Beta"},
+            {"id": "kb3", "name": "知识库 Gamma"},
+        ]
+
+        hits_kb1 = [_make_hit("c1", "kb1", "d1", 0.9)]
+        hits_kb2 = [_make_hit("c2", "kb2", "d2", 0.8)]
+        hits_kb3 = [_make_hit("c3", "kb3", "d3", 0.7)]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                (hits_kb1, 1, 1),
+                (hits_kb2, 1, 1),
+                (hits_kb3, 1, 1),
+            ]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                fused = [
+                    _make_hit("c1", "kb1", "d1", 1.0),
+                    _make_hit("c2", "kb2", "d2", 0.8),
+                    _make_hit("c3", "kb3", "d3", 0.6),
+                ]
+                mock_fuse.return_value = fused
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1", "kb2", "kb3"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    # 验证 pool.fetch 被调用（查询所有 kb_ids）
+    mock_kb_repo.pool.fetch.assert_awaited_once()
+    call_args = mock_kb_repo.pool.fetch.call_args
+    assert "SELECT id, name FROM knowledge_bases" in call_args[0][0]
+
+    # 验证 kb_name 正确填充
+    assert result.total == 3
+    kb_names = {hit.kb_id: hit.kb_name for hit in result.hits}
+    assert (
+        kb_names["kb1"] == "知识库 Alpha"
+    ), f"kb1 name 应为 '知识库 Alpha'，实际: {kb_names['kb1']}"
+    assert (
+        kb_names["kb2"] == "知识库 Beta"
+    ), f"kb2 name 应为 '知识库 Beta'，实际: {kb_names['kb2']}"
+    assert (
+        kb_names["kb3"] == "知识库 Gamma"
+    ), f"kb3 name 应为 '知识库 Gamma'，实际: {kb_names['kb3']}"
+
+
+@pytest.mark.asyncio
+async def test_kb_name_fallback(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_reranker,
+):
+    """DB 中不存在 kb_id → kb_name 回退为 kb_id[:8]。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        # pool.fetch 只返回 kb1，不包含 kb_unknown
+        mock_kb_repo.pool.fetch.return_value = [
+            {"id": "kb1", "name": "知识库 Alpha"},
+        ]
+
+        hits_kb1 = [_make_hit("c1", "kb1", "d1", 0.9)]
+        hits_unknown = [_make_hit("c_unk", "kb_unknown", "d_unk", 0.7)]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                (hits_kb1, 1, 1),
+                (hits_unknown, 1, 1),
+            ]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                fused = [
+                    _make_hit("c1", "kb1", "d1", 1.0),
+                    _make_hit("c_unk", "kb_unknown", "d_unk", 0.6),
+                ]
+                mock_fuse.return_value = fused
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1", "kb_unknown"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    # kb1 → 从 DB 填充
+    # kb_unknown → 回退为 kb_id[:8]
+    kb_names = {hit.kb_id: hit.kb_name for hit in result.hits}
+    assert (
+        kb_names["kb1"] == "知识库 Alpha"
+    ), f"kb1 name 应为 '知识库 Alpha'，实际: {kb_names['kb1']}"
+    assert (
+        kb_names["kb_unknown"] == "kb_unkno"
+    ), f"kb_unknown name 应为 'kb_unkno' (kb_id[:8])，实际: {kb_names['kb_unknown']}"
+
+
+# ══════════════════════════════════════════════════════════════════════
 # Batch 1 修复测试 — vector/bm25 counts, degraded_kb_ids, per-pathway 异常
 # ══════════════════════════════════════════════════════════════════════
 
