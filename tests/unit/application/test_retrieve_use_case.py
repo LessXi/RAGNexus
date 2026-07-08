@@ -1371,3 +1371,184 @@ async def test_validate_kb_ownership_empty_ids(use_case, mock_kb_repo):
         tenant_id="t1",
     )
     mock_kb_repo.pool.fetchval.assert_not_called()
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Task 2.4 测试 — empty_reason 计算
+# ══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_empty_reason_no_indexed_chunks(
+    use_case, mock_kb_repo, mock_embedder, mock_reranker
+):
+    """无 chunk 场景 → empty_reason="no_indexed_chunks"。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        # 两次 pool.fetch 调用：第一次 kb_name，第二次 chunks COUNT
+        mock_kb_repo.pool.fetch.side_effect = [
+            [{"id": "kb1", "name": "知识库 Alpha"}],
+            [],  # 所有 KB 的 chunk 计数均为 0（空行 = 无 chunk）
+        ]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            # 返回空 hits
+            mock_retrieve.side_effect = [
+                PerKbRetrieveResult(hits=[], vec_count=0, kw_count=0),
+            ]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = []
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    assert result.empty_reason == "no_indexed_chunks", (
+        f"无 chunk 数据时 empty_reason 应为 'no_indexed_chunks'，"
+        f"实际: {result.empty_reason}"
+    )
+    assert result.total == 0
+
+
+@pytest.mark.asyncio
+async def test_empty_reason_no_chunks_matched(
+    use_case, mock_kb_repo, mock_embedder, mock_reranker
+):
+    """有 chunk 但无匹配 → empty_reason="no_chunks_matched"。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        # 两次 pool.fetch 调用：第一次 kb_name，第二次 chunks COUNT
+        mock_kb_repo.pool.fetch.side_effect = [
+            [{"id": "kb1", "name": "知识库 Alpha"}],
+            [{"kb_id": "kb1", "cnt": 5}],  # kb1 有 5 个 chunk 但未匹配
+        ]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                PerKbRetrieveResult(hits=[], vec_count=0, kw_count=0),
+            ]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = []
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    assert result.empty_reason == "no_chunks_matched", (
+        f"有 chunk 但无匹配时 empty_reason 应为 'no_chunks_matched'，"
+        f"实际: {result.empty_reason}"
+    )
+    assert result.total == 0
+
+
+@pytest.mark.asyncio
+async def test_empty_reason_skipped_when_all_kbs_failed(
+    use_case, mock_kb_repo, mock_embedder, mock_reranker
+):
+    """全部 KB 失败 → empty_reason 跳过计算，保持 None。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        # kb_name 查询正常，但不需要 chunks COUNT（因为全部失败）
+        mock_kb_repo.pool.fetch.return_value = [
+            {"id": "kb1", "name": "知识库 Alpha"},
+        ]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            # 所有 KB 都抛异常
+            mock_retrieve.side_effect = [
+                RuntimeError("KB 故障"),
+            ]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = []
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    assert (
+        result.empty_reason is None
+    ), f"全部 KB 失败时 empty_reason 应为 None，实际: {result.empty_reason}"
+    assert result.total == 0
+    assert "kb1" in result.failed_kb_ids
+
+
+@pytest.mark.asyncio
+async def test_empty_reason_none_when_has_results(
+    use_case, mock_kb_repo, mock_embedder, mock_reranker
+):
+    """有检索结果时 empty_reason 应为 None。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        mock_kb_repo.pool.fetch.return_value = [
+            {"id": "kb1", "name": "知识库 Alpha"},
+        ]
+
+        hits_kb1 = [_make_hit("c1", "kb1", "d1", 0.9)]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                PerKbRetrieveResult(hits=hits_kb1, vec_count=1, kw_count=1),
+            ]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = hits_kb1
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    assert (
+        result.empty_reason is None
+    ), f"有结果时 empty_reason 应为 None，实际: {result.empty_reason}"
+    assert result.total == 1
