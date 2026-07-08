@@ -16,7 +16,7 @@ base-ref: b82404f7dddf07d7caa8dc59495b623cfa110b90
 
 ### 1. 数据模型扩展
 
-- [ ] 1.1 `RetrieveResult` 新增字段：`failed_kb_ids: list[str]`、`partial_kb_success: bool`、`empty_reason: str | None`
+- [x] 1.1 `RetrieveResult` 新增字段：`failed_kb_ids: list[str]`、`partial_kb_success: bool`、`empty_reason: str | None`
   - 文件: `src/ragnexus/domain/models.py`
   - 验证: 类型检查通过，无 import 错误
 
