@@ -8,7 +8,7 @@ import time
 from ragnexus.adapters.rewrite.pipeline import QueryPipeline
 from ragnexus.core.errors import AppError, ErrorCode
 from ragnexus.core.logger import logger
-from ragnexus.domain.models import RetrieveResult, SearchHit
+from ragnexus.domain.models import PerKbRetrieveResult, RetrieveResult, SearchHit
 from ragnexus.domain.ports import (
     EmbedderPort,
     KeywordSearchPort,
@@ -226,7 +226,7 @@ class RetrieveUseCase:
             vector_latency_ms = gather_latency_ms
             keyword_latency_ms = gather_latency_ms
 
-            # 过滤异常 KB，解包三元组并聚合计数
+            # 过滤异常 KB，解包 PerKbRetrieveResult 并聚合计数
             valid_groups: list[list[SearchHit]] = []
             for i, result in enumerate(kb_groups):
                 if isinstance(result, Exception):
@@ -236,14 +236,13 @@ class RetrieveUseCase:
                         extra={"kb_id": kb_ids[i], "error": str(result)},
                     )
                 else:
-                    per_kb_hits, vc, kc = result
-                    total_vec_count += vc
-                    total_kw_count += kc
-                    if not per_kb_hits:
+                    total_vec_count += result.vec_count
+                    total_kw_count += result.kw_count
+                    if not result.hits:
                         degraded_kb_ids.append(kb_ids[i])
                         logger.info("KB 召回为空", extra={"kb_id": kb_ids[i]})
                     else:
-                        valid_groups.append(per_kb_hits)
+                        valid_groups.append(result.hits)
 
             # 记录降级 KB 汇总日志
             if degraded_kb_ids:
@@ -405,17 +404,19 @@ class RetrieveUseCase:
         rrf_k: int,
         use_vector: bool,
         use_bm25: bool,
-    ) -> tuple[list[SearchHit], int, int]:
-        """单库召回：vector + BM25 → 库内 RRF，返回 (hits, vector_count, bm25_count)。
+    ) -> PerKbRetrieveResult:
+        """单库召回：vector + BM25 → 库内 RRF，返回 PerKbRetrieveResult。
 
         降级策略：
-        - 单路检索异常（网络错误等）→ 捕获后该路返回空列表，不中断另一路
+        - 单路检索异常（网络错误等）→ 捕获后该路返回空列表，不中断另一路，标记 degraded
         - BM25 失败（返回空）→ 纯向量降级
         - 向量检索失败（返回空）→ 纯 BM25 降级
-        - 两路都失败 → 返回 ([], 0, 0)
+        - 两路都失败 → 返回空hits，标记 degraded
         """
         vec_hits: list[SearchHit] = []
         kw_hits: list[SearchHit] = []
+        degraded = False
+        degraded_reason: str | None = None
 
         if use_vector:
             try:
@@ -433,6 +434,8 @@ class RetrieveUseCase:
                     "向量检索异常，降级", extra={"kb_id": kb_id, "error": str(e)}
                 )
                 vec_hits = []
+                degraded = True
+                degraded_reason = "向量检索异常"
 
         if use_bm25 and self._keyword_store is not None:
             try:
@@ -450,16 +453,30 @@ class RetrieveUseCase:
                     "BM25检索异常，降级", extra={"kb_id": kb_id, "error": str(e)}
                 )
                 kw_hits = []
+                degraded = True
+                degraded_reason = "BM25 检索异常"
 
         vec_count = len(vec_hits)
         kw_count = len(kw_hits)
 
-        # 两路都失败 → 返回空列表
+        # 两路都失败 → 返回空列表，标记降级
         if not vec_hits and not kw_hits:
-            return ([], 0, 0)
+            return PerKbRetrieveResult(
+                hits=[],
+                vec_count=0,
+                kw_count=0,
+                degraded=True,
+                degraded_reason="向量和BM25检索均异常",
+            )
 
         # 库内 RRF 融合（rrf_fuse 本身已支持空列表降级）
-        return (rrf_fuse(vec_hits, kw_hits, k=rrf_k), vec_count, kw_count)
+        return PerKbRetrieveResult(
+            hits=rrf_fuse(vec_hits, kw_hits, k=rrf_k),
+            vec_count=vec_count,
+            kw_count=kw_count,
+            degraded=degraded,
+            degraded_reason=degraded_reason,
+        )
 
 
 def _serialize_query_processing(result: QueryProcessResult) -> dict:
