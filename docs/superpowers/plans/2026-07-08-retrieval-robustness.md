@@ -42,12 +42,12 @@ base-ref: b82404f7dddf07d7caa8dc59495b623cfa110b90
   - 逻辑: `isinstance(result, Exception)` → `failed_kb_ids`；`result.degraded` → 聚合 degraded 标记
   - 验证: mock 异常路径单测通过
 
-- [ ] 2.4 计算 `empty_reason`（两级区分）
+- [x] 2.4 计算 `empty_reason`（两级区分）
   - 文件: `src/ragnexus/application/retrieve_use_case.py`
   - 逻辑: `chunks=[]` 时对每个 kb_id 分别 COUNT，任一 KB 有 chunk → `no_chunks_matched`，全为 0 → `no_indexed_chunks`
   - 验证: 单测覆盖空结果场景
 
-- [ ] 2.5 query 长度校验改用 `QUERY_MAX_LENGTH` 环境变量
+- [x] 2.5 query 长度校验改用 `QUERY_MAX_LENGTH` 环境变量
   - 文件: `src/ragnexus/application/retrieve_use_case.py` (L97)
   - 改动: `max_len = int(os.getenv("QUERY_MAX_LENGTH", "2000"))`
   - 验证: 已有单测对空/超长 query 的断言仍通过

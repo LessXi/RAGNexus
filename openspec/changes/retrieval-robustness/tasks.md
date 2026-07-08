@@ -8,8 +8,8 @@
 - [x] 2.1 `_retrieve_per_kb` 返回值改为 `PerKbRetrieveResult`，包含降级标记 `degraded` 和 `degraded_reason`
 - [x] 2.2 `execute` 中 per-KB 降级标记聚合：汇总 `degraded`、设置 `partial_kb_success`
 - [x] 2.3 `execute` 中区分 `failed_kb_ids`（异常）和 `degraded_kb_ids`（降级/空）语义
-- [ ] 2.4 `execute` 中计算 `empty_reason`：chunks=[] 时标记原因
-- [ ] 2.5 `execute` 中 query 长度校验改用 `QUERY_MAX_LENGTH` 环境变量
+- [x] 2.4 `execute` 中计算 `empty_reason`：chunks=[] 时标记原因
+- [x] 2.5 `execute` 中 query 长度校验改用 `QUERY_MAX_LENGTH` 环境变量
 
 ## 3. API 响应透传
 
