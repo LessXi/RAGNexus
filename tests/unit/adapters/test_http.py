@@ -348,6 +348,87 @@ class TestRetrieve:
         assert data["code"] == 20013
         mock_retrieve_uc.execute.assert_not_called()
 
+    def test_meta_includes_robustness_fields(self, client, mock_retrieve_uc):
+        """meta 应透传 degraded_kb_ids、failed_kb_ids、partial_kb_success、empty_reason"""
+        from ragnexus.domain.models import RetrieveResult
+
+        mock_retrieve_uc.execute.return_value = RetrieveResult(
+            hits=[],
+            total=0,
+            latency_ms=42,
+            mode="hybrid",
+            vector_count=0,
+            bm25_count=0,
+            fused_count=0,
+            rerank_model=None,
+            degraded=True,
+            degraded_reason="部分知识库降级",
+            degraded_kb_ids=["kb_degraded"],
+            failed_kb_ids=["kb_failed"],
+            partial_kb_success=True,
+            empty_reason="no_indexed_chunks",
+        )
+        resp = client.post(
+            "/v1/rag:retrieve",
+            json={
+                "query": "test query",
+                "kb_ids": ["kb_degraded", "kb_failed", "kb_ok"],
+                "top_k": 5,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        meta = data["data"]["meta"]
+        assert meta["degraded_kb_ids"] == ["kb_degraded"]
+        assert meta["failed_kb_ids"] == ["kb_failed"]
+        assert meta["partial_kb_success"] is True
+        assert meta["empty_reason"] == "no_indexed_chunks"
+
+    def test_meta_robustness_fields_happy_path(self, client, mock_retrieve_uc):
+        """Happy path 时新字段应为默认值"""
+        from ragnexus.domain.models import RetrieveResult
+
+        mock_retrieve_uc.execute.return_value = RetrieveResult(
+            hits=[
+                SearchHit(
+                    chunk_id="doc_hash:0",
+                    kb_id="kb_test123",
+                    doc_id="doc_hash",
+                    score=0.9,
+                    text="content",
+                    metadata={},
+                )
+            ],
+            total=1,
+            latency_ms=10,
+            mode="balanced",
+            vector_count=0,
+            bm25_count=0,
+            fused_count=1,
+            rerank_model=None,
+            degraded=False,
+            degraded_reason=None,
+            degraded_kb_ids=[],
+            failed_kb_ids=[],
+            partial_kb_success=False,
+            empty_reason=None,
+        )
+        resp = client.post(
+            "/v1/rag:retrieve",
+            json={
+                "query": "test",
+                "kb_ids": ["kb_test123"],
+                "top_k": 5,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        meta = data["data"]["meta"]
+        assert meta["degraded_kb_ids"] == []
+        assert meta["failed_kb_ids"] == []
+        assert meta["partial_kb_success"] is False
+        assert meta["empty_reason"] is None
+
 
 class TestRetrieveLangfuse:
     """Langfuse trace 集成 — fire-and-forget 可观测。"""
