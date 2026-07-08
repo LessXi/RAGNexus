@@ -246,6 +246,30 @@ async def test_query_too_long(
 
 
 @pytest.mark.asyncio
+async def test_query_max_length_from_env(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_store,
+    mock_log_port,
+    monkeypatch,
+):
+    """QUERY_MAX_LENGTH=10 时，11 字符 query 应被拒绝，且错误消息包含实际限制 10。"""
+    monkeypatch.setenv("QUERY_MAX_LENGTH", "10")
+    query_11 = "A" * 11
+    with pytest.raises(AppError, match="10"):
+        await use_case.execute(
+            tenant_id="test-tenant",
+            query=query_11,
+            kb_ids=["kb_test"],
+            top_k=5,
+        )
+    mock_kb_repo.exists.assert_not_called()
+    mock_embedder.embed.assert_not_called()
+    mock_store.search_by_vector.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_kb_ids_empty(
     use_case, mock_kb_repo, mock_embedder, mock_store, mock_log_port
 ):

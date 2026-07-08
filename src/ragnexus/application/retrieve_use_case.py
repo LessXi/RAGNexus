@@ -94,8 +94,11 @@ class RetrieveUseCase:
 
         # 1. Validate inputs（统一使用 stripped query，避免空格进入向量和日志）
         query = query.strip()
-        if not query or len(query) > 2000:
-            raise AppError(ErrorCode.PARAM_ERROR, "query 不能为空且长度不能超过 2000")
+        max_query_len = int(os.getenv("QUERY_MAX_LENGTH", "2000"))
+        if not query or len(query) > max_query_len:
+            raise AppError(
+                ErrorCode.PARAM_ERROR, f"query 不能为空且长度不能超过 {max_query_len}"
+            )
         if not kb_ids or len(kb_ids) > 5:
             raise AppError(ErrorCode.PARAM_ERROR, "kb_ids 不能为空且最多 5 个")
         if not (1 <= top_k <= 50):
@@ -301,6 +304,18 @@ class RetrieveUseCase:
                 len(valid_groups) > 0 and bool(degraded_kb_ids)
             )
 
+            # 计算 empty_reason（仅当无结果且非全部 KB 失败时）
+            empty_reason: str | None = None
+            if not hits and set(failed_kb_ids) != set(kb_ids):
+                count_rows = await self._kb_repo.pool.fetch(
+                    "SELECT kb_id, COUNT(*) as cnt FROM chunks WHERE kb_id = ANY($1) GROUP BY kb_id",
+                    kb_ids,
+                )
+                if any(row["cnt"] > 0 for row in count_rows):
+                    empty_reason = "no_chunks_matched"
+                else:
+                    empty_reason = "no_indexed_chunks"
+
             return RetrieveResult(
                 hits=hits,
                 total=len(hits),
@@ -315,6 +330,7 @@ class RetrieveUseCase:
                 degraded_kb_ids=degraded_kb_ids,
                 failed_kb_ids=failed_kb_ids,
                 partial_kb_success=partial_kb_success,
+                empty_reason=empty_reason,
                 query_processing=query_processing,
             )
         finally:
