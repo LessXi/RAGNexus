@@ -138,8 +138,9 @@ class RetrieveUseCase:
         original_query = query  # 保存原始 query，用于 rerank（相关性判断）和日志
         t0 = time.perf_counter()
         hits: list[SearchHit] = []
-        kw_hits: list[SearchHit] = []
-        vec_hits_raw: list[SearchHit] = []
+        total_vec_count = 0
+        total_kw_count = 0
+        degraded_kb_ids: list[str] = []
         vector_latency_ms = 0
         keyword_latency_ms = 0
         rrf_pool_size = 0
@@ -202,9 +203,8 @@ class RetrieveUseCase:
             vector_latency_ms = gather_latency_ms
             keyword_latency_ms = gather_latency_ms
 
-            # 过滤异常 KB（记录日志）
+            # 过滤异常 KB，解包三元组并聚合计数
             valid_groups: list[list[SearchHit]] = []
-            degraded_kb_ids: list[str] = []
             for i, result in enumerate(kb_groups):
                 if isinstance(result, Exception):
                     degraded_kb_ids.append(kb_ids[i])
@@ -212,11 +212,19 @@ class RetrieveUseCase:
                         "KB 召回异常，已跳过",
                         extra={"kb_id": kb_ids[i], "error": str(result)},
                     )
-                elif not result:
-                    degraded_kb_ids.append(kb_ids[i])
-                    logger.info("KB 召回为空", extra={"kb_id": kb_ids[i]})
                 else:
-                    valid_groups.append(result)
+                    per_kb_hits, vc, kc = result
+                    total_vec_count += vc
+                    total_kw_count += kc
+                    if not per_kb_hits:
+                        degraded_kb_ids.append(kb_ids[i])
+                        logger.info("KB 召回为空", extra={"kb_id": kb_ids[i]})
+                    else:
+                        valid_groups.append(per_kb_hits)
+
+            # 记录降级 KB 汇总日志
+            if degraded_kb_ids:
+                logger.warning(f"部分 KB 召回异常或为空，已跳过: {degraded_kb_ids}")
 
             # 3d. 跨库 RRF 融合
             hits = cross_kb_rrf_fuse(valid_groups, k=rrf_k)
@@ -244,12 +252,13 @@ class RetrieveUseCase:
                 total=len(hits),
                 latency_ms=latency_ms,
                 mode=_mode,
-                vector_count=len(vec_hits_raw),
-                bm25_count=len(kw_hits),
+                vector_count=total_vec_count,
+                bm25_count=total_kw_count,
                 fused_count=rrf_pool_size,
                 rerank_model=reranker_model,
                 degraded=degraded,
                 degraded_reason=degraded_reason,
+                degraded_kb_ids=degraded_kb_ids,
                 query_processing=query_processing,
             )
         finally:
@@ -263,8 +272,8 @@ class RetrieveUseCase:
                     hit_count=len(hits),
                     latency_ms=final_latency_ms,
                     retrieval_mode=_mode,
-                    vector_hit_count=len(vec_hits_raw),
-                    keyword_hit_count=len(kw_hits),
+                    vector_hit_count=total_vec_count,
+                    keyword_hit_count=total_kw_count,
                     rrf_pool_size=rrf_pool_size,
                     vector_latency_ms=vector_latency_ms,
                     keyword_latency_ms=keyword_latency_ms,
@@ -365,43 +374,61 @@ class RetrieveUseCase:
         rrf_k: int,
         use_vector: bool,
         use_bm25: bool,
-    ) -> list[SearchHit]:
-        """单库召回：vector + BM25 → 库内 RRF，返回 rank-ordered hits。
+    ) -> tuple[list[SearchHit], int, int]:
+        """单库召回：vector + BM25 → 库内 RRF，返回 (hits, vector_count, bm25_count)。
 
         降级策略：
+        - 单路检索异常（网络错误等）→ 捕获后该路返回空列表，不中断另一路
         - BM25 失败（返回空）→ 纯向量降级
         - 向量检索失败（返回空）→ 纯 BM25 降级
-        - 两路都失败 → 返回 []
+        - 两路都失败 → 返回 ([], 0, 0)
         """
         vec_hits: list[SearchHit] = []
         kw_hits: list[SearchHit] = []
 
         if use_vector:
-            vec_hits = (
-                await self._store.search_by_vector(search_vector, per_kb_top_k, [kb_id])
-                or []
-            )
-            # 分数标记：向量分写入 metadata
-            for hit in vec_hits:
-                hit.metadata["_vector_score"] = hit.score
+            try:
+                vec_hits = (
+                    await self._store.search_by_vector(
+                        search_vector, per_kb_top_k, [kb_id]
+                    )
+                    or []
+                )
+                # 分数标记：向量分写入 metadata
+                for hit in vec_hits:
+                    hit.metadata["_vector_score"] = hit.score
+            except Exception as e:
+                logger.warning(
+                    "向量检索异常，降级", extra={"kb_id": kb_id, "error": str(e)}
+                )
+                vec_hits = []
 
         if use_bm25 and self._keyword_store is not None:
-            kw_hits = (
-                await self._keyword_store.search_by_keyword(
-                    kb_id, original_query, per_kb_top_k
+            try:
+                kw_hits = (
+                    await self._keyword_store.search_by_keyword(
+                        kb_id, original_query, per_kb_top_k
+                    )
+                    or []
                 )
-                or []
-            )
-            # 分数标记：BM25 分写入 metadata
-            for hit in kw_hits:
-                hit.metadata["_bm25_score"] = hit.score
+                # 分数标记：BM25 分写入 metadata
+                for hit in kw_hits:
+                    hit.metadata["_bm25_score"] = hit.score
+            except Exception as e:
+                logger.warning(
+                    "BM25检索异常，降级", extra={"kb_id": kb_id, "error": str(e)}
+                )
+                kw_hits = []
+
+        vec_count = len(vec_hits)
+        kw_count = len(kw_hits)
 
         # 两路都失败 → 返回空列表
         if not vec_hits and not kw_hits:
-            return []
+            return ([], 0, 0)
 
         # 库内 RRF 融合（rrf_fuse 本身已支持空列表降级）
-        return rrf_fuse(vec_hits, kw_hits, k=rrf_k)
+        return (rrf_fuse(vec_hits, kw_hits, k=rrf_k), vec_count, kw_count)
 
 
 def _serialize_query_processing(result: QueryProcessResult) -> dict:

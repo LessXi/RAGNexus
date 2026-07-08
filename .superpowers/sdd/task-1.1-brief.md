@@ -1,36 +1,53 @@
-# Task 1.1: docker-compose 新增 langfuse 服务
+# Task 1.1: 新增 `cross_kb_rrf_fuse` 函数
 
-## Phase Context
-Phase 1: Langfuse 基础设施 — 添加 Langfuse 自托管服务到 docker-compose
+## 文件
+`src/ragnexus/domain/retrieval/fusion.py` —— 在该文件末尾新增函数
 
-## Task Requirements
+## 实现要点
 
-### 1.1 docker-compose 新增 langfuse 服务
-- **目标**: 添加 langfuse + langfuse-db service + langfusedata volume
-- **文件**: `docker-compose.yml`
-- **要点**: NEXTAUTH_URL, NEXTAUTH_SECRET, ENCRYPTION_KEY, 独立 Postgres 库名 langfuse, :3000 端口, healthcheck
-- **依赖**: 1.0（无直接依赖，并行）
-- **验证**: `docker compose up -d langfuse` → Langfuse UI 可访问
-- **预估**: 20min
+### 函数签名
+```python
+def cross_kb_rrf_fuse(
+    kb_hits_groups: list[list[SearchHit]],
+    k: int = 60,
+) -> list[SearchHit]:
+    """跨库 RRF 融合：基于 per-KB rank 重新计算分数并合并。"""
+```
 
+### 输入输出
+- **输入**: `list[list[SearchHit]]` — 每组是一个 KB 的库内 RRF 后 rank-ordered hits（rank 从 1 开始，即 `hits[0]` 在该 KB 中排第 1）
+- **输出**: `list[SearchHit]` — 按 `rrf_score` 降序排列的融合结果
 
-## Global Constraints
-- Langfuse 是**可选旁路**，不加 depends_on（app 不依赖它启动）
-- langfuse-db: 独立 Postgres，库名 `langfuse`（不是 ragnexus）
-- langfuse: 镜像 `langfuse/langfuse:2`，端口 `:3000`
-- 必须配置: NEXTAUTH_URL, NEXTAUTH_SECRET, ENCRYPTION_KEY
-- named volume: `langfusedata`
-- healthcheck: 需要
-- NEXTAUTH_URL: `http://localhost:3000`
-- NEXTAUTH_SECRET: 生成随机字符串（至少 32 字符）
-- ENCRYPTION_KEY: 生成随机字符串
+### 算法
+对每组内的每条 hit：
+- `rrf_score = 1 / (k + rank_in_kb)`，其中 rank_in_kb 从 1 开始
 
-## Design Decisions (from design doc)
-- langfuse 服务在 docker-compose 中定义，但不阻塞 app 启动
-- 独立 Postgres 实例避免污染业务数据库
-- named volume 确保重启不丢数据
+### 去重聚合
+在累计 RRF 分数前，按 `(doc_id, chunk_id)` 二元组去重聚合（**不含** kb_id，以支持跨 KB 累加）。聚合时：
+- RRF 分数 SUM（同一 chunk 出现在多个 KB 中各库 rank 贡献累加）
+- kb_id 保留第一个出现的
+- metadata 保留第一个出现的
+- 聚合后转换回 `list[SearchHit]`
 
-## Acceptance
-- `docker compose up -d langfuse` 成功启动
-- Langfuse UI 可通过 http://localhost:3000 访问
-- `docker compose ps` 显示 langfuse + langfuse-db 为 healthy
+### 边界
+- 空组（`kb_hits_groups` 为空或所有子列表为空）→ 返回 `[]`
+- 单组 → 每条 hit 携带正确的 `rrf_score`，按分数降序排列
+- 不同 KB 的 hits 数量不一 → 正常处理
+
+### 最终返回
+按 `rrf_score` 降序排序返回
+
+### 参考
+文件已有的 `rrf_fuse` 函数（约第 39 行附近）实现了两路 RRF 融合（vector + BM25 两组），提供了 `_merge_metadata` 辅助函数。新函数 `cross_kb_rrf_fuse` 是多组泛化版本，输入逻辑不同（基于 rank 而非 score），但 RRF 公式和辅助函数可参考。
+
+### 导入
+需要从 `src.ragnexus.domain.models` 导入 `SearchHit`（如果尚未导入）：
+```python
+from src.ragnexus.domain.models import SearchHit
+```
+
+## 验证
+- 函数被定义且可被 import
+- `rrf_score` 正确赋值到 `hit.score` 字段
+- 去重逻辑正确（`list` → `dict` 聚合 → `list`）
+- 空输入、单组输入、多组输入的边界行为正确

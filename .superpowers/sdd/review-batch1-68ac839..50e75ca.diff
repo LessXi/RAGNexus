@@ -1,0 +1,991 @@
+# Review package: Batch 1 (Tasks 1.1-1.3)
+
+## Commits
+50e75ca refactor: per-KB parallel recall with cross-KB RRF fusion in execute
+1385e83 feat: add _retrieve_per_kb helper for single-KB recall with fallback
+e25eea8 feat: add cross_kb_rrf_fuse for multi-KB reciprocal rank fusion
+
+## Files changed
+ src/ragnexus/application/retrieve_use_case.py    | 129 ++++---
+ src/ragnexus/domain/retrieval/fusion.py          |  54 +++
+ tests/unit/application/test_retrieve_use_case.py | 453 +++++++++++++++++++++++
+ tests/unit/domain/test_fusion.py                 | 238 ++++++++++++
+ 4 files changed, 824 insertions(+), 50 deletions(-)
+
+## Diff
+diff --git a/src/ragnexus/application/retrieve_use_case.py b/src/ragnexus/application/retrieve_use_case.py
+index 5329262..78987dc 100644
+--- a/src/ragnexus/application/retrieve_use_case.py
++++ b/src/ragnexus/application/retrieve_use_case.py
+@@ -12,21 +12,21 @@ from ragnexus.domain.models import RetrieveResult, SearchHit
+ from ragnexus.domain.ports import (
+     EmbedderPort,
+     KeywordSearchPort,
+     KnowledgeBasePort,
+     QueryProcessResult,
+     RerankPort,
+     RetrieveLogPort,
+     RewritePort,
+     VectorStorePort,
+ )
+-from ragnexus.domain.retrieval.fusion import rrf_fuse
++from ragnexus.domain.retrieval.fusion import cross_kb_rrf_fuse, rrf_fuse
+ 
+ 
+ class RetrieveUseCase:
+     """跨知识库按查询搜索 chunk。Pipeline v2."""
+ 
+     def __init__(
+         self,
+         kb_repo: KnowledgeBasePort,
+         embedder: EmbedderPort,
+         store: VectorStorePort,
+@@ -174,77 +174,59 @@ class RetrieveUseCase:
+                 query_processing = None
+ 
+             # 3b. 双 embedding: 改写后 query → 向量搜索，原始 query → rerank 缓存匹配
+             vectors = await self._embedder.embed([search_query, original_query])
+             search_vector = vectors[0]  # embed(改写后) → 向量搜索
+             original_vector = vectors[1]  # embed(原始) → rerank 缓存匹配
+ 
+             use_vector = _mode in ("hybrid", "vector")
+             use_bm25 = _mode in ("hybrid", "bm25") and self._keyword_store is not None
+ 
+-            # 3c. 并行召回：向量 + BM25 双路
++            # 3c. per-KB 并行召回
++            per_kb_top_k = max(top_k, _vector_top_k, _bm25_top_k, 10)
++
+             t_vec = time.perf_counter()
+-            tasks = []
+-            if use_vector:
+-                tasks.append(
+-                    self._store.search_by_vector(search_vector, _vector_top_k, kb_ids)
+-                )
+-            if use_bm25:
+-                tasks.append(
+-                    self._keyword_store.search_by_keyword(  # type: ignore[union-attr]
+-                        kb_ids[0], original_query, _bm25_top_k
+-                    )
++            kb_tasks = [
++                self._retrieve_per_kb(
++                    kb_id,
++                    search_vector,
++                    original_query,
++                    per_kb_top_k,
++                    rrf_k,
++                    use_vector,
++                    use_bm25,
+                 )
+-
+-            results = await asyncio.gather(*tasks, return_exceptions=True)
++                for kb_id in kb_ids
++            ]
++            kb_groups = await asyncio.gather(*kb_tasks, return_exceptions=True)
+             gather_latency_ms = int((time.perf_counter() - t_vec) * 1000)
+             vector_latency_ms = gather_latency_ms
+             keyword_latency_ms = gather_latency_ms
+ 
+-            idx = 0
+-            if use_vector:
+-                vec_result = results[idx]
+-                vec_hits_raw = [] if isinstance(vec_result, Exception) else vec_result
+-                # 分数标记：向量分写入 metadata
+-                for hit in vec_hits_raw:
+-                    hit.metadata["_vector_score"] = hit.score
+-                idx += 1
+-            if use_bm25:
+-                kw_result = results[idx]
+-                kw_hits = [] if isinstance(kw_result, Exception) else kw_result
+-                # 分数标记：BM25 分写入 metadata
+-                for kw_hit in kw_hits:
+-                    kw_hit.metadata["_bm25_score"] = kw_hit.score
+-            # BIZ_EVENT: 关键词检索日志
+-            if use_bm25:
+-                try:
+-                    kw_failed = isinstance(kw_result, Exception)
+-                    logger.info(
+-                        "",
+-                        extra={
+-                            "event_type": "BIZ_EVENT",
+-                            "event": (
+-                                "keyword_search_fail"
+-                                if kw_failed
+-                                else "keyword_search_done"
+-                            ),
+-                            "kb_ids": kb_ids,
+-                            "query": original_query[:200],
+-                            "hit_count": len(kw_hits),
+-                            "latency_ms": keyword_latency_ms,
+-                        },
++            # 过滤异常 KB（记录日志）
++            valid_groups: list[list[SearchHit]] = []
++            degraded_kb_ids: list[str] = []
++            for i, result in enumerate(kb_groups):
++                if isinstance(result, Exception):
++                    degraded_kb_ids.append(kb_ids[i])
++                    logger.warning(
++                        "KB 召回异常，已跳过",
++                        extra={"kb_id": kb_ids[i], "error": str(result)},
+                     )
+-                except Exception:
+-                    pass
++                elif not result:
++                    degraded_kb_ids.append(kb_ids[i])
++                    logger.info("KB 召回为空", extra={"kb_id": kb_ids[i]})
++                else:
++                    valid_groups.append(result)
+ 
+-            # 3d. RRF 融合
+-            hits = rrf_fuse(vec_hits_raw, kw_hits, k=rrf_k)
++            # 3d. 跨库 RRF 融合
++            hits = cross_kb_rrf_fuse(valid_groups, k=rrf_k)
+             rrf_pool_size = len(hits)  # 融合后去重数
+ 
+             # 3e. 重排：用原始 query + 原始 query embedding（对齐 BM25 和缓存）
+             reranker_model: str | None = None
+             if _rerank_enabled:
+                 hits = await self._reranker.rerank(
+                     query=original_query,
+                     query_vector=original_vector,
+                     kb_ids=kb_ids,
+                     chunks=hits,
+@@ -367,20 +349,67 @@ class RetrieveUseCase:
+             "SELECT COUNT(*) FROM knowledge_bases WHERE id = ANY($1) AND tenant_id = $2",
+             list(unique_ids),
+             tenant_id,
+         )
+         if count != len(unique_ids):
+             raise AppError(
+                 ErrorCode.FORBIDDEN,
+                 f"部分知识库不属于当前租户（请求 {len(unique_ids)} 个，归属 {count} 个）",
+             )
+ 
++    async def _retrieve_per_kb(
++        self,
++        kb_id: str,
++        search_vector: list[float],
++        original_query: str,
++        per_kb_top_k: int,
++        rrf_k: int,
++        use_vector: bool,
++        use_bm25: bool,
++    ) -> list[SearchHit]:
++        """单库召回：vector + BM25 → 库内 RRF，返回 rank-ordered hits。
++
++        降级策略：
++        - BM25 失败（返回空）→ 纯向量降级
++        - 向量检索失败（返回空）→ 纯 BM25 降级
++        - 两路都失败 → 返回 []
++        """
++        vec_hits: list[SearchHit] = []
++        kw_hits: list[SearchHit] = []
++
++        if use_vector:
++            vec_hits = (
++                await self._store.search_by_vector(search_vector, per_kb_top_k, [kb_id])
++                or []
++            )
++            # 分数标记：向量分写入 metadata
++            for hit in vec_hits:
++                hit.metadata["_vector_score"] = hit.score
++
++        if use_bm25 and self._keyword_store is not None:
++            kw_hits = (
++                await self._keyword_store.search_by_keyword(
++                    kb_id, original_query, per_kb_top_k
++                )
++                or []
++            )
++            # 分数标记：BM25 分写入 metadata
++            for hit in kw_hits:
++                hit.metadata["_bm25_score"] = hit.score
++
++        # 两路都失败 → 返回空列表
++        if not vec_hits and not kw_hits:
++            return []
++
++        # 库内 RRF 融合（rrf_fuse 本身已支持空列表降级）
++        return rrf_fuse(vec_hits, kw_hits, k=rrf_k)
++
+ 
+ def _serialize_query_processing(result: QueryProcessResult) -> dict:
+     """将 QueryProcessResult 序列化为 query_processing dict。"""
+     return {
+         "raw_query": result.raw_query,
+         "effective_query": result.effective_query,
+         "search_query": result.search_query,
+         "needs_rewrite": result.needs_rewrite,
+         "strategy": result.strategy,
+         "rewrite_latency_ms": result.rewrite_latency_ms,
+diff --git a/src/ragnexus/domain/retrieval/fusion.py b/src/ragnexus/domain/retrieval/fusion.py
+index 1b18aac..e6f1326 100644
+--- a/src/ragnexus/domain/retrieval/fusion.py
++++ b/src/ragnexus/domain/retrieval/fusion.py
+@@ -103,10 +103,64 @@ def rrf_fuse(
+         SearchHit(
+             chunk_id=chunk_map[cid].chunk_id,
+             kb_id=chunk_map[cid].kb_id,
+             doc_id=chunk_map[cid].doc_id,
+             score=rrf_scores[cid],
+             text=chunk_map[cid].text,
+             metadata=merged_meta_cache.get(cid, chunk_map[cid].metadata),
+         )
+         for cid in sorted_ids
+     ]
++
++
++def cross_kb_rrf_fuse(
++    kb_hits_groups: list[list[SearchHit]],
++    k: int = 60,
++) -> list[SearchHit]:
++    """跨库 RRF 融合：基于 per-KB rank 重新计算分数并合并。
++
++    对每组的每条 hit 按 RRF 公式 `1 / (k + rank_in_kb)` 计算贡献分，
++    然后按 `(doc_id, chunk_id)` 二元组去重聚合（跨 KB 累加），
++    最终返回按 rrf_score 降序排列的结果列表。
++
++    Args:
++        kb_hits_groups: 每组是一个 KB 的库内 rank-ordered hits，rank 从 1 开始。
++        k: RRF 公式中的平滑参数，默认 60。
++
++    Returns:
++        按 rrf_score 降序排列的融合后 SearchHit 列表。不修改输入。
++    """
++    # 快速路径：空输入
++    if not kb_hits_groups or all(not g for g in kb_hits_groups):
++        return []
++
++    # 按 (doc_id, chunk_id) 聚合：累计 RRF 分数，保留首次出现的 kb_id/text/metadata
++    rrf_scores: dict[tuple[str, str], float] = {}
++    first_seen: dict[tuple[str, str], SearchHit] = {}
++
++    for group in kb_hits_groups:
++        if not group:
++            continue
++        for rank, hit in enumerate(group, start=1):
++            contrib = 1.0 / (k + rank)
++            key = (hit.doc_id, hit.chunk_id)
++            if key in rrf_scores:
++                rrf_scores[key] += contrib
++            else:
++                rrf_scores[key] = contrib
++                first_seen[key] = hit
++
++    # 按 RRF score 降序排列
++    sorted_keys = sorted(rrf_scores, key=lambda k: rrf_scores[k], reverse=True)
++
++    # 构造新的 SearchHit 列表（不修改输入）
++    return [
++        SearchHit(
++            chunk_id=first_seen[key].chunk_id,
++            kb_id=first_seen[key].kb_id,
++            doc_id=first_seen[key].doc_id,
++            score=rrf_scores[key],
++            text=first_seen[key].text,
++            metadata=first_seen[key].metadata,
++        )
++        for key in sorted_keys
++    ]
+diff --git a/tests/unit/application/test_retrieve_use_case.py b/tests/unit/application/test_retrieve_use_case.py
+new file mode 100644
+index 0000000..4e89332
+--- /dev/null
++++ b/tests/unit/application/test_retrieve_use_case.py
+@@ -0,0 +1,453 @@
++"""RetrieveUseCase._retrieve_per_kb 单元测试 — 单库双路召回 + 降级策略。"""
++
++from __future__ import annotations
++
++from unittest.mock import AsyncMock
++
++import pytest
++
++from ragnexus.application.retrieve_use_case import RetrieveUseCase
++from ragnexus.domain.models import SearchHit
++
++
++# ── 工厂函数 ──────────────────────────────────────────────────────────
++def _make_hit(
++    chunk_id: str,
++    kb_id: str = "kb_test",
++    doc_id: str = "",
++    score: float = 0.9,
++    text: str = "",
++    metadata: dict | None = None,
++) -> SearchHit:
++    """创建测试用 SearchHit。"""
++    return SearchHit(
++        chunk_id=chunk_id,
++        kb_id=kb_id,
++        doc_id=doc_id,
++        score=score,
++        text=text,
++        metadata=metadata or {},
++    )
++
++
++# ── Fixtures ──────────────────────────────────────────────────────────
++@pytest.fixture
++def mock_store():
++    """模拟 VectorStorePort。"""
++    return AsyncMock()
++
++
++@pytest.fixture
++def mock_keyword_store():
++    """模拟 KeywordSearchPort。"""
++    return AsyncMock()
++
++
++@pytest.fixture
++def mock_kb_repo():
++    """模拟 KnowledgeBasePort。"""
++    return AsyncMock()
++
++
++@pytest.fixture
++def mock_embedder():
++    """模拟 EmbedderPort。"""
++    return AsyncMock()
++
++
++@pytest.fixture
++def mock_log_port():
++    """模拟 RetrieveLogPort。"""
++    return AsyncMock()
++
++
++@pytest.fixture
++def mock_reranker():
++    """模拟 RerankPort。"""
++    return AsyncMock()
++
++
++@pytest.fixture
++def mock_pipeline():
++    """模拟 QueryPipeline。"""
++    m = AsyncMock()
++    from ragnexus.domain.ports import QueryProcessResult
++
++    m.process.return_value = QueryProcessResult(
++        raw_query="test query",
++        effective_query="test query",
++        search_query="test query",
++        needs_rewrite=False,
++        strategy="noop",
++        rewrite_latency_ms=0,
++        degraded=False,
++        degraded_reason=None,
++        synonym_applied=False,
++        synonym_expansions=[],
++    )
++    return m
++
++
++@pytest.fixture
++def use_case(
++    mock_kb_repo,
++    mock_embedder,
++    mock_store,
++    mock_keyword_store,
++    mock_log_port,
++    mock_reranker,
++    mock_pipeline,
++):
++    """构造 RetrieveUseCase 实例，注入模拟端口。"""
++    return RetrieveUseCase(
++        kb_repo=mock_kb_repo,
++        embedder=mock_embedder,
++        store=mock_store,
++        log_port=mock_log_port,
++        reranker=mock_reranker,
++        rewriter=None,
++        pipeline=mock_pipeline,
++        keyword_store=mock_keyword_store,
++    )
++
++
++# ── 测试用例 ──────────────────────────────────────────────────────────
++@pytest.mark.asyncio
++async def test_retrieve_per_kb_returns_rank_ordered_hits(
++    use_case, mock_store, mock_keyword_store
++):
++    """双路召回 → RRF 融合后按 score 降序排列。"""
++    # 准备：向量检索返回 3 条
++    vec_hits = [
++        _make_hit("c1", kb_id="kb_a", score=0.95, text="high vec"),
++        _make_hit("c2", kb_id="kb_a", score=0.85, text="mid vec"),
++        _make_hit("c3", kb_id="kb_a", score=0.75, text="low vec"),
++    ]
++    # BM25 返回 3 条（不同 rank 顺序，c3 在 BM25 排第一）
++    kw_hits = [
++        _make_hit("c3", kb_id="kb_a", score=2.5, text="low vec"),
++        _make_hit("c4", kb_id="kb_a", score=2.0, text="bm25 only"),
++        _make_hit("c1", kb_id="kb_a", score=1.5, text="high vec"),
++    ]
++
++    mock_store.search_by_vector.return_value = vec_hits
++    mock_keyword_store.search_by_keyword.return_value = kw_hits
++
++    search_vector = [0.1, 0.2, 0.3]
++
++    result = await use_case._retrieve_per_kb(
++        kb_id="kb_a",
++        search_vector=search_vector,
++        original_query="test query",
++        per_kb_top_k=5,
++        rrf_k=60,
++        use_vector=True,
++        use_bm25=True,
++    )
++
++    # 验证：结果非空
++    assert len(result) > 0, "应该返回融合后的结果"
++    # 验证：score 降序
++    for i in range(len(result) - 1):
++        assert (
++            result[i].score >= result[i + 1].score
++        ), f"结果应按 RRF score 降序排列，但 {result[i].score} < {result[i + 1].score}"
++    # 验证：重叠 chunk（c1, c3）的 score 应 > 单路 chunk（c2, c4）
++    c1_score = next(h.score for h in result if h.chunk_id == "c1")
++    c3_score = next(h.score for h in result if h.chunk_id == "c3")
++    c2_score = next(h.score for h in result if h.chunk_id == "c2")
++    c4_score = next(h.score for h in result if h.chunk_id == "c4")
++    assert c1_score > c2_score, "重叠 chunk c1 的 RRF 分应高于纯向量 c2"
++    assert c3_score > c4_score, "重叠 chunk c3 的 RRF 分应高于纯 BM25 c4"
++
++
++@pytest.mark.asyncio
++async def test_retrieve_per_kb_bm25_empty_falls_back_to_vector(
++    use_case, mock_store, mock_keyword_store
++):
++    """BM25 返回 [] → 降级为纯向量结果。"""
++    vec_hits = [
++        _make_hit("c1", kb_id="kb_a", score=0.95, text="vec only 1"),
++        _make_hit("c2", kb_id="kb_a", score=0.85, text="vec only 2"),
++    ]
++
++    mock_store.search_by_vector.return_value = vec_hits
++    mock_keyword_store.search_by_keyword.return_value = []
++
++    search_vector = [0.1, 0.2, 0.3]
++
++    result = await use_case._retrieve_per_kb(
++        kb_id="kb_a",
++        search_vector=search_vector,
++        original_query="test query",
++        per_kb_top_k=5,
++        rrf_k=60,
++        use_vector=True,
++        use_bm25=True,
++    )
++
++    # 验证：结果包含所有向量 hits
++    assert len(result) == 2, f"纯向量降级应返回 2 条结果，实际 {len(result)}"
++    chunk_ids = {h.chunk_id for h in result}
++    assert chunk_ids == {"c1", "c2"}, f"应包含所有向量 hits，实际 {chunk_ids}"
++    # 验证：降序排列
++    assert result[0].score >= result[1].score
++
++
++@pytest.mark.asyncio
++async def test_retrieve_per_kb_vector_empty_falls_back_to_bm25(
++    use_case, mock_store, mock_keyword_store
++):
++    """向量检索返回 [] → 降级为纯 BM25 结果。"""
++    kw_hits = [
++        _make_hit("c1", kb_id="kb_a", score=2.5, text="bm25 only 1"),
++        _make_hit("c2", kb_id="kb_a", score=2.0, text="bm25 only 2"),
++    ]
++
++    mock_store.search_by_vector.return_value = []
++    mock_keyword_store.search_by_keyword.return_value = kw_hits
++
++    search_vector = [0.1, 0.2, 0.3]
++
++    result = await use_case._retrieve_per_kb(
++        kb_id="kb_a",
++        search_vector=search_vector,
++        original_query="test query",
++        per_kb_top_k=5,
++        rrf_k=60,
++        use_vector=True,
++        use_bm25=True,
++    )
++
++    # 验证：结果包含所有 BM25 hits
++    assert len(result) == 2, f"纯 BM25 降级应返回 2 条结果，实际 {len(result)}"
++    chunk_ids = {h.chunk_id for h in result}
++    assert chunk_ids == {"c1", "c2"}, f"应包含所有 BM25 hits，实际 {chunk_ids}"
++    # 验证：降序排列
++    assert result[0].score >= result[1].score
++
++
++@pytest.mark.asyncio
++async def test_retrieve_per_kb_both_empty_returns_empty(
++    use_case, mock_store, mock_keyword_store
++):
++    """两路都失败 → 返回空列表。"""
++    mock_store.search_by_vector.return_value = []
++    mock_keyword_store.search_by_keyword.return_value = []
++
++    search_vector = [0.1, 0.2, 0.3]
++
++    result = await use_case._retrieve_per_kb(
++        kb_id="kb_a",
++        search_vector=search_vector,
++        original_query="test query",
++        per_kb_top_k=5,
++        rrf_k=60,
++        use_vector=True,
++        use_bm25=True,
++    )
++
++    assert result == [], "两路失败应返回空列表"
++    # 验证：两路都确实被调用了
++    mock_store.search_by_vector.assert_awaited_once()
++    mock_keyword_store.search_by_keyword.assert_awaited_once()
++
++
++# ══════════════════════════════════════════════════════════════════════
++# execute 方法测试 — per-KB 并行召回 + 跨库 RRF 融合
++# ══════════════════════════════════════════════════════════════════════
++
++
++@pytest.mark.asyncio
++async def test_execute_per_kb_parallel_with_two_kbs(
++    use_case,
++    mock_kb_repo,
++    mock_embedder,
++    mock_reranker,
++):
++    """多 KB (len=2) 走 per-KB 并行召回 → cross_kb_rrf_fuse 被调用。"""
++    from unittest.mock import patch
++
++    # 简化：禁用 rerank + 跳过 ownership 校验
++    mock_reranker.model_name = None
++    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
++        mock_kb_repo.exists.return_value = True
++        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
++
++        # 单库召回结果
++        hits_kb1 = [_make_hit("c1", "kb1", "d1", 0.9)]
++        hits_kb2 = [_make_hit("c2", "kb2", "d2", 0.8)]
++
++        with patch.object(
++            use_case, "_retrieve_per_kb", new_callable=AsyncMock
++        ) as mock_retrieve:
++            mock_retrieve.side_effect = [hits_kb1, hits_kb2]
++
++            with patch(
++                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
++            ) as mock_fuse:
++                fused = [
++                    _make_hit("c1", "kb1", "d1", 1.0),
++                    _make_hit("c2", "kb2", "d2", 0.8),
++                ]
++                mock_fuse.return_value = fused
++
++                result = await use_case.execute(
++                    query="test query",
++                    kb_ids=["kb1", "kb2"],
++                    tenant_id="tenant1",
++                    top_k=5,
++                )
++
++    # 验证 _retrieve_per_kb 被调用了两次（每个 KB 一次）
++    assert mock_retrieve.call_count == 2
++    # 验证 per_kb_top_k 参数
++    assert mock_retrieve.call_args_list[0][0][3] == 20  # max(5, 20, 20, 10) = 20
++
++    # 验证 cross_kb_rrf_fuse 被调用
++    mock_fuse.assert_called_once()
++    args, kwargs = mock_fuse.call_args
++    assert len(args[0]) == 2, "应传入两个 KB 的 hits 组"
++    assert kwargs["k"] == 60
++
++    # 验证结果
++    assert result.total == 2
++    assert len(result.hits) == 2
++
++
++@pytest.mark.asyncio
++async def test_execute_single_kb_uses_unified_path(
++    use_case,
++    mock_kb_repo,
++    mock_embedder,
++    mock_reranker,
++):
++    """单 KB 也走 per-KB 新路径 + cross_kb_rrf_fuse（恒等映射）。"""
++    from unittest.mock import patch
++
++    mock_reranker.model_name = None
++    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
++        mock_kb_repo.exists.return_value = True
++        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
++
++        hits_kb1 = [
++            _make_hit("c1", "kb1", "d1", 0.9),
++            _make_hit("c2", "kb1", "d1", 0.8),
++        ]
++
++        with patch.object(
++            use_case, "_retrieve_per_kb", new_callable=AsyncMock
++        ) as mock_retrieve:
++            mock_retrieve.return_value = hits_kb1
++
++            with patch(
++                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
++            ) as mock_fuse:
++                mock_fuse.return_value = hits_kb1  # 恒等映射
++
++                result = await use_case.execute(
++                    query="test query",
++                    kb_ids=["kb1"],
++                    tenant_id="tenant1",
++                    top_k=5,
++                )
++
++    # 验证 _retrieve_per_kb 被调用一次
++    mock_retrieve.assert_called_once()
++
++    # 验证 cross_kb_rrf_fuse 被调用（传入单组 hits）
++    mock_fuse.assert_called_once()
++    args, kwargs = mock_fuse.call_args
++    assert len(args[0]) == 1, "单 KB 应传单组"
++    assert args[0][0] == hits_kb1
++
++    # 结果正确
++    assert result.total == 2
++
++
++@pytest.mark.asyncio
++async def test_execute_kb_exception_not_blocking(
++    use_case,
++    mock_kb_repo,
++    mock_embedder,
++    mock_reranker,
++):
++    """一个 KB 抛异常不阻塞其他 KB 的正常召回。"""
++    from unittest.mock import patch
++
++    mock_reranker.model_name = None
++    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
++        mock_kb_repo.exists.return_value = True
++        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
++
++        hits_kb2 = [_make_hit("c2", "kb2", "d2", 0.8)]
++
++        with patch.object(
++            use_case, "_retrieve_per_kb", new_callable=AsyncMock
++        ) as mock_retrieve:
++            # kb1 抛异常，kb2 正常返回
++            mock_retrieve.side_effect = [RuntimeError("KB 故障"), hits_kb2]
++
++            with patch(
++                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
++            ) as mock_fuse:
++                mock_fuse.return_value = hits_kb2
++
++                result = await use_case.execute(
++                    query="test query",
++                    kb_ids=["kb1", "kb2"],
++                    tenant_id="tenant1",
++                    top_k=5,
++                )
++
++    # 验证 _retrieve_per_kb 仍被调用了两次
++    assert mock_retrieve.call_count == 2
++
++    # 验证 cross_kb_rrf_fuse 只收到正常 KB 的 hits
++    mock_fuse.assert_called_once()
++    args, kwargs = mock_fuse.call_args
++    assert len(args[0]) == 1, "应只传入正常 KB 的 hits"
++
++    # 结果正常返回
++    assert result.total == 1
++    assert result.hits[0].chunk_id == "c2"
++
++
++@pytest.mark.asyncio
++async def test_execute_uses_per_kb_top_k(
++    use_case,
++    mock_kb_repo,
++    mock_embedder,
++    mock_reranker,
++):
++    """验证 per_kb_top_k = max(top_k, vector_top_k, bm25_top_k, 10)。"""
++    from unittest.mock import patch
++
++    mock_reranker.model_name = None
++    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
++        mock_kb_repo.exists.return_value = True
++        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
++
++        hits = [_make_hit("c1", "kb1", "d1", 0.9)]
++
++        with patch.object(
++            use_case, "_retrieve_per_kb", new_callable=AsyncMock
++        ) as mock_retrieve:
++            mock_retrieve.return_value = hits
++
++            with patch(
++                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
++            ) as mock_fuse:
++
++                # top_k=3, vector_top_k=20, bm25_top_k=15 → per_kb_top_k = max(3,20,15,10)=20
++                await use_case.execute(
++                    query="test query",
++                    kb_ids=["kb1"],
++                    tenant_id="tenant1",
++                    top_k=3,
++                    vector_top_k=20,
++                    bm25_top_k=15,
++                )
++
++    # 验证传给 _retrieve_per_kb 的 per_kb_top_k = 20
++    assert mock_retrieve.call_args[0][3] == 20, "应为 max(3, 20, 15, 10) = 20"
+diff --git a/tests/unit/domain/test_fusion.py b/tests/unit/domain/test_fusion.py
+new file mode 100644
+index 0000000..c7e18d7
+--- /dev/null
++++ b/tests/unit/domain/test_fusion.py
+@@ -0,0 +1,238 @@
++"""cross_kb_rrf_fuse 函数单元测试 — 多 KB 跨库 RRF 融合算法。
++
++验证多组（多知识库）检索结果的分数重算、跨库去重合并与排序行为。
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from ragnexus.domain.models import SearchHit
++from ragnexus.domain.retrieval.fusion import cross_kb_rrf_fuse
++
++
++def _make_hit(
++    chunk_id: str,
++    kb_id: str = "kb_test",
++    doc_id: str = "",
++    score: float = 0.9,
++    text: str = "",
++    metadata: dict | None = None,
++) -> SearchHit:
++    """创建测试用 SearchHit 的工厂函数。"""
++    return SearchHit(
++        chunk_id=chunk_id,
++        kb_id=kb_id,
++        doc_id=doc_id if doc_id else f"doc_{chunk_id}",
++        score=score,
++        text=text if text else f"content of {chunk_id}",
++        metadata=metadata if metadata is not None else {},
++    )
++
++
++class TestCrossKbRrfFuseTwoGroups:
++    """两组各 5 条 hits，验证 rank 均衡与排序。"""
++
++    def test_two_groups_no_overlap(self):
++        """两组无重叠 chunk，结果 10 条，按 rrf_score 降序排列。"""
++        k = 60
++        group_a = [
++            _make_hit("a1", kb_id="kb_a", doc_id="doc_a1"),
++            _make_hit("a2", kb_id="kb_a", doc_id="doc_a2"),
++            _make_hit("a3", kb_id="kb_a", doc_id="doc_a3"),
++            _make_hit("a4", kb_id="kb_a", doc_id="doc_a4"),
++            _make_hit("a5", kb_id="kb_a", doc_id="doc_a5"),
++        ]
++        group_b = [
++            _make_hit("b1", kb_id="kb_b", doc_id="doc_b1"),
++            _make_hit("b2", kb_id="kb_b", doc_id="doc_b2"),
++            _make_hit("b3", kb_id="kb_b", doc_id="doc_b3"),
++            _make_hit("b4", kb_id="kb_b", doc_id="doc_b4"),
++            _make_hit("b5", kb_id="kb_b", doc_id="doc_b5"),
++        ]
++
++        result = cross_kb_rrf_fuse([group_a, group_b], k=k)
++
++        # 应有 10 条结果
++        assert len(result) == 10
++
++        # 按 score 降序排列（RRF 分值越大越靠前）
++        for i in range(len(result) - 1):
++            assert result[i].score >= result[i + 1].score, (
++                f"索引 {i}: {result[i].score} 应 >= {result[i + 1].score}"
++            )
++
++        # 验证每组 rank=1 的 hit 分数相同（跨库对称）
++        scores_by_rank: dict[int, float] = {}
++        for hit in result:
++            # 通过 chunk_id 推断原始 rank
++            if hit.kb_id == "kb_a":
++                rank = int(hit.chunk_id[1])  # a1 -> 1
++            else:
++                rank = int(hit.chunk_id[1])  # b1 -> 1
++            if rank not in scores_by_rank:
++                scores_by_rank[rank] = hit.score
++            else:
++                assert scores_by_rank[rank] == pytest.approx(hit.score)
++
++        # rank=1 分数 = 1/(k+1)
++        assert scores_by_rank[1] == pytest.approx(1 / (k + 1))
++        # rank=5 分数 = 1/(k+5)
++        assert scores_by_rank[5] == pytest.approx(1 / (k + 5))
++
++    def test_two_groups_with_cross_kb_overlap(self):
++        """两组有跨库重叠 chunk（相同 doc_id+chunk_id），RRF 分数累加。"""
++        k = 60
++        group_a = [
++            _make_hit("c1", kb_id="kb_a", doc_id="doc_shared"),
++            _make_hit("c2", kb_id="kb_a", doc_id="doc_a2"),
++        ]
++        group_b = [
++            _make_hit("c3", kb_id="kb_b", doc_id="doc_b3"),
++            _make_hit("c1", kb_id="kb_b", doc_id="doc_shared"),
++        ]
++
++        result = cross_kb_rrf_fuse([group_a, group_b], k=k)
++
++        # 去重后应有 3 条（c1 去重，c2, c3 保留）
++        assert len(result) == 3
++
++        # c1 的 RRF 分数 = 1/(k+1) + 1/(k+2)（在 kb_a rank=1，在 kb_b rank=2）
++        expected_c1_score = 1 / (k + 1) + 1 / (k + 2)
++        c1_hit = next(h for h in result if h.chunk_id == "c1")
++        assert c1_hit.score == pytest.approx(expected_c1_score)
++
++
++class TestCrossKbRrfFuseSingleGroup:
++    """单组退化 — 只给一组 hits，返回该组的 RRF 分数结果。"""
++
++    def test_single_group(self):
++        """单组输入退化为单 KB 的 RRF 重算。"""
++        k = 60
++        group = [
++            _make_hit("x1", kb_id="kb_x", doc_id="doc_x1"),
++            _make_hit("x2", kb_id="kb_x", doc_id="doc_x2"),
++            _make_hit("x3", kb_id="kb_x", doc_id="doc_x3"),
++        ]
++
++        result = cross_kb_rrf_fuse([group], k=k)
++
++        assert len(result) == 3
++
++        # rank=1: 1/(k+1)
++        assert result[0].score == pytest.approx(1 / (k + 1))
++        # rank=2: 1/(k+2)
++        assert result[1].score == pytest.approx(1 / (k + 2))
++        # rank=3: 1/(k+3)
++        assert result[2].score == pytest.approx(1 / (k + 3))
++
++        # 按分数降序
++        assert result[0].score > result[1].score > result[2].score
++
++
++class TestCrossKbRrfFuseEmptyGroup:
++    """空组过滤 — 空输入或全空子列表返回空列表。"""
++
++    def test_empty_input_list(self):
++        """空列表输入返回空列表。"""
++        result = cross_kb_rrf_fuse([], k=60)
++        assert result == []
++
++    def test_all_empty_groups(self):
++        """所有子列表为空返回空列表。"""
++        result = cross_kb_rrf_fuse([[], []], k=60)
++        assert result == []
++
++    def test_mixed_empty_groups(self):
++        """部分空组过滤，非空组正常返回。"""
++        k = 60
++        group = [
++            _make_hit("z1", kb_id="kb_z", doc_id="doc_z1"),
++        ]
++        result = cross_kb_rrf_fuse([[], group], k=k)
++        assert len(result) == 1
++        assert result[0].score == pytest.approx(1 / (k + 1))
++
++
++class TestCrossKbRrfFuseDuplicateChunk:
++    """跨库重复 chunk — (doc_id, chunk_id) 二元组去重并 RRF 累加。"""
++
++    def test_duplicate_chunk_sums_rrf(self):
++        """相同 (doc_id, chunk_id) 出现在多个 KB 中，RRF 分数累加。"""
++        k = 60
++        # chunk "dup1" 在 kb_a rank=1，在 kb_b rank=3
++        group_a = [
++            _make_hit("dup1", kb_id="kb_a", doc_id="doc_dup"),
++            _make_hit("a2", kb_id="kb_a", doc_id="doc_a2"),
++        ]
++        group_b = [
++            _make_hit("b1", kb_id="kb_b", doc_id="doc_b1"),
++            _make_hit("b2", kb_id="kb_b", doc_id="doc_b2"),
++            _make_hit("dup1", kb_id="kb_b", doc_id="doc_dup"),
++        ]
++
++        result = cross_kb_rrf_fuse([group_a, group_b], k=k)
++
++        # 去重后应有 4 条
++        assert len(result) == 4
++
++        # dup1 RRF = 1/(k+1) + 1/(k+3)
++        expected_dup_score = 1 / (k + 1) + 1 / (k + 3)
++        dup_hit = next(h for h in result if h.chunk_id == "dup1")
++        assert dup_hit.score == pytest.approx(expected_dup_score)
++
++        # 保留首次出现的 kb_id
++        assert dup_hit.kb_id == "kb_a"
++
++    def test_duplicate_only_by_chunk_id_not_doc_id(self):
++        """仅 chunk_id 相同但 doc_id 不同 → 不去重，视为不同 chunk。"""
++        k = 60
++        group_a = [
++            _make_hit("same_cid", kb_id="kb_a", doc_id="doc_alpha"),
++        ]
++        group_b = [
++            _make_hit("same_cid", kb_id="kb_b", doc_id="doc_beta"),
++        ]
++
++        result = cross_kb_rrf_fuse([group_a, group_b], k=k)
++
++        # 不同 doc_id，应视为两条独立结果
++        assert len(result) == 2
++
++    def test_cross_kb_fuse_preserves_text_and_metadata(self):
++        """跨库融合后 text 和 metadata 保留首次出现的值。"""
++        k = 60
++        group_a = [
++            _make_hit("c1", kb_id="kb_a", doc_id="doc_s", text="hello world", metadata={"page": 1}),
++        ]
++        group_b = [
++            _make_hit("c1", kb_id="kb_b", doc_id="doc_s", text="different text", metadata={"page": 99}),
++        ]
++
++        result = cross_kb_rrf_fuse([group_a, group_b], k=k)
++
++        assert len(result) == 1
++        c1_hit = result[0]
++        assert c1_hit.kb_id == "kb_a"  # 首次出现的 kb_id
++        assert c1_hit.text == "hello world"  # 首次出现的 text
++        assert c1_hit.metadata == {"page": 1}  # 首次出现的 metadata
++
++    def test_different_kb_ids_on_same_chunk_sum_rrf(self):
++        """同 (doc_id, chunk_id) 在三个不同 KB 中均有出现，分数累加。"""
++        k = 60
++        group_a = [
++            _make_hit("multi", kb_id="kb_a", doc_id="doc_m"),
++        ]
++        group_b = [
++            _make_hit("multi", kb_id="kb_b", doc_id="doc_m"),
++        ]
++        group_c = [
++            _make_hit("multi", kb_id="kb_c", doc_id="doc_m"),
++        ]
++
++        result = cross_kb_rrf_fuse([group_a, group_b, group_c], k=k)
++
++        assert len(result) == 1
++        # 三个 KB 中 rank 都是 1 → 3 * 1/(k+1)
++        assert result[0].score == pytest.approx(3 / (k + 1))
++        assert result[0].kb_id == "kb_a"

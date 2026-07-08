@@ -108,6 +108,7 @@ class RetrieveResult:
     rerank_model: str | None
     degraded: bool
     degraded_reason: str | None
+    degraded_kb_ids: list[str] = field(default_factory=list)
     log_id: str | None = None
     trace_id: str | None = None
     # query processing pipeline result (stage 6)

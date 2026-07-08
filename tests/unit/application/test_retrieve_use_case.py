@@ -135,7 +135,7 @@ async def test_retrieve_per_kb_returns_rank_ordered_hits(
 
     search_vector = [0.1, 0.2, 0.3]
 
-    result = await use_case._retrieve_per_kb(
+    hits, vec_count, kw_count = await use_case._retrieve_per_kb(
         kb_id="kb_a",
         search_vector=search_vector,
         original_query="test query",
@@ -146,19 +146,22 @@ async def test_retrieve_per_kb_returns_rank_ordered_hits(
     )
 
     # 验证：结果非空
-    assert len(result) > 0, "应该返回融合后的结果"
+    assert len(hits) > 0, "应该返回融合后的结果"
     # 验证：score 降序
-    for i in range(len(result) - 1):
+    for i in range(len(hits) - 1):
         assert (
-            result[i].score >= result[i + 1].score
-        ), f"结果应按 RRF score 降序排列，但 {result[i].score} < {result[i + 1].score}"
+            hits[i].score >= hits[i + 1].score
+        ), f"结果应按 RRF score 降序排列，但 {hits[i].score} < {hits[i + 1].score}"
     # 验证：重叠 chunk（c1, c3）的 score 应 > 单路 chunk（c2, c4）
-    c1_score = next(h.score for h in result if h.chunk_id == "c1")
-    c3_score = next(h.score for h in result if h.chunk_id == "c3")
-    c2_score = next(h.score for h in result if h.chunk_id == "c2")
-    c4_score = next(h.score for h in result if h.chunk_id == "c4")
+    c1_score = next(h.score for h in hits if h.chunk_id == "c1")
+    c3_score = next(h.score for h in hits if h.chunk_id == "c3")
+    c2_score = next(h.score for h in hits if h.chunk_id == "c2")
+    c4_score = next(h.score for h in hits if h.chunk_id == "c4")
     assert c1_score > c2_score, "重叠 chunk c1 的 RRF 分应高于纯向量 c2"
     assert c3_score > c4_score, "重叠 chunk c3 的 RRF 分应高于纯 BM25 c4"
+    # 验证计数
+    assert vec_count == 3, f"vector_count 应为 3，实际 {vec_count}"
+    assert kw_count == 3, f"bm25_count 应为 3，实际 {kw_count}"
 
 
 @pytest.mark.asyncio
@@ -173,10 +176,8 @@ async def test_retrieve_per_kb_bm25_empty_falls_back_to_vector(
 
     mock_store.search_by_vector.return_value = vec_hits
     mock_keyword_store.search_by_keyword.return_value = []
-
     search_vector = [0.1, 0.2, 0.3]
-
-    result = await use_case._retrieve_per_kb(
+    hits, vec_count, kw_count = await use_case._retrieve_per_kb(
         kb_id="kb_a",
         search_vector=search_vector,
         original_query="test query",
@@ -187,11 +188,14 @@ async def test_retrieve_per_kb_bm25_empty_falls_back_to_vector(
     )
 
     # 验证：结果包含所有向量 hits
-    assert len(result) == 2, f"纯向量降级应返回 2 条结果，实际 {len(result)}"
-    chunk_ids = {h.chunk_id for h in result}
+    assert len(hits) == 2, f"纯向量降级应返回 2 条结果，实际 {len(hits)}"
+    chunk_ids = {h.chunk_id for h in hits}
     assert chunk_ids == {"c1", "c2"}, f"应包含所有向量 hits，实际 {chunk_ids}"
     # 验证：降序排列
-    assert result[0].score >= result[1].score
+    assert hits[0].score >= hits[1].score
+    # 验证计数
+    assert vec_count == 2, f"vector_count 应为 2，实际 {vec_count}"
+    assert kw_count == 0, f"bm25_count 应为 0（BM25 为空），实际 {kw_count}"
 
 
 @pytest.mark.asyncio
@@ -208,8 +212,7 @@ async def test_retrieve_per_kb_vector_empty_falls_back_to_bm25(
     mock_keyword_store.search_by_keyword.return_value = kw_hits
 
     search_vector = [0.1, 0.2, 0.3]
-
-    result = await use_case._retrieve_per_kb(
+    hits, vec_count, kw_count = await use_case._retrieve_per_kb(
         kb_id="kb_a",
         search_vector=search_vector,
         original_query="test query",
@@ -220,11 +223,14 @@ async def test_retrieve_per_kb_vector_empty_falls_back_to_bm25(
     )
 
     # 验证：结果包含所有 BM25 hits
-    assert len(result) == 2, f"纯 BM25 降级应返回 2 条结果，实际 {len(result)}"
-    chunk_ids = {h.chunk_id for h in result}
+    assert len(hits) == 2, f"纯 BM25 降级应返回 2 条结果，实际 {len(hits)}"
+    chunk_ids = {h.chunk_id for h in hits}
     assert chunk_ids == {"c1", "c2"}, f"应包含所有 BM25 hits，实际 {chunk_ids}"
     # 验证：降序排列
-    assert result[0].score >= result[1].score
+    assert hits[0].score >= hits[1].score
+    # 验证计数
+    assert vec_count == 0, f"vector_count 应为 0（向量为空），实际 {vec_count}"
+    assert kw_count == 2, f"bm25_count 应为 2，实际 {kw_count}"
 
 
 @pytest.mark.asyncio
@@ -234,10 +240,8 @@ async def test_retrieve_per_kb_both_empty_returns_empty(
     """两路都失败 → 返回空列表。"""
     mock_store.search_by_vector.return_value = []
     mock_keyword_store.search_by_keyword.return_value = []
-
     search_vector = [0.1, 0.2, 0.3]
-
-    result = await use_case._retrieve_per_kb(
+    hits, vec_count, kw_count = await use_case._retrieve_per_kb(
         kb_id="kb_a",
         search_vector=search_vector,
         original_query="test query",
@@ -247,7 +251,9 @@ async def test_retrieve_per_kb_both_empty_returns_empty(
         use_bm25=True,
     )
 
-    assert result == [], "两路失败应返回空列表"
+    assert hits == [], "两路失败应返回空列表"
+    assert vec_count == 0, "vector_count 应为 0"
+    assert kw_count == 0, "bm25_count 应为 0"
     # 验证：两路都确实被调用了
     mock_store.search_by_vector.assert_awaited_once()
     mock_keyword_store.search_by_keyword.assert_awaited_once()
@@ -281,7 +287,8 @@ async def test_execute_per_kb_parallel_with_two_kbs(
         with patch.object(
             use_case, "_retrieve_per_kb", new_callable=AsyncMock
         ) as mock_retrieve:
-            mock_retrieve.side_effect = [hits_kb1, hits_kb2]
+            # 返回三元组 (hits, vector_count, bm25_count)
+            mock_retrieve.side_effect = [(hits_kb1, 2, 2), (hits_kb2, 1, 1)]
 
             with patch(
                 "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
@@ -313,6 +320,13 @@ async def test_execute_per_kb_parallel_with_two_kbs(
     # 验证结果
     assert result.total == 2
     assert len(result.hits) == 2
+    # 验证向量/BM25 计数已聚合
+    assert (
+        result.vector_count == 3
+    ), f"vector_count 应为 2+1=3，实际 {result.vector_count}"
+    assert result.bm25_count == 3, f"bm25_count 应为 2+1=3，实际 {result.bm25_count}"
+    # 验证无降级 KB
+    assert result.degraded_kb_ids == []
 
 
 @pytest.mark.asyncio
@@ -338,7 +352,7 @@ async def test_execute_single_kb_uses_unified_path(
         with patch.object(
             use_case, "_retrieve_per_kb", new_callable=AsyncMock
         ) as mock_retrieve:
-            mock_retrieve.return_value = hits_kb1
+            mock_retrieve.return_value = (hits_kb1, 3, 2)
 
             with patch(
                 "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
@@ -363,6 +377,8 @@ async def test_execute_single_kb_uses_unified_path(
 
     # 结果正确
     assert result.total == 2
+    assert result.vector_count == 3
+    assert result.bm25_count == 2
 
 
 @pytest.mark.asyncio
@@ -385,8 +401,8 @@ async def test_execute_kb_exception_not_blocking(
         with patch.object(
             use_case, "_retrieve_per_kb", new_callable=AsyncMock
         ) as mock_retrieve:
-            # kb1 抛异常，kb2 正常返回
-            mock_retrieve.side_effect = [RuntimeError("KB 故障"), hits_kb2]
+            # kb1 抛异常，kb2 正常返回三元组
+            mock_retrieve.side_effect = [RuntimeError("KB 故障"), (hits_kb2, 1, 1)]
 
             with patch(
                 "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
@@ -411,6 +427,8 @@ async def test_execute_kb_exception_not_blocking(
     # 结果正常返回
     assert result.total == 1
     assert result.hits[0].chunk_id == "c2"
+    # 验证降级 KB 记录
+    assert "kb1" in result.degraded_kb_ids
 
 
 @pytest.mark.asyncio
@@ -433,7 +451,7 @@ async def test_execute_uses_per_kb_top_k(
         with patch.object(
             use_case, "_retrieve_per_kb", new_callable=AsyncMock
         ) as mock_retrieve:
-            mock_retrieve.return_value = hits
+            mock_retrieve.return_value = (hits, 1, 1)
 
             with patch(
                 "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
@@ -451,3 +469,204 @@ async def test_execute_uses_per_kb_top_k(
 
     # 验证传给 _retrieve_per_kb 的 per_kb_top_k = 20
     assert mock_retrieve.call_args[0][3] == 20, "应为 max(3, 20, 15, 10) = 20"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Batch 1 修复测试 — vector/bm25 counts, degraded_kb_ids, per-pathway 异常
+# ══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_retrieve_per_kb_returns_vector_and_bm25_counts(
+    use_case, mock_store, mock_keyword_store
+):
+    """_retrieve_per_kb 返回三元组 (hits, vector_count, bm25_count)。"""
+    vec_hits = [_make_hit("c1", "kb1", "d1", 0.9, "vec text")]
+    kw_hits = [_make_hit("c2", "kb1", "d1", 0.7, "kw text")]
+    mock_store.search_by_vector.return_value = vec_hits
+    mock_keyword_store.search_by_keyword.return_value = kw_hits
+
+    result = await use_case._retrieve_per_kb(
+        kb_id="kb1",
+        search_vector=[0.1] * 10,
+        original_query="测试",
+        per_kb_top_k=20,
+        rrf_k=60,
+        use_vector=True,
+        use_bm25=True,
+    )
+
+    # 验证返回三元组
+    hits, vec_count, kw_count = result
+    assert isinstance(hits, list), "第一个元素应为 hits 列表"
+    assert isinstance(vec_count, int), "第二个元素应为 vector_count (int)"
+    assert isinstance(kw_count, int), "第三个元素应为 bm25_count (int)"
+    assert vec_count == 1, "vector_count 应为 1"
+    assert kw_count == 1, "bm25_count 应为 1"
+    assert len(hits) > 0, "融合后 hits 不应为空"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_per_kb_counts_zero_when_disabled(
+    use_case, mock_store, mock_keyword_store
+):
+    """use_vector=False 时 vector_count 应为 0，use_bm25=False 时 bm25_count 应为 0。"""
+    kw_hits = [_make_hit("c1", "kb1", "d1", 0.9, "kw only")]
+    mock_keyword_store.search_by_keyword.return_value = kw_hits
+
+    # 仅 BM25 模式
+    result = await use_case._retrieve_per_kb(
+        kb_id="kb1",
+        search_vector=[0.1] * 10,
+        original_query="测试",
+        per_kb_top_k=20,
+        rrf_k=60,
+        use_vector=False,
+        use_bm25=True,
+    )
+    hits, vec_count, kw_count = result
+    assert vec_count == 0, "use_vector=False 时 vector_count 应为 0"
+    assert kw_count == 1, "bm25_count 应为 1"
+
+
+@pytest.mark.asyncio
+async def test_execute_aggregates_vector_bm25_counts(
+    use_case, mock_kb_repo, mock_embedder, mock_reranker
+):
+    """execute 聚合所有 per-KB 的 vector/bm25 计数到 RetrieveResult。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        # 模拟 _retrieve_per_kb 返回三元组
+        # KB1: 3 vector hits, 2 BM25 hits → fused into 4 hits
+        fused1 = [
+            _make_hit("c1", "kb1", "d1", 0.9),
+            _make_hit("c2", "kb1", "d1", 0.8),
+            _make_hit("c3", "kb1", "d1", 0.7),
+            _make_hit("c4", "kb1", "d1", 0.6),
+        ]
+        # KB2: 1 vector hit, 1 BM25 hit → fused into 2 hits
+        fused2 = [
+            _make_hit("c5", "kb2", "d5", 0.85),
+            _make_hit("c6", "kb2", "d5", 0.75),
+        ]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                (fused1, 3, 2),  # KB1: 3 vector, 2 BM25
+                (fused2, 1, 1),  # KB2: 1 vector, 1 BM25
+            ]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = fused1 + fused2
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1", "kb2"],
+                    tenant_id="tenant1",
+                    top_k=10,
+                )
+
+    # 聚合后：vector_count = 3+1 = 4, bm25_count = 2+1 = 3
+    assert result.vector_count == 4, f"vector_count 应为 4，实际: {result.vector_count}"
+    assert result.bm25_count == 3, f"bm25_count 应为 3，实际: {result.bm25_count}"
+
+
+@pytest.mark.asyncio
+async def test_execute_surfaces_degraded_kb_ids(
+    use_case, mock_kb_repo, mock_embedder, mock_reranker
+):
+    """异常的 KB 将 degraded_kb_ids 记录到 RetrieveResult。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        hits_kb2 = [_make_hit("c2", "kb2", "d2", 0.8)]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            # kb1 抛异常 → degraded，kb2 正常
+            mock_retrieve.side_effect = [RuntimeError("KB 故障"), ([], 0, 0)]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = hits_kb2
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1", "kb2"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    assert "kb1" in result.degraded_kb_ids, "异常的 KB 应出现在 degraded_kb_ids 中"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_per_kb_catches_per_pathway_exception(
+    use_case, mock_store, mock_keyword_store
+):
+    """vector 检索抛异常 → 不中断 BM25 检索，降级为纯 BM25。"""
+    # 向量检索抛异常
+    mock_store.search_by_vector.side_effect = RuntimeError("向量库连接失败")
+    # BM25 正常返回
+    kw_hits = [_make_hit("c1", "kb1", "d1", 0.7, "keyword result")]
+    mock_keyword_store.search_by_keyword.return_value = kw_hits
+
+    # 不应抛异常
+    result = await use_case._retrieve_per_kb(
+        kb_id="kb1",
+        search_vector=[0.1] * 10,
+        original_query="测试",
+        per_kb_top_k=20,
+        rrf_k=60,
+        use_vector=True,
+        use_bm25=True,
+    )
+
+    hits, vec_count, kw_count = result
+    # vector 检索异常，应降级：vec_count=0，但 BM25 仍有结果
+    assert vec_count == 0, "向量检索异常时 vector_count 应为 0"
+    assert kw_count == 1, "BM25 检索应正常返回 1 条"
+    assert len(hits) > 0, "降级后仍有 BM25 融合结果"
+
+    # 验证两个 search 都被调用
+    mock_store.search_by_vector.assert_awaited_once()
+    mock_keyword_store.search_by_keyword.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_per_kb_catches_both_pathway_exceptions(
+    use_case, mock_store, mock_keyword_store
+):
+    """两路都抛异常 → 返回空三元组，不传播异常。"""
+    mock_store.search_by_vector.side_effect = RuntimeError("向量库故障")
+    mock_keyword_store.search_by_keyword.side_effect = RuntimeError("ES 故障")
+
+    result = await use_case._retrieve_per_kb(
+        kb_id="kb1",
+        search_vector=[0.1] * 10,
+        original_query="测试",
+        per_kb_top_k=20,
+        rrf_k=60,
+        use_vector=True,
+        use_bm25=True,
+    )
+
+    hits, vec_count, kw_count = result
+    assert vec_count == 0
+    assert kw_count == 0
+    assert hits == [], "两路都异常时 hits 应为空"
