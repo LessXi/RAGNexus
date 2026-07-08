@@ -2,6 +2,7 @@
 change: multi-format-parser
 design-doc: docs/superpowers/specs/2026-07-07-multi-format-parser-design.md
 base-ref: 48004700b67fd7fb06a0fabf69e5fef224656ca6
+archived-with: 2026-07-08-multi-format-parser
 ---
 
 # 多格式文档解析 — 实施计划
@@ -23,6 +24,7 @@ base-ref: 48004700b67fd7fb06a0fabf69e5fef224656ca6
 - `source_type` 复用 `content_type` 字段（MIME type 自然映射），**不新增数据库列**
 - `DOCUMENT_PARSE_FAILED` 错误码为 20023，HTTP 422
 
+archived-with: 2026-07-08-multi-format-parser
 ---
 
 ### Task 1: 领域模型扩展
@@ -2132,6 +2134,7 @@ git add scripts/verify_multi_format.py
 git commit -m "feat: add E2E verification script for multi-format parsing"
 ```
 
+archived-with: 2026-07-08-multi-format-parser
 ---
 
 ## 任务依赖图

@@ -1,0 +1,386 @@
+diff --git a/alembic/versions/0009_add_document_source_fields.py b/alembic/versions/0009_add_document_source_fields.py
+new file mode 100644
+index 0000000..135c03c
+--- /dev/null
++++ b/alembic/versions/0009_add_document_source_fields.py
+@@ -0,0 +1,34 @@
++"""add source file fields to documents
++
++为 documents 表新增 source_file_path 和 source_filename 两列。
++用于记录文件的上传源路径和原始文件名。
++
++Revision ID: debee218ecdb
++Revises: 0008
++Create Date: 2026-07-07 23:24:13.632095
++
++"""
++
++from typing import Sequence, Union
++
++from alembic import op
++import sqlalchemy as sa
++
++
++# revision identifiers, used by Alembic.
++revision: str = "debee218ecdb"
++down_revision: Union[str, Sequence[str], None] = "0008"
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    """为 documents 表添加源文件路径和文件名列。"""
++    op.add_column("documents", sa.Column("source_file_path", sa.Text(), nullable=True))
++    op.add_column("documents", sa.Column("source_filename", sa.Text(), nullable=True))
++
++
++def downgrade() -> None:
++    """移除源文件路径和文件名列。"""
++    op.drop_column("documents", "source_filename")
++    op.drop_column("documents", "source_file_path")
+diff --git a/docs/sql/schema.sql b/docs/sql/schema.sql
+index f9496b8..d6160f9 100644
+--- a/docs/sql/schema.sql
++++ b/docs/sql/schema.sql
+@@ -14,20 +14,22 @@ CREATE TABLE IF NOT EXISTS documents (
+     doc_id        TEXT PRIMARY KEY,
+     kb_id         TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+     filename      TEXT NOT NULL,
+     file_hash     TEXT NOT NULL,
+     file_size     INTEGER NOT NULL,
+     content_type  TEXT,
+     chunk_count   INTEGER NOT NULL,
+     uploaded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     status        INTEGER NOT NULL DEFAULT 2,
+     content       TEXT NOT NULL DEFAULT '',
++    source_file_path TEXT,              -- 新增：上传源文件路径
++    source_filename  TEXT,              -- 新增：上传源文件名
+     error_message TEXT,
+     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ );
+ 
+ CREATE TABLE IF NOT EXISTS chunks (
+     id          TEXT NOT NULL,
+     kb_id       TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+     doc_id      TEXT NOT NULL REFERENCES documents(doc_id) ON DELETE CASCADE,
+     text        TEXT NOT NULL,
+     metadata    JSONB NOT NULL DEFAULT '{}'::jsonb,
+diff --git a/src/ragnexus/application/upload_doc_use_case.py b/src/ragnexus/application/upload_doc_use_case.py
+index 9b65b31..2f1037a 100644
+--- a/src/ragnexus/application/upload_doc_use_case.py
++++ b/src/ragnexus/application/upload_doc_use_case.py
+@@ -37,21 +37,21 @@ class UploadDocumentUseCase:
+     """上传文档到知识库 — 同步校验 + 异步索引触发。"""
+ 
+     def __init__(
+         self,
+         kb_repo: KnowledgeBasePort,
+         doc_repo: DocumentPort,
+         parser: ParserPort,
+         embedder: EmbedderPort,
+         chunker: Callable[..., list[dict]],
+         store: VectorStorePort,
+-        max_file_size: int = 10 * 1024 * 1024,
++        max_file_size: int = 20 * 1024 * 1024,  # 20MB（原 10 * 1024 * 1024）
+         allowed_exts: tuple[str, ...] = (".md", ".txt"),
+         chunk_max_chars: int = 1500,
+         chunk_overlap: int = 50,
+         keyword_store: KeywordSearchPort | None = None,
+         es_enabled: bool = False,
+     ) -> None:
+         self._kb_repo = kb_repo
+         self._doc_repo = doc_repo
+         self._parser = parser
+         self._embedder = embedder
+diff --git a/src/ragnexus/config.py b/src/ragnexus/config.py
+index 32b05d1..89a7025 100644
+--- a/src/ragnexus/config.py
++++ b/src/ragnexus/config.py
+@@ -36,22 +36,27 @@ class Settings(BaseSettings):
+     EMBED_BATCH_SIZE: int = 50
+     EMBED_MAX_CONCURRENCY: int = 5
+     EMBED_MAX_RETRIES: int = 3
+     EMBED_REQUEST_TIMEOUT: float = 30.0
+     EMBED_CONNECT_TIMEOUT: float = 5.0
+     EMBED_RETRY_BACKOFF_BASE: float = 2.0
+ 
+     # Chunking
+     CHUNK_MAX_CHARS: int = 1500
+     CHUNK_OVERLAP: int = 50
+-    MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
+-
++    DOCUMENT_STORAGE_PATH: str = Field(
++        default="./data/uploads", description="上传文件存储根目录"
++    )
++    DOCUMENT_MAX_SIZE_MB: int = Field(
++        default=20, description="单个文档最大体积（MB），与 MAX_FILE_SIZE 联动"
++    )
++    MAX_FILE_SIZE: int = 20 * 1024 * 1024  # 20MB（由 DOCUMENT_MAX_SIZE_MB 换算）
+     # LLM 通用配置（被 Rerank 和 Rewrite 共享）
+     LLM_BASE_URL: str = "https://opencode.ai/zen/v1"
+     LLM_API_KEY: str = ""
+     LLM_MODEL: str = "deepseek-v4-flash-free"
+     LLM_REQUEST_TIMEOUT: float = 30.0
+     LLM_CONNECT_TIMEOUT: float = 5.0
+     LLM_MAX_CONCURRENCY: int = 5
+     LLM_MAX_RETRIES: int = 3
+     LLM_RETRY_BACKOFF_BASE: float = 2.0
+ 
+diff --git a/src/ragnexus/core/errors.py b/src/ragnexus/core/errors.py
+index 32cffab..1e968c0 100644
+--- a/src/ragnexus/core/errors.py
++++ b/src/ragnexus/core/errors.py
+@@ -60,20 +60,21 @@ class ErrorCode(IntEnum):
+     API_TIMEOUT = (20001, 504, "接口请求超时")
+     API_RATE_LIMIT = (20005, 429, "接口调用超限")
+     API_METHOD_ERROR = (20003, 405, "请求方法错误")
+     FEATURE_NOT_ALLOWED = (20013, 403, "当前套餐不支持此功能")
+     QUOTA_EXCEEDED = (20014, 429, "配额超限")
+ 
+     # 反馈 (20020~20029)
+     FEEDBACK_SERVICE_UNAVAILABLE = (20020, 503, "反馈服务不可用")
+     FEEDBACK_UNAUTHORIZED = (20021, 403, "无权操作该反馈记录")
+     FEEDBACK_INVALID_SCORE = (20022, 422, "评分超出允许范围")
++    DOCUMENT_PARSE_FAILED = (20023, 422, "文档解析失败")
+     # 数据库与存储 (30000~30999)
+     DB_ERROR = (30001, 500, "数据库操作失败")
+     DB_CONNECTION_ERROR = (30002, 503, "数据库连接失败")
+     DB_QUERY_TIMEOUT = (30003, 504, "数据库查询超时")
+     DATA_DUPLICATE = (30004, 409, "数据已存在")
+ 
+     # 关键词检索
+     KEYWORD_UPSERT_FAILED = (30005, 500, "关键词索引写入失败")
+     KEYWORD_DELETE_FAILED = (30006, 500, "关键词索引删除失败")
+ 
+diff --git a/src/ragnexus/domain/models.py b/src/ragnexus/domain/models.py
+index 62d6edb..81441e3 100644
+--- a/src/ragnexus/domain/models.py
++++ b/src/ragnexus/domain/models.py
+@@ -29,20 +29,22 @@ class Section:
+     heading: str | None  # None means no heading
+     level: int  # 1-6, 0 means no heading
+     content: str
+ 
+ 
+ @dataclass
+ class ParsedDocument:
+     filename: str
+     sections: list[Section]
+     raw_text: str  # full text for fallback splitting
++    source_type: str = "text"  # 新增: text | markdown | docx | pdf
++    metadata: dict = field(default_factory=dict)  # 新增: parser 元信息
+ 
+ 
+ @dataclass
+ class Chunk:
+     id: str  # "{doc_id}:{index}"
+     kb_id: str
+     doc_id: str
+     text: str
+     vector: list[float]  # length == EMBED_DIM
+     metadata: dict[str, Any] = field(default_factory=dict)
+@@ -75,20 +77,22 @@ class Document:
+ 
+     doc_id: str
+     kb_id: str
+     filename: str
+     file_hash: str
+     file_size: int
+     content_type: str
+     content: str
+     status: DocStatus = DocStatus.PROCESSING
+     chunk_count: int = 0
++    source_file_path: str | None = None  # 新增 — 原文件磁盘路径
++    source_filename: str | None = None  # 新增 — 原始文件名
+     error_message: str | None = None
+     uploaded_at: datetime | None = None
+     updated_at: datetime | None = None
+ 
+ 
+ @dataclass
+ class RetrieveResult:
+     """检索结果 — 封装一次检索操作的完整响应。
+ 
+     包含多路检索的计数统计、融合信息、延迟和降级标记。
+diff --git a/src/ragnexus/domain/ports.py b/src/ragnexus/domain/ports.py
+index 67e6a90..a9bb608 100644
+--- a/src/ragnexus/domain/ports.py
++++ b/src/ragnexus/domain/ports.py
+@@ -75,20 +75,30 @@ class EmbedderPort(Protocol):
+ 
+     async def embed(self, texts: list[str]) -> list[list[float]]: ...
+ 
+ 
+ class ParserPort(Protocol):
+     """文档解析。骨架实现: MarkdownAndTextParser。"""
+ 
+     async def parse(self, content: bytes, filename: str) -> ParsedDocument: ...
+ 
+ 
++class FileStoragePort(Protocol):
++    """文件存储端口 — 二进制文件暂存与读取。"""
++
++    async def save(
++        self, tenant_id: str, doc_id: str, filename: str, content: bytes
++    ) -> str: ...
++    async def read(self, path: str) -> bytes: ...
++    async def delete(self, path: str) -> None: ...
++
++
+ class RetrieveLogPort(Protocol):
+     """retrieve 日志（fire-and-forget）。骨架实现: PgRetrieveLogRepository。"""
+ 
+     async def log(
+         self,
+         *,
+         query: str,
+         kb_ids: list[str],
+         top_k: int,
+         hit_count: int,
+diff --git a/tests/unit/application/test_upload_doc.py b/tests/unit/application/test_upload_doc.py
+index 0ff9187..c4670a4 100644
+--- a/tests/unit/application/test_upload_doc.py
++++ b/tests/unit/application/test_upload_doc.py
+@@ -95,21 +95,23 @@ class TestUploadDocument:
+         assert result.kb_id == "kb_test123"
+         assert result.doc_id.startswith("doc_")
+         assert result.chunk_count == 0
+         assert result.chunks == []
+ 
+         # doc_id = SHA256(file_content)[:16] with doc_ prefix
+         expected_hash = "doc_" + hashlib.sha256(file_bytes).hexdigest()[:16]
+         assert result.doc_id == expected_hash
+ 
+         # Celery task 已投递
+-        mock_task.apply_async.assert_called_once_with(args=[expected_hash], ignore_result=True)
++        mock_task.apply_async.assert_called_once_with(
++            args=[expected_hash], ignore_result=True
++        )
+ 
+         # store.upsert 在 IndexingService 中异步调用，此处不验证
+ 
+     @pytest.mark.asyncio
+     @patch("ragnexus.tasks.indexing.index_document_task")
+     async def test_upload_logs_biz_event(
+         self, mock_task, use_case, mock_kb_repo, mock_embedder, mock_parser, mock_store
+     ):
+         """Successful upload emits BIZ_EVENT log with index_task_queued event."""
+         file_bytes = b"# Hello\n\nThis is a test document."
+@@ -132,21 +134,21 @@ class TestUploadDocument:
+             assert len(biz_calls) == 1
+             extra = biz_calls[0].kwargs["extra"]
+             # 异步模式: 日志事件保持 document_uploaded，但 chunks 为空
+             assert extra["event"] == "document_uploaded"
+             assert extra["kb_id"] == "kb_test123"
+             assert extra["doc_id"].startswith("doc_")
+ 
+     @pytest.mark.asyncio
+     async def test_file_too_large(self, use_case):
+         """File exceeding MAX_FILE_SIZE raises PayloadTooLargeError."""
+-        file_bytes = b"x" * (10 * 1024 * 1024 + 1)
++        file_bytes = b"x" * (20 * 1024 * 1024 + 1)
+         with pytest.raises(AppError) as exc:
+             await use_case.execute(
+                 kb_id="kb_test123",
+                 tenant_id="test_tenant",
+                 file_content=file_bytes,
+                 filename="test.md",
+                 content_type="text/markdown",
+             )
+         assert exc.value.code == ErrorCode.FILE_TOO_LARGE.code
+ 
+diff --git a/tests/unit/domain/test_models.py b/tests/unit/domain/test_models.py
+index 84c7988..fa1d70d 100644
+--- a/tests/unit/domain/test_models.py
++++ b/tests/unit/domain/test_models.py
+@@ -91,10 +91,40 @@ def test_api_key_revoked():
+ 
+     ak = ApiKey(
+         id="uuid-2",
+         tenant_id="t1",
+         key_hash="def456hash",
+         key_prefix="rk_c3d4",
+         name="已吊销Key",
+         status="revoked",
+     )
+     assert ak.status == "revoked"
++
++
++def test_parsed_document_defaults():
++    """ParsedDocument 默认 source_type='text', metadata={}"""
++    from ragnexus.domain.models import ParsedDocument, Section
++
++    doc = ParsedDocument(
++        filename="test.txt",
++        sections=[],
++        raw_text="hello",
++    )
++    assert doc.source_type == "text"
++    assert doc.metadata == {}
++
++
++def test_document_new_fields_default_none():
++    """Document 新字段 source_file_path/source_filename 默认为 None"""
++    from ragnexus.domain.models import Document
++
++    doc = Document(
++        doc_id="d1",
++        kb_id="k1",
++        filename="f.txt",
++        file_hash="h",
++        file_size=10,
++        content_type="text/plain",
++        content="",
++    )
++    assert doc.source_file_path is None
++    assert doc.source_filename is None
+diff --git a/tests/unit/test_config.py b/tests/unit/test_config.py
+index f83639f..d0d6a53 100644
+--- a/tests/unit/test_config.py
++++ b/tests/unit/test_config.py
+@@ -9,39 +9,44 @@ def test_defaults(monkeypatch):
+     monkeypatch.delenv("PG_DSN", raising=False)
+     monkeypatch.delenv("EMBED_API_KEY", raising=False)
+     monkeypatch.delenv("PG_POOL_MIN", raising=False)
+     monkeypatch.delenv("PG_POOL_MAX", raising=False)
+     monkeypatch.delenv("PG_COMMAND_TIMEOUT", raising=False)
+     monkeypatch.delenv("LLM_API_KEY", raising=False)
+     monkeypatch.delenv("RERANK_ENABLED", raising=False)
+     monkeypatch.delenv("REWRITE_ENABLED", raising=False)
+     monkeypatch.delenv("AUTH_ENABLED", raising=False)
+     monkeypatch.delenv("EMBED_BATCH_SIZE", raising=False)
++    monkeypatch.delenv("MAX_FILE_SIZE", raising=False)
++    monkeypatch.delenv("DOCUMENT_STORAGE_PATH", raising=False)
++    monkeypatch.delenv("DOCUMENT_MAX_SIZE_MB", raising=False)
+     s = Settings(_env_file=None)  # type: ignore[call-arg]  # 跳过 .env，仅测试默认值
+ 
+     # ---- 现有字段 ----
+     assert s.HOST == "0.0.0.0"
+     assert s.PORT == 8000
+     assert s.LOG_LEVEL == "INFO"
+     assert s.PG_DSN == "postgresql://ragnexus:ragnexus@localhost:5432/ragnexus"
+     assert s.PG_POOL_MIN == 1
+     assert s.PG_POOL_MAX == 10
+     assert s.EMBED_BASE_URL == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+     assert s.EMBED_API_KEY == ""
+     assert s.EMBED_MODEL == "text-embedding-v3"
+     assert s.EMBED_DIM == 1024
+     assert s.EMBED_BATCH_SIZE == 50  # 代码默认值
+     assert s.EMBED_MAX_CONCURRENCY == 5
+     assert s.EMBED_MAX_RETRIES == 3
+     assert s.CHUNK_MAX_CHARS == 1500
+     assert s.CHUNK_OVERLAP == 50
+-    assert s.MAX_FILE_SIZE == 10 * 1024 * 1024  # 10MB
++    assert s.DOCUMENT_STORAGE_PATH == "./data/uploads"
++    assert s.DOCUMENT_MAX_SIZE_MB == 20
++    assert s.MAX_FILE_SIZE == 20 * 1024 * 1024  # 20MB
+     assert s.EMBED_REQUEST_TIMEOUT == 30.0
+     assert s.EMBED_CONNECT_TIMEOUT == 5.0
+     assert s.EMBED_RETRY_BACKOFF_BASE == 2.0
+     assert s.PG_COMMAND_TIMEOUT == 30.0
+ 
+     # ---- LLM 通用配置 ----
+     assert s.LLM_BASE_URL == "https://opencode.ai/zen/v1"
+     assert s.LLM_API_KEY == ""
+     assert s.LLM_MODEL == "deepseek-v4-flash-free"
+     assert s.LLM_REQUEST_TIMEOUT == 30.0

@@ -2,6 +2,8 @@
 comet_change: multi-format-parser
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-08-multi-format-parser
+status: final
 ---
 
 # 多格式文档解析 — 技术设计
