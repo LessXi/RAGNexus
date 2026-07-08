@@ -58,6 +58,7 @@ class SearchHit:
     score: float  # higher = more relevant (1 - cosine distance)
     text: str
     metadata: dict[str, Any]
+    kb_name: str = ""  # 知识库名称，便于前端 Badge 展示
 
 
 @dataclass
