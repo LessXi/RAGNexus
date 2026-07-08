@@ -123,6 +123,24 @@ class RetrieveResult:
 
 
 @dataclass
+class PerKbRetrieveResult:
+    """单库召回结果 — 封装一个 KB 的检索结果、计数和降级标记。
+
+    - hits: 单库 RRF 融合后的命中列表
+    - vec_count: 向量路返回数（降级前原始计数）
+    - kw_count: BM25 路返回数（降级前原始计数）
+    - degraded: 该 KB 是否发生了降级（任一路检索异常）
+    - degraded_reason: 降级原因描述，如 "向量检索异常"、"BM25 检索异常"
+    """
+
+    hits: list[SearchHit] = field(default_factory=list)
+    vec_count: int = 0
+    kw_count: int = 0
+    degraded: bool = False
+    degraded_reason: str | None = None
+
+
+@dataclass
 class DocNode:
     """文档节点 — Tree API 中文档的轻量表示。"""
 

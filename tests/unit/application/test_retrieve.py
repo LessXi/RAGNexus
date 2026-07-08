@@ -910,7 +910,6 @@ async def test_scenario_12_10_enabled_false_priority(
     assert result.query_processing["needs_rewrite"] is False
 
 
-
 # ═══════════════════════════════════════════════════════════════════
 # RetrieveResult 鲁棒性字段测试 — Phase 10
 # ═══════════════════════════════════════════════════════════════════
@@ -962,3 +961,52 @@ def test_retrieve_result_robustness_fields_explicit():
     assert result.failed_kb_ids == ["kb_a", "kb_b"]
     assert result.partial_kb_success is True
     assert result.empty_reason == "no_indexed_chunks"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PerKbRetrieveResult 单元测试 — Phase 10 Task 1.2
+# ═══════════════════════════════════════════════════════════════════
+
+
+def test_per_kb_retrieve_result_defaults():
+    """构造 PerKbRetrieveResult 时，所有字段有正确的默认值。"""
+    from ragnexus.domain.models import PerKbRetrieveResult
+
+    r = PerKbRetrieveResult()
+
+    assert r.hits == []
+    assert r.vec_count == 0
+    assert r.kw_count == 0
+    assert r.degraded is False
+    assert r.degraded_reason is None
+
+
+def test_per_kb_retrieve_result_explicit():
+    """可以显式设置 PerKbRetrieveResult 所有字段。"""
+    from ragnexus.domain.models import PerKbRetrieveResult, SearchHit
+
+    hits = [
+        SearchHit(
+            chunk_id="c1",
+            kb_id="kb_one",
+            doc_id="d1",
+            score=0.95,
+            text="test content",
+            metadata={},
+            kb_name="test_kb",
+        )
+    ]
+
+    r = PerKbRetrieveResult(
+        hits=hits,
+        vec_count=10,
+        kw_count=5,
+        degraded=True,
+        degraded_reason="向量检索异常",
+    )
+
+    assert r.hits is hits
+    assert r.vec_count == 10
+    assert r.kw_count == 5
+    assert r.degraded is True
+    assert r.degraded_reason == "向量检索异常"
