@@ -970,3 +970,36 @@ async def test_multi_kb_rewrite_context(
         "name": "金融知识库",
         "description": "包含金融政策、证券法规和行业分析",
     }
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 5.1 补充 — validate_kb_ownership 边界
+# ══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_validate_kb_ownership_duplicate_ids(use_case, mock_kb_repo):
+    """重复 kb_ids 经 set 去重后只查询一次。"""
+    mock_kb_repo.pool = AsyncMock()
+    # duplicated kb_ids → unique {kb_a}, count=1 == len({kb_a})
+    mock_kb_repo.pool.fetchval.return_value = 1
+
+    await use_case.validate_kb_ownership(
+        kb_ids=["kb_a", "kb_a", "kb_a"],
+        tenant_id="t1",
+    )
+
+    # 去重后仅 {kb_a}，一次查询
+    mock_kb_repo.pool.fetchval.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_validate_kb_ownership_empty_ids(use_case, mock_kb_repo):
+    """空 kb_ids 不执行查询，直接返回。"""
+    mock_kb_repo.pool = AsyncMock()
+
+    await use_case.validate_kb_ownership(
+        kb_ids=[],
+        tenant_id="t1",
+    )
+    mock_kb_repo.pool.fetchval.assert_not_called()

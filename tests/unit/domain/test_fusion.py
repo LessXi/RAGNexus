@@ -291,3 +291,52 @@ class TestSearchHitKbNameDefault:
             kb_name="我的知识库",
         )
         assert hit.kb_name == "我的知识库"
+
+
+class TestCrossKbRrfFuseMaxGroups:
+    """MULTI_KB_MAX (5) 个分组 — 验证容量上限不退化。"""
+
+    def test_max_groups_no_overlap(self):
+        """5 组各 3 条 hits，无跨组重复，返回 15 条结果。"""
+        groups = []
+        for g in range(5):
+            gid = f"kb_{g}"
+            groups.append(
+                [
+                    _make_hit(f"{gid}:ch{i}", kb_id=gid, score=0.9 - g * 0.05)
+                    for i in range(3)
+                ]
+            )
+        result = cross_kb_rrf_fuse(groups, k=60)
+        assert len(result) == 15
+
+    def test_max_groups_highest_rank_stays_on_top(self):
+        """5 组，每组第一条 hit 均不同，全部排在前面。"""
+        groups = []
+        for g in range(5):
+            gid = f"kb_{g}"
+            groups.append(
+                [
+                    _make_hit(f"{gid}:first", kb_id=gid, score=0.95),
+                    _make_hit(f"{gid}:second", kb_id=gid, score=0.8),
+                ]
+            )
+        result = cross_kb_rrf_fuse(groups, k=60)
+        first_tier_score = 1 / (60 + 1)
+        for i in range(5):
+            assert abs(result[i].score - first_tier_score) < 1e-9
+
+
+class TestCrossKbRrfFuseMinK:
+    """RRF k=1 极端边界 — 验证公式不崩。"""
+
+    def test_k_one_no_division_by_zero(self):
+        """k=1 时 RRF 公式无除零，两组各自 rank=1 → 均为 0.5。"""
+        groups = [
+            [_make_hit("ch_a", kb_id="kb_a", score=0.9)],
+            [_make_hit("ch_b", kb_id="kb_b", score=0.8)],
+        ]
+        result = cross_kb_rrf_fuse(groups, k=1)
+        assert len(result) == 2
+        assert result[0].score == pytest.approx(0.5)
+        assert result[1].score == pytest.approx(0.5)
