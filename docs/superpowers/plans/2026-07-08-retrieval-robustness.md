@@ -64,7 +64,7 @@ base-ref: b82404f7dddf07d7caa8dc59495b623cfa110b90
 
 ### 4. 测试
 
-- [ ] 4.1 新建 `tests/test_retrieve_robustness.py`
+- [x] 4.1 新建 `tests/test_retrieve_robustness.py`
   - **8 个 mock 场景**:
     1. mock vector 失败 → hybrid 降为 BM25，degraded=true
     2. mock BM25 失败 → hybrid 降为 vector（回归）
@@ -75,13 +75,13 @@ base-ref: b82404f7dddf07d7caa8dc59495b623cfa110b90
     7. 空 query → PARAM_ERROR
     8. 超长 query → PARAM_ERROR
   - 验证: `pytest tests/test_retrieve_robustness.py -v` 全部 PASSED
-- [ ] 4.2 新建 `scripts/verify_robustness_retrieve.py`
+- [x] 4.2 新建 `scripts/verify_robustness_retrieve.py`
   - 停 ES → hybrid retrieve → 断言 200 + degraded
   - ES 不可用时 SKIP
   - 验证: 手动运行输出各 case OK/SKIP
 
 ### 5. 配置
 
-- [ ] 5.1 `.env.example` 补充 `QUERY_MAX_LENGTH=2000`
+- [x] 5.1 `.env.example` 补充 `QUERY_MAX_LENGTH=2000`
   - 文件: `.env.example`
   - 内容: 注释说明用途 + 默认值

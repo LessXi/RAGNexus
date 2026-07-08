@@ -17,3 +17,10 @@
 - [x] 3.2 确保 Happy path 向后兼容：单库 balanced 检索 `chunks>0` 时，meta 中 `degraded=false`，`degraded_kb_ids=[]`，`failed_kb_ids=[]`，`partial_kb_success=false`，`empty_reason=null`——现有 E2E 响应结构不破坏
 
 ## 4. 测试
+
+- [x] 4.1 新建 `tests/test_retrieve_robustness.py` — 10 个 mock 场景全部通过
+- [x] 4.2 新建 `scripts/verify_robustness_retrieve.py` — 集成验证脚本
+
+## 5. 配置
+
+- [x] 5.1 `.env.example` 补充 `QUERY_MAX_LENGTH=2000`
