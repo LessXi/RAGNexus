@@ -1,0 +1,1389 @@
+# Review package: Batch 2 (Tasks 1.4+1.5+1.7+1.8)
+
+## Commits
+296cd1c fix: update schema invariance test to include kb_name field
+a9e8359 feat: use multi-KB context list for LLM query rewrite
+1e03090 feat: merge multi-KB synonyms in execute query processing
+c3f3728 feat: populate kb_name in SearchHit after cross-KB RRF
+c9e4d8d feat: add kb_name field to SearchHit with default empty string
+
+## Files changed
+ .superpowers/sdd/task-1.3-report.md                |  72 +++++
+ .superpowers/sdd/task-1.8-report.md                |  45 +++
+ src/ragnexus/adapters/rewrite/llm.py               |  27 +-
+ src/ragnexus/adapters/rewrite/noop.py              |   2 +-
+ src/ragnexus/adapters/rewrite/pipeline.py          |   6 +-
+ src/ragnexus/application/retrieve_use_case.py      |  62 +++--
+ src/ragnexus/domain/models.py                      |   3 +-
+ src/ragnexus/domain/ports.py                       |   6 +-
+ tests/unit/adapters/test_http_schema_invariance.py |  12 +-
+ tests/unit/application/test_retrieve.py            |  43 ++-
+ tests/unit/application/test_retrieve_hybrid.py     |   2 +-
+ tests/unit/application/test_retrieve_use_case.py   | 304 ++++++++++++++++++++-
+ tests/unit/domain/test_fusion.py                   |  65 ++++-
+ tests/unit/test_pipeline.py                        |   6 +-
+ tests/unit/test_rewrite_port.py                    |  18 +-
+ 15 files changed, 600 insertions(+), 73 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/task-1.3-report.md b/.superpowers/sdd/task-1.3-report.md
+index e628c86..bf21b82 100644
+--- a/.superpowers/sdd/task-1.3-report.md
++++ b/.superpowers/sdd/task-1.3-report.md
+@@ -43,10 +43,82 @@ from ragnexus.domain.retrieval.fusion import cross_kb_rrf_fuse, rrf_fuse
+ ```
+ tests/unit/application/test_retrieve_use_case.py: 8 passed (4 existing + 4 new)
+ ```
+ 
+ | 测试 | 验证点 |
+ |------|--------|
+ | `test_execute_per_kb_parallel_with_two_kbs` | `_retrieve_per_kb` 调用 2 次; `cross_kb_rrf_fuse` 收到 2 组 hits |
+ | `test_execute_single_kb_uses_unified_path` | 单 KB 走 per-KB 路径; `cross_kb_rrf_fuse` 收到 1 组 hits (恒等) |
+ | `test_execute_kb_exception_not_blocking` | KB1 异常不阻塞 KB2; `cross_kb_rrf_fuse` 只收到正常 KB 的 hits |
+ | `test_execute_uses_per_kb_top_k` | `per_kb_top_k = max(3, 20, 15, 10) = 20` 正确传入 |
++
++## Fix Round 1 — Batch 1 审查修复 (commit `76ad1a4`)
++
++### 修复内容
++
++| 严重度 | 问题 | 修复方式 |
++|--------|------|----------|
++| 🔴 Critical | `vector_count`/`bm25_count` 始终为 0 | `_retrieve_per_kb` 改为返回 `tuple[list[SearchHit], int, int]`；`execute` 解包聚合 `total_vec_count`/`total_kw_count` |
++| 🟡 Important | `degraded_kb_ids` 收集但未使用 | `RetrieveResult` 新增 `degraded_kb_ids: list[str]` 字段；写入日志和结果 |
++| 🟡 Important | `_retrieve_per_kb` 不捕获 per-pathway 异常 | 每个 `search_by_*` 调用包 `try/except`，异常时记录 warning 并降级 |
++
++### 变更文件
++- `src/ragnexus/application/retrieve_use_case.py` — `_retrieve_per_kb` 返回类型 + per-pathway try/except；`execute` 循环解包 + 聚合计数
++- `src/ragnexus/domain/models.py` — `RetrieveResult` 新增 `degraded_kb_ids` 字段
++- `tests/unit/application/test_retrieve_use_case.py` — 新增 6 个测试，全部 14 个测试已适配新接口
++
++### TDD 流程
++
++#### RED — 测试先行
++新增 6 个测试（加 8 个已有测试适配），覆盖：
++
++| # | 测试 | 验证点 |
++|---|------|--------|
++| 1 | `test_retrieve_per_kb_returns_vector_and_bm25_counts` | 返回三元组 `(hits, vec_count, kw_count)` |
++| 2 | `test_retrieve_per_kb_counts_zero_when_disabled` | `use_vector=False` → `vec_count=0` |
++| 3 | `test_execute_aggregates_vector_bm25_counts` | execute 聚合多个 KB 的计数 → `vector_count=4`, `bm25_count=3` |
++| 4 | `test_execute_surfaces_degraded_kb_ids` | 异常 KB 出现在 `result.degraded_kb_ids` |
++| 5 | `test_retrieve_per_kb_catches_per_pathway_exception` | vector 异常 → BM25 仍返回结果 |
++| 6 | `test_retrieve_per_kb_catches_both_pathway_exceptions` | 两路都异常 → `([], 0, 0)` |
++
++**RED 证据**: `ValueError: too many values to unpack` — `_retrieve_per_kb` 仍返回 `list`，测试期望 `tuple`
++
++#### GREEN — 最小修复
++
++**`_retrieve_per_kb`** (L368-431):
++```python
++) -> tuple[list[SearchHit], int, int]:
++    ...
++    if use_vector:
++        try:
++            vec_hits = await self._store.search_by_vector(...) or []
++        except Exception as e:
++            logger.warning("向量检索异常，降级", extra={...})
++            vec_hits = []
++    ...
++    return (rrf_fuse(vec_hits, kw_hits, k=rrf_k), vec_count, kw_count)
++```
++
++**`execute` 循环** (L208-223):
++```python
++else:
++    per_kb_hits, vc, kc = result
++    total_vec_count += vc
++    total_kw_count += kc
++    if not per_kb_hits:
++        degraded_kb_ids.append(kb_ids[i])
++    else:
++        valid_groups.append(per_kb_hits)
++```
++
++**GREEN 证据**:
++```
++tests/unit/domain/test_fusion.py: 10 passed
++tests/unit/application/test_retrieve_use_case.py: 14 passed (4 existing + 4 new per-KB + 6 fix)
++总计: 24 passed, 0 failed
++```
++
++### 关键修复细节
++
++1. **`elif not result` 陷阱**: 三元组 `([], 0, 0)` 是 truthy，直接用 `elif not result` 会漏掉。改为先解包再检查 `per_kb_hits`。
++2. **计数变量作用域**: `total_vec_count`/`total_kw_count`/`degraded_kb_ids` 移到 `try:` 外层，保证 `finally` 块可访问。
++3. **`degraded_reason` vs `degraded_kb_ids`**: `degraded_reason` 仅用于 ES 不可用场景；per-KB 降级用 `degraded_kb_ids` 记录异常 KB 列表。
+diff --git a/.superpowers/sdd/task-1.8-report.md b/.superpowers/sdd/task-1.8-report.md
+new file mode 100644
+index 0000000..d4a0b67
+--- /dev/null
++++ b/.superpowers/sdd/task-1.8-report.md
+@@ -0,0 +1,45 @@
++# Task 1.8 Report: 多库改写上下文
++
++## 改动摘要
++
++将 LLM 改写时使用的 `kb_context` 从单库描述（只取 `kb_ids[0]`）改为所有 KB 的描述列表 `kb_contexts`。
++
++## 改动文件
++
++### 生产代码 (5 files)
++
++| 文件 | 改动 |
++|------|------|
++| `src/ragnexus/application/retrieve_use_case.py` | 替换 `kb_context` 构建逻辑（L111-125）：遍历所有 `kb_ids` 构建 `kb_contexts: list[dict]`，每个元素含 `name` + `description`；传参从 `kb_context=` 改为 `kb_contexts=` |
++| `src/ragnexus/adapters/rewrite/pipeline.py` | `process()` 参数 `kb_context: dict` → `kb_contexts: list[dict]` |
++| `src/ragnexus/domain/ports.py` | `RewritePort.rewrite()` 签名更新 |
++| `src/ragnexus/adapters/rewrite/llm.py` | `LLMRewriteProvider.rewrite()` 改为遍历 `kb_contexts` 列表构建 system prompt（格式：`知识库列表:\n- {name}: {desc}`） |
++| `src/ragnexus/adapters/rewrite/noop.py` | 签名同步更新 |
++| `src/ragnexus/domain/models.py` | 注释更新 `kb_context` → `kb_contexts` |
++
++### 测试代码 (4 files)
++
++| 文件 | 改动 |
++|------|------|
++| `tests/unit/application/test_retrieve_use_case.py` | 新增 `test_multi_kb_rewrite_context`；修复 `test_multi_kb_synonyms_merged` 的 `get.side_effect` 调用次数 |
++| `tests/unit/application/test_retrieve.py` | 修复 `_passthrough` 签名 + `test_scenario_12_7` 的 `get.side_effect` |
++| `tests/unit/application/test_retrieve_hybrid.py` | 修复 `_passthrough` 签名 |
++| `tests/unit/test_rewrite_port.py` | 更新所有 `kb_context` 引用为 `kb_contexts` |
++| `tests/unit/test_pipeline.py` | 更新所有 `kb_context` 调用为 `kb_contexts` |
++
++## 测试结果
++
++- **新增测试**: `test_multi_kb_rewrite_context` — 验证 2 个 KB 时 `kb_contexts` 为包含正确 `name`/`description` 的列表
++- **回归**: 571 passed, 1 failed（`test_search_hit_fields` — 预存问题，Task 1.4 引入的 `kb_name` 字段未更新该 schema 测试）
++- **TDD 流程**: RED（确认旧参数名 `kb_context` 导致断言失败）→ GREEN（全部通过）
++
++## 边界处理
++
++- KB 加载失败（`self._kb_repo.get` 返回 `None`）→ 跳过，不阻塞
++- 空列表 → 传递空 `[]`，LLM 端 `if kb_contexts:` 检查自然短路
++
++## Commit
++
++```
++838619a feat: use multi-KB context list for LLM query rewrite
++```
+diff --git a/src/ragnexus/adapters/rewrite/llm.py b/src/ragnexus/adapters/rewrite/llm.py
+index a079cff..91c96d6 100644
+--- a/src/ragnexus/adapters/rewrite/llm.py
++++ b/src/ragnexus/adapters/rewrite/llm.py
+@@ -246,45 +246,46 @@ class LLMRewriteProvider:
+ 
+     # ------------------------------------------------------------------
+     # 公共接口
+     # ------------------------------------------------------------------
+ 
+     async def rewrite(
+         self,
+         *,
+         query: str,
+         kb_ids: list[str],
+-        kb_context: dict | None = None,
++        kb_contexts: list[dict] | None = None,
+     ) -> QueryProcessResult:
+         """改写查询 — 永不抛异常。
+ 
+         流程:
+-        a) 构建增强 system prompt（注入 kb_context）
++        a) 构建增强 system prompt（注入 kb_contexts 列表）
+         b) 查缓存（向量余弦相似度 ≥ 阈值）
+         c) LLM 调用（判断 + 改写一次完成）
+         d) 5 层防御解析
+         e) Layer 5 内容合理性检查（含二次精炼）
+         f) 写入缓存
+         g) 降级时返回原始 query
+         """
+-        # 构建增强 system prompt
++        # 构建增强 system prompt（多 KB 上下文列表）
+         enhanced_prompt = SYSTEM_PROMPT
+-        if kb_context:
+-            parts = []
+-            if name := kb_context.get("name"):
+-                parts.append(f"当前知识库: {name}")
+-            if desc := kb_context.get("description"):
+-                parts.append(f"知识库描述: {desc}")
+-            if hint := kb_context.get("rewrite_hint"):
+-                parts.append(f"领域说明: {hint}")
+-            if parts:
+-                enhanced_prompt = SYSTEM_PROMPT + "\n\n" + "\n".join(parts)
++        if kb_contexts:
++            lines = ["知识库列表:"]
++            for ctx in kb_contexts:
++                name = ctx.get("name", "")
++                desc = ctx.get("description", "")
++                if name and desc:
++                    lines.append(f"- {name}: {desc}")
++                elif name:
++                    lines.append(f"- {name}")
++            if len(lines) > 1:
++                enhanced_prompt = SYSTEM_PROMPT + "\n\n" + "\n".join(lines)
+ 
+         start_time = time.monotonic()
+         try:
+             return await self._rewrite_impl(
+                 query=query,
+                 kb_ids=kb_ids,
+                 enhanced_prompt=enhanced_prompt,
+                 start_time=start_time,
+             )
+         except Exception as exc:
+diff --git a/src/ragnexus/adapters/rewrite/noop.py b/src/ragnexus/adapters/rewrite/noop.py
+index 6853d56..f1fdc02 100644
+--- a/src/ragnexus/adapters/rewrite/noop.py
++++ b/src/ragnexus/adapters/rewrite/noop.py
+@@ -11,21 +11,21 @@ class NoopRewriteProvider:
+ 
+     rewrite 返回 QueryProcessResult（raw=effective=search=query, needs_rewrite=False, strategy="noop"），
+     clear_cache 空实现（无缓存可清）。
+     """
+ 
+     async def rewrite(
+         self,
+         *,
+         query: str,
+         kb_ids: list[str],
+-        kb_context: dict | None = None,
++        kb_contexts: list[dict] | None = None,
+     ) -> QueryProcessResult:
+         """直通返回原始 query，不做任何改写。
+ 
+         三阶段 query（raw/effective/search）均等于原始 query，
+         strategy 固定为 "noop" 以区别于 LLM 改写路径的 "rewrite"。
+         """
+         return QueryProcessResult(
+             raw_query=query,
+             effective_query=query,
+             search_query=query,
+diff --git a/src/ragnexus/adapters/rewrite/pipeline.py b/src/ragnexus/adapters/rewrite/pipeline.py
+index 1cc6fa7..d281be0 100644
+--- a/src/ragnexus/adapters/rewrite/pipeline.py
++++ b/src/ragnexus/adapters/rewrite/pipeline.py
+@@ -26,30 +26,30 @@ class QueryPipeline:
+             rewriter: 查询改写提供者（LLM 或 Noop）。
+             expander: 词表扩展器。
+         """
+         self.rewriter = rewriter
+         self.expander = expander
+ 
+     async def process(
+         self,
+         raw_query: str,
+         kb_ids: list[str],
+-        kb_context: dict | None = None,
++        kb_contexts: list[dict] | None = None,
+         synonyms: list[dict] | None = None,
+         enabled: bool = True,
+     ) -> QueryProcessResult:
+         """执行查询处理流水线。
+ 
+         参数:
+             raw_query: 用户原始查询。
+             kb_ids: 知识库 ID 列表，透传给 rewriter.rewrite()。
+-            kb_context: 知识库上下文，透传给 rewriter.rewrite()。
++            kb_contexts: 知识库上下文列表，透传给 rewriter.rewrite()。
+             synonyms: 词表列表，透传给 expander.expand()。
+             enabled: False 时跳过改写和扩展，直接返回 noop 结果。
+ 
+         返回:
+             QueryProcessResult 包含三阶段查询及处理元数据。
+         """
+         if not enabled:
+             return QueryProcessResult(
+                 raw_query=raw_query,
+                 effective_query=raw_query,
+@@ -61,21 +61,21 @@ class QueryPipeline:
+                 degraded_reason=None,
+                 synonym_applied=False,
+                 synonym_expansions=[],
+             )
+ 
+         # Step 1: 调用 rewriter.rewrite()
+         try:
+             result = await self.rewriter.rewrite(
+                 query=raw_query,
+                 kb_ids=kb_ids,
+-                kb_context=kb_context,
++                kb_contexts=kb_contexts,
+             )
+         except Exception as exc:
+             # rewrite() 抛异常 → 降级返回
+             return QueryProcessResult(
+                 raw_query=raw_query,
+                 effective_query=raw_query,
+                 search_query=raw_query,
+                 needs_rewrite=False,
+                 strategy="rewrite",
+                 rewrite_latency_ms=0,
+diff --git a/src/ragnexus/application/retrieve_use_case.py b/src/ragnexus/application/retrieve_use_case.py
+index ac1e35e..e71efba 100644
+--- a/src/ragnexus/application/retrieve_use_case.py
++++ b/src/ragnexus/application/retrieve_use_case.py
+@@ -101,37 +101,57 @@ class RetrieveUseCase:
+         if not (1 <= top_k <= 50):
+             raise AppError(ErrorCode.PARAM_ERROR, "top_k 必须在 1-50 之间")
+ 
+         # 2. Validate all KBs exist
+         for kb_id in kb_ids:
+             if not await self._kb_repo.exists(kb_id):
+                 raise AppError(ErrorCode.NOT_FOUND, f"知识库不存在: {kb_id}")
+ 
+         # 3. Validate all KBs belong to current tenant
+         await self.validate_kb_ownership(kb_ids, tenant_id)
+-        # 3.5 组装 KB 上下文（用于查询改写和词表扩展）
+-        primary_kb = await self._kb_repo.get(kb_ids[0])
+-        kb_context: dict = {}
++        # 3.5 组装所有 KB 上下文列表（用于查询改写）
++        kb_contexts: list[dict] = []
++        for kb_id in kb_ids:
++            kb = await self._kb_repo.get(kb_id)
++            if kb:
++                kb_contexts.append(
++                    {
++                        "name": kb.name,
++                        "description": getattr(kb, "description", ""),
++                    }
++                )
++
++        # 3.6 合并所有 KB 的同义词表，按 term 去重
++        all_synonyms: list[dict] = []
++        for kb_id in kb_ids:
++            kb = await self._kb_repo.get(kb_id)
++            if kb is None:
++                continue
++            settings_raw = getattr(kb, "settings", {}) or {}
++            try:
++                settings = (
++                    json.loads(settings_raw)
++                    if isinstance(settings_raw, str)
++                    else settings_raw
++                )
++            except (json.JSONDecodeError, TypeError) as exc:
++                logger.warning(
++                    "KB settings JSON 解析失败，已跳过",
++                    extra={"kb_id": kb_id, "error": str(exc)},
++                )
++                continue
++            all_synonyms.extend(settings.get("synonyms", []))
+         synonyms: list[dict] | None = None
+-        if primary_kb:
+-            kb_context = {
+-                "name": primary_kb.name,
+-                "description": getattr(primary_kb, "description", ""),
+-            }
+-            kb_settings_raw = getattr(primary_kb, "settings", {}) or {}
+-            kb_settings = (
+-                json.loads(kb_settings_raw)
+-                if isinstance(kb_settings_raw, str)
+-                else kb_settings_raw
+-            )
+-            kb_context["rewrite_hint"] = kb_settings.get("rewrite_hint", "")
+-            synonyms = kb_settings.get("synonyms")
++        if all_synonyms:
++            valid = [s for s in all_synonyms if "term" in s]
++            if valid:
++                synonyms = list({s["term"]: s for s in valid}.values())
+ 
+         # --- 退化检测：ES 不可用 + hybrid 模式 → 降级为纯向量 ---
+         degraded = False
+         degraded_reason: str | None = None
+         if self._keyword_store is None and _mode == "hybrid":
+             degraded = True
+             degraded_reason = "ES 不可用，降级为纯向量检索"
+             _mode = "vector"
+ 
+         # 3. Retrieve — 查询改写 → 双 embedding → 并行召回 → RRF 融合 → 重排
+@@ -151,21 +171,21 @@ class RetrieveUseCase:
+                     os.getenv("QUERY_REWRITE_ENABLED", "false").lower() == "true"
+                 )
+                 enabled = (
+                     query_options.get("enabled", env_default)
+                     if query_options
+                     else env_default
+                 )
+                 process_result = await self._pipeline.process(
+                     raw_query=query,
+                     kb_ids=kb_ids,
+-                    kb_context=kb_context,
++                    kb_contexts=kb_contexts,
+                     synonyms=synonyms,
+                     enabled=enabled,
+                 )
+                 search_query = process_result.search_query
+                 query_processing = _serialize_query_processing(process_result)
+             elif self._rewriter is not None:
+                 rewrite_result = await self._rewriter.rewrite(
+                     query=query, kb_ids=kb_ids
+                 )
+                 search_query = rewrite_result.effective_query
+@@ -221,20 +241,28 @@ class RetrieveUseCase:
+                         logger.info("KB 召回为空", extra={"kb_id": kb_ids[i]})
+                     else:
+                         valid_groups.append(per_kb_hits)
+ 
+             # 记录降级 KB 汇总日志
+             if degraded_kb_ids:
+                 logger.warning(f"部分 KB 召回异常或为空，已跳过: {degraded_kb_ids}")
+ 
+             # 3d. 跨库 RRF 融合
+             hits = cross_kb_rrf_fuse(valid_groups, k=rrf_k)
++
++            # 3d.5 批量预加载 kb_name（跨库 RRF 融合后、rerank 前）
++            rows = await self._kb_repo.pool.fetch(
++                "SELECT id, name FROM knowledge_bases WHERE id = ANY($1)", kb_ids
++            )
++            kb_names_map: dict[str, str] = {row["id"]: row["name"] for row in rows}
++            for hit in hits:
++                hit.kb_name = kb_names_map.get(hit.kb_id, hit.kb_id[:8])
+             rrf_pool_size = len(hits)  # 融合后去重数
+ 
+             # 3e. 重排：用原始 query + 原始 query embedding（对齐 BM25 和缓存）
+             reranker_model: str | None = None
+             if _rerank_enabled:
+                 hits = await self._reranker.rerank(
+                     query=original_query,
+                     query_vector=original_vector,
+                     kb_ids=kb_ids,
+                     chunks=hits,
+diff --git a/src/ragnexus/domain/models.py b/src/ragnexus/domain/models.py
+index 1db7d9d..f04b150 100644
+--- a/src/ragnexus/domain/models.py
++++ b/src/ragnexus/domain/models.py
+@@ -12,21 +12,21 @@ class DocStatus(IntEnum):
+     SUCCESS = 1  # 索引成功
+     PROCESSING = 2  # 索引中（默认值）
+     FAILED = 3  # 索引失败
+ 
+ 
+ @dataclass
+ class KnowledgeBase:
+     id: str  # "kb_" + nanoid(8)
+     name: str  # user input
+     created_at: datetime
+-    description: str = ""  # KB 描述，用于改写器 kb_context
++    description: str = ""  # KB 描述，用于改写器 kb_contexts
+     tenant_id: str = ""  # 租户ID，默认为空字符串（兼容旧数据）
+     settings: dict = field(default_factory=dict)  # KB 级配置: synonyms、rewrite_hint 等
+ 
+ 
+ @dataclass
+ class Section:
+     heading: str | None  # None means no heading
+     level: int  # 1-6, 0 means no heading
+     content: str
+ 
+@@ -51,20 +51,21 @@ class Chunk:
+ 
+ 
+ @dataclass
+ class SearchHit:
+     chunk_id: str
+     kb_id: str
+     doc_id: str
+     score: float  # higher = more relevant (1 - cosine distance)
+     text: str
+     metadata: dict[str, Any]
++    kb_name: str = ""  # 知识库名称，便于前端 Badge 展示
+ 
+ 
+ @dataclass
+ class UploadResult:
+     doc_id: str
+     kb_id: str
+     status: DocStatus
+     chunks: list[Chunk] = field(
+         default_factory=list
+     )  # used internally by use case; router should use chunk_count
+diff --git a/src/ragnexus/domain/ports.py b/src/ragnexus/domain/ports.py
+index baf3133..1ee8fdd 100644
+--- a/src/ragnexus/domain/ports.py
++++ b/src/ragnexus/domain/ports.py
+@@ -249,28 +249,28 @@ class RewritePort(Protocol):
+     """查询改写端口 — 优化口语化/模糊 query 以提升向量检索效果。
+ 
+     骨架实现: LLMRewriteProvider (启用时), NoopRewriteProvider (禁用时)。
+     """
+ 
+     async def rewrite(
+         self,
+         *,
+         query: str,
+         kb_ids: list[str],
+-        kb_context: dict | None = None,
++        kb_contexts: list[dict] | None = None,
+     ) -> QueryProcessResult:
+         """改写查询，返回三段式查询处理结果。
+ 
+         Args:
+             query: 原始用户查询。
+             kb_ids: 目标知识库 ID 列表。
+-            kb_context: 额外上下文字典，包含 KB 的 name、description、settings
+-                （含 rewrite_hint）。改写器将其注入 system prompt 以提升改写质量。
++            kb_contexts: 额外上下文列表，每个元素包含 KB 的 name、description。
++                改写器将其注入 system prompt 以提升改写质量。
+ 
+         Returns:
+             QueryProcessResult: raw_query → effective_query → search_query 三段式结构。
+         """
+         ...
+ 
+     async def clear_cache(self, kb_id: str) -> None:
+         """清空指定 KB 的改写缓存。文档上传后由 composition.py 调用。"""
+         ...
+diff --git a/tests/unit/adapters/test_http_schema_invariance.py b/tests/unit/adapters/test_http_schema_invariance.py
+index 4812c57..89808c4 100644
+--- a/tests/unit/adapters/test_http_schema_invariance.py
++++ b/tests/unit/adapters/test_http_schema_invariance.py
+@@ -82,23 +82,31 @@ class TestRequestSchemaInvariance:
+ 
+ # ═══════════════════════════════════════════════════════════════════
+ # 响应 schema 不变性
+ # ═══════════════════════════════════════════════════════════════════
+ 
+ 
+ class TestResponseSchemaInvariance:
+     """响应格式必须与第一期一致：{code, data: {total, hits}, message}。"""
+ 
+     def test_search_hit_fields(self):
+-        """SearchHit 只含 chunk_id, kb_id, doc_id, score, text, metadata。"""
++        """SearchHit 只含 chunk_id, kb_id, doc_id, score, text, metadata, kb_name。"""
+         hit_fields = {f.name for f in SearchHit.__dataclass_fields__.values()}
+-        expected = {"chunk_id", "kb_id", "doc_id", "score", "text", "metadata"}
++        expected = {
++            "chunk_id",
++            "kb_id",
++            "doc_id",
++            "score",
++            "text",
++            "metadata",
++            "kb_name",
++        }
+         assert (
+             hit_fields == expected
+         ), f"SearchHit 字段必须为 {expected}，实际: {hit_fields}"
+ 
+     def test_search_hit_score_is_float(self):
+         """SearchHit.score 类型为 float（向量原始分）。"""
+         hit = SearchHit(
+             chunk_id="c1",
+             kb_id="k1",
+             doc_id="d1",
+diff --git a/tests/unit/application/test_retrieve.py b/tests/unit/application/test_retrieve.py
+index 44c10b7..fa9d7af 100644
+--- a/tests/unit/application/test_retrieve.py
++++ b/tests/unit/application/test_retrieve.py
+@@ -49,21 +49,21 @@ def mock_reranker():
+     m = AsyncMock()
+     return m
+ 
+ 
+ @pytest.fixture
+ def mock_pipeline():
+     """QueryPipeline mock — 默认直通返回原始 query。"""
+     m = AsyncMock()
+ 
+     async def _passthrough(
+-        *, raw_query, kb_ids, kb_context=None, synonyms=None, enabled=True
++        *, raw_query, kb_ids, kb_contexts=None, synonyms=None, enabled=True
+     ):
+         return QueryProcessResult(
+             raw_query=raw_query,
+             effective_query=raw_query,
+             search_query=raw_query,
+             needs_rewrite=False,
+             strategy="noop",
+             rewrite_latency_ms=0,
+             degraded=False,
+             degraded_reason=None,
+@@ -778,41 +778,50 @@ async def test_scenario_12_1_no_query_options_noop(
+ async def test_scenario_12_7_cross_kb_isolation(
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+     mock_keyword_store,
+     mock_log_port,
+     mock_reranker,
+     mock_pipeline,
+     sample_hits,
+ ):
+-    """12.7: 跨库隔离 — KB_A 词表不影响 KB_B。
++    """12.7: 跨库合并 — 所有 KB 的 synonyms 合并去重传给 pipeline。
+ 
+-    验证：当 kb_ids=["kb_a", "kb_b"] 时，只有 kb_ids[0]（KB_A）的 settings
+-    被读取并传给 pipeline，KB_B 的 settings 不会被读取。
++    验证：当 kb_ids=["kb_a", "kb_b"] 时，两个 KB 的 settings.synonyms
++    都被读取、按 term 去重后合并传给 pipeline。
+     """
+     from unittest.mock import MagicMock
+ 
+-    # 构造 KB_A（有 synonyms）和 KB_B（无）
++    # 构造 KB_A 和 KB_B，使用标准 synonym 格式
+     kb_a = MagicMock()
+     kb_a.name = "KB_A"
+     kb_a.description = "Knowledge Base A"
+-    kb_a.settings = {"synonyms": [{"terms": ["AI"], "expand": ["人工智能"]}]}
++    kb_a.settings = {
++        "synonyms": [
++            {"term": "AI", "expansion": ["人工智能"]},
++            {"term": "ML", "expansion": ["机器学习"]},
++        ]
++    }
+ 
+     kb_b = MagicMock()
+     kb_b.name = "KB_B"
+     kb_b.description = "Knowledge Base B"
+-    kb_b.settings = {"synonyms": [{"terms": ["ML"], "expand": ["机器学习"]}]}
++    kb_b.settings = {
++        "synonyms": [
++            {"term": "AI", "expansion": ["人工智能v2"]},  # 与 kb_a 重复，后出现覆盖前
++            {"term": "DL", "expansion": ["深度学习"]},
++        ]
++    }
+ 
+-    # kb_repo.get 只返回 kb_ids[0] 的 KB（代码中只调用了 kb_ids[0]）
+-    # 这里 mock 返回 KB_A 来验证其 synonyms 被使用
+-    mock_kb_repo.get.return_value = kb_a
++    # get 返回对应 KB：kb_contexts 循环(kb_a, kb_b) + synonyms 循环(kb_a, kb_b)
++    mock_kb_repo.get.side_effect = [kb_a, kb_b, kb_a, kb_b]
+     mock_kb_repo.exists.return_value = True
+     # ownership 校验需返回 2（2 个 unique KB）
+     mock_kb_repo.pool.fetchval.return_value = 2
+     mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
+     mock_store.search_by_vector.return_value = sample_hits
+     mock_reranker.rerank.return_value = sample_hits[:2]
+ 
+     uc = RetrieveUseCase(
+         kb_repo=mock_kb_repo,
+         embedder=mock_embedder,
+@@ -825,25 +834,31 @@ async def test_scenario_12_7_cross_kb_isolation(
+     )
+ 
+     await uc.execute(
+         tenant_id="test-tenant",
+         query="AI test",
+         kb_ids=["kb_a", "kb_b"],
+         top_k=2,
+         query_options={"enabled": True},
+     )
+ 
+-    # 验证 pipeline 被调用时 synonyms 来自 KB_A
++    # 验证 pipeline 收到合并去重后的 synonyms
+     call_kwargs = mock_pipeline.process.call_args.kwargs
+-    assert call_kwargs["synonyms"] == [{"terms": ["AI"], "expand": ["人工智能"]}]
+-    # KB_B 的 settings 未被读取（mock_kb_repo.get 只被调用一次，参数为 "kb_a"）
+-    mock_kb_repo.get.assert_awaited_once_with("kb_a")
++    synonyms = call_kwargs["synonyms"]
++    assert synonyms is not None
++    # 3 个唯一 term：AI（kb_b 覆盖 kb_a）、ML、DL
++    assert len(synonyms) == 3, f"应合并去重为 3 条，实际 {len(synonyms)}"
++    terms = {s["term"] for s in synonyms}
++    assert terms == {"AI", "ML", "DL"}, f"合并后的 terms: {terms}"
++    # "AI" 保留 kb_b 的版本（后出现覆盖前）
++    ai_entry = next(s for s in synonyms if s["term"] == "AI")
++    assert ai_entry["expansion"] == ["人工智能v2"], f"AI 应来自 kb_b，实际: {ai_entry}"
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_scenario_12_10_enabled_false_priority(
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+     mock_keyword_store,
+     mock_log_port,
+     mock_reranker,
+diff --git a/tests/unit/application/test_retrieve_hybrid.py b/tests/unit/application/test_retrieve_hybrid.py
+index a00189a..ddc2eb3 100644
+--- a/tests/unit/application/test_retrieve_hybrid.py
++++ b/tests/unit/application/test_retrieve_hybrid.py
+@@ -73,21 +73,21 @@ def mock_reranker():
+     m.rerank.side_effect = _passthrough
+     return m
+ 
+ 
+ @pytest.fixture
+ def mock_pipeline():
+     """QueryPipeline mock — 默认直通返回原始 query。"""
+     m = AsyncMock()
+ 
+     async def _passthrough(
+-        *, raw_query, kb_ids, kb_context=None, synonyms=None, enabled=True
++        *, raw_query, kb_ids, kb_contexts=None, synonyms=None, enabled=True
+     ):
+         return QueryProcessResult(
+             raw_query=raw_query,
+             effective_query=raw_query,
+             search_query=raw_query,
+             needs_rewrite=False,
+             strategy="noop",
+             rewrite_latency_ms=0,
+             degraded=False,
+             degraded_reason=None,
+diff --git a/tests/unit/application/test_retrieve_use_case.py b/tests/unit/application/test_retrieve_use_case.py
+index f3bfe5e..324d326 100644
+--- a/tests/unit/application/test_retrieve_use_case.py
++++ b/tests/unit/application/test_retrieve_use_case.py
+@@ -39,21 +39,23 @@ def mock_store():
+ 
+ @pytest.fixture
+ def mock_keyword_store():
+     """模拟 KeywordSearchPort。"""
+     return AsyncMock()
+ 
+ 
+ @pytest.fixture
+ def mock_kb_repo():
+     """模拟 KnowledgeBasePort。"""
+-    return AsyncMock()
++    m = AsyncMock()
++    m.get.return_value = None
++    return m
+ 
+ 
+ @pytest.fixture
+ def mock_embedder():
+     """模拟 EmbedderPort。"""
+     return AsyncMock()
+ 
+ 
+ @pytest.fixture
+ def mock_log_port():
+@@ -464,20 +466,154 @@ async def test_execute_uses_per_kb_top_k(
+                     tenant_id="tenant1",
+                     top_k=3,
+                     vector_top_k=20,
+                     bm25_top_k=15,
+                 )
+ 
+     # 验证传给 _retrieve_per_kb 的 per_kb_top_k = 20
+     assert mock_retrieve.call_args[0][3] == 20, "应为 max(3, 20, 15, 10) = 20"
+ 
+ 
++# ══════════════════════════════════════════════════════════════════════
++# Task 1.5 测试 — kb_name 预加载与填充
++# ══════════════════════════════════════════════════════════════════════
++
++
++@pytest.mark.asyncio
++async def test_kb_name_populated(
++    use_case,
++    mock_kb_repo,
++    mock_embedder,
++    mock_reranker,
++):
++    """跨库 RRF 融合后 hit.kb_name 从 DB 批量填充。"""
++    from unittest.mock import patch
++
++    mock_reranker.model_name = None
++    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
++        mock_kb_repo.exists.return_value = True
++        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
++
++        # 模拟 pool.fetch 返回 kb_id → name 映射
++        mock_kb_repo.pool.fetch.return_value = [
++            {"id": "kb1", "name": "知识库 Alpha"},
++            {"id": "kb2", "name": "知识库 Beta"},
++            {"id": "kb3", "name": "知识库 Gamma"},
++        ]
++
++        hits_kb1 = [_make_hit("c1", "kb1", "d1", 0.9)]
++        hits_kb2 = [_make_hit("c2", "kb2", "d2", 0.8)]
++        hits_kb3 = [_make_hit("c3", "kb3", "d3", 0.7)]
++
++        with patch.object(
++            use_case, "_retrieve_per_kb", new_callable=AsyncMock
++        ) as mock_retrieve:
++            mock_retrieve.side_effect = [
++                (hits_kb1, 1, 1),
++                (hits_kb2, 1, 1),
++                (hits_kb3, 1, 1),
++            ]
++
++            with patch(
++                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
++            ) as mock_fuse:
++                fused = [
++                    _make_hit("c1", "kb1", "d1", 1.0),
++                    _make_hit("c2", "kb2", "d2", 0.8),
++                    _make_hit("c3", "kb3", "d3", 0.6),
++                ]
++                mock_fuse.return_value = fused
++
++                result = await use_case.execute(
++                    query="test query",
++                    kb_ids=["kb1", "kb2", "kb3"],
++                    tenant_id="tenant1",
++                    top_k=5,
++                )
++
++    # 验证 pool.fetch 被调用（查询所有 kb_ids）
++    mock_kb_repo.pool.fetch.assert_awaited_once()
++    call_args = mock_kb_repo.pool.fetch.call_args
++    assert "SELECT id, name FROM knowledge_bases" in call_args[0][0]
++
++    # 验证 kb_name 正确填充
++    assert result.total == 3
++    kb_names = {hit.kb_id: hit.kb_name for hit in result.hits}
++    assert (
++        kb_names["kb1"] == "知识库 Alpha"
++    ), f"kb1 name 应为 '知识库 Alpha'，实际: {kb_names['kb1']}"
++    assert (
++        kb_names["kb2"] == "知识库 Beta"
++    ), f"kb2 name 应为 '知识库 Beta'，实际: {kb_names['kb2']}"
++    assert (
++        kb_names["kb3"] == "知识库 Gamma"
++    ), f"kb3 name 应为 '知识库 Gamma'，实际: {kb_names['kb3']}"
++
++
++@pytest.mark.asyncio
++async def test_kb_name_fallback(
++    use_case,
++    mock_kb_repo,
++    mock_embedder,
++    mock_reranker,
++):
++    """DB 中不存在 kb_id → kb_name 回退为 kb_id[:8]。"""
++    from unittest.mock import patch
++
++    mock_reranker.model_name = None
++    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
++        mock_kb_repo.exists.return_value = True
++        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
++
++        # pool.fetch 只返回 kb1，不包含 kb_unknown
++        mock_kb_repo.pool.fetch.return_value = [
++            {"id": "kb1", "name": "知识库 Alpha"},
++        ]
++
++        hits_kb1 = [_make_hit("c1", "kb1", "d1", 0.9)]
++        hits_unknown = [_make_hit("c_unk", "kb_unknown", "d_unk", 0.7)]
++
++        with patch.object(
++            use_case, "_retrieve_per_kb", new_callable=AsyncMock
++        ) as mock_retrieve:
++            mock_retrieve.side_effect = [
++                (hits_kb1, 1, 1),
++                (hits_unknown, 1, 1),
++            ]
++
++            with patch(
++                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
++            ) as mock_fuse:
++                fused = [
++                    _make_hit("c1", "kb1", "d1", 1.0),
++                    _make_hit("c_unk", "kb_unknown", "d_unk", 0.6),
++                ]
++                mock_fuse.return_value = fused
++
++                result = await use_case.execute(
++                    query="test query",
++                    kb_ids=["kb1", "kb_unknown"],
++                    tenant_id="tenant1",
++                    top_k=5,
++                )
++
++    # kb1 → 从 DB 填充
++    # kb_unknown → 回退为 kb_id[:8]
++    kb_names = {hit.kb_id: hit.kb_name for hit in result.hits}
++    assert (
++        kb_names["kb1"] == "知识库 Alpha"
++    ), f"kb1 name 应为 '知识库 Alpha'，实际: {kb_names['kb1']}"
++    assert (
++        kb_names["kb_unknown"] == "kb_unkno"
++    ), f"kb_unknown name 应为 'kb_unkno' (kb_id[:8])，实际: {kb_names['kb_unknown']}"
++
++
+ # ══════════════════════════════════════════════════════════════════════
+ # Batch 1 修复测试 — vector/bm25 counts, degraded_kb_ids, per-pathway 异常
+ # ══════════════════════════════════════════════════════════════════════
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_retrieve_per_kb_returns_vector_and_bm25_counts(
+     use_case, mock_store, mock_keyword_store
+ ):
+     """_retrieve_per_kb 返回三元组 (hits, vector_count, bm25_count)。"""
+@@ -663,10 +799,176 @@ async def test_retrieve_per_kb_catches_both_pathway_exceptions(
+         per_kb_top_k=20,
+         rrf_k=60,
+         use_vector=True,
+         use_bm25=True,
+     )
+ 
+     hits, vec_count, kw_count = result
+     assert vec_count == 0
+     assert kw_count == 0
+     assert hits == [], "两路都异常时 hits 应为空"
++
++
++# ══════════════════════════════════════════════════════════════════════
++# Task 1.7 测试 — 多库 synonyms 合并去重
++# ══════════════════════════════════════════════════════════════════════
++
++
++@pytest.mark.asyncio
++async def test_multi_kb_synonyms_merged(
++    use_case,
++    mock_kb_repo,
++    mock_embedder,
++    mock_reranker,
++    mock_pipeline,
++):
++    """多 KB settings.synonyms 合并去重后传给 QueryPipeline.process。"""
++    from datetime import datetime
++    from unittest.mock import patch
++
++    from ragnexus.domain.models import KnowledgeBase
++
++    dt = datetime(2025, 1, 1)
++    kb1 = KnowledgeBase(
++        id="kb1",
++        name="KB-A",
++        created_at=dt,
++        tenant_id="t1",
++        settings={
++            "synonyms": [
++                {"term": "手机", "expansion": ["智能手机"]},
++                {"term": "电脑", "expansion": ["计算机"]},
++            ]
++        },
++    )
++    kb2 = KnowledgeBase(
++        id="kb2",
++        name="KB-B",
++        created_at=dt,
++        tenant_id="t1",
++        settings={
++            "synonyms": [
++                {"term": "手机", "expansion": ["移动电话"]},  # 与 kb1 term 重复
++                {"term": "平板", "expansion": ["iPad"]},
++            ]
++        },
++    )
++    kb3 = KnowledgeBase(
++        id="kb3",
++        name="KB-C",
++        created_at=dt,
++        tenant_id="t1",
++    )  # settings 为默认空 dict
++
++    mock_reranker.model_name = None
++    mock_kb_repo.exists.return_value = True
++    # get 调用: kb_contexts 循环(kb1, kb2, kb3) + synonyms 循环(kb1, kb2, kb3) = 6 次
++    mock_kb_repo.get.side_effect = [kb1, kb2, kb3, kb1, kb2, kb3]
++    mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
++
++    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
++        with patch.object(
++            use_case, "_retrieve_per_kb", new_callable=AsyncMock
++        ) as mock_retrieve:
++            mock_retrieve.return_value = ([], 0, 0)
++
++            await use_case.execute(
++                query="test query",
++                kb_ids=["kb1", "kb2", "kb3"],
++                tenant_id="t1",
++                top_k=5,
++            )
++
++    # 验证 pipeline.process 收到的 synonyms 参数
++    mock_pipeline.process.assert_awaited_once()
++    synonyms = mock_pipeline.process.call_args.kwargs["synonyms"]
++    assert synonyms is not None
++    assert isinstance(synonyms, list)
++
++    # 按 term 去重：3 个唯一 term（手机 去重为 kb2 版本）
++    assert len(synonyms) == 3, f"应去重为 3 条，实际 {len(synonyms)}"
++    terms = {s["term"] for s in synonyms}
++    assert terms == {"手机", "电脑", "平板"}, f"合并后的 terms: {terms}"
++
++    # "手机" 保留后出现的 kb2 版本（dict 覆盖语义）
++    phone = next(s for s in synonyms if s["term"] == "手机")
++    assert phone["expansion"] == ["移动电话"], f"手机应来自 kb2，实际: {phone}"
++
++
++# ══════════════════════════════════════════════════════════════════════
++# Task 1.8 测试 — 多库 kb_contexts 构建
++# ══════════════════════════════════════════════════════════════════════
++
++
++@pytest.mark.asyncio
++async def test_multi_kb_rewrite_context(
++    use_case,
++    mock_kb_repo,
++    mock_embedder,
++    mock_reranker,
++    mock_pipeline,
++):
++    """多 KB 时 kb_contexts 为所有 KB 的 name + description 列表。"""
++    from datetime import datetime
++    from unittest.mock import patch
++
++    from ragnexus.domain.models import KnowledgeBase
++
++    dt = datetime(2025, 1, 1)
++    kb1 = KnowledgeBase(
++        id="kb1",
++        name="法律知识库",
++        created_at=dt,
++        tenant_id="t1",
++        description="包含中国法律法规和司法解释",
++    )
++    kb2 = KnowledgeBase(
++        id="kb2",
++        name="金融知识库",
++        created_at=dt,
++        tenant_id="t1",
++        description="包含金融政策、证券法规和行业分析",
++    )
++
++    mock_reranker.model_name = None
++    mock_kb_repo.exists.return_value = True
++    # get 调用: kb_contexts 循环(kb1, kb2) + synonyms 循环(kb1, kb2) = 4 次
++    mock_kb_repo.get.side_effect = [kb1, kb2, kb1, kb2]
++    mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
++
++    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
++        with patch.object(
++            use_case, "_retrieve_per_kb", new_callable=AsyncMock
++        ) as mock_retrieve:
++            mock_retrieve.return_value = ([], 0, 0)
++
++            await use_case.execute(
++                query="刑法修正案有哪些",
++                kb_ids=["kb1", "kb2"],
++                tenant_id="t1",
++                top_k=5,
++            )
++
++    # 验证 pipeline.process 收到的 kb_contexts 参数
++    mock_pipeline.process.assert_awaited_once()
++    call_kwargs = mock_pipeline.process.call_args.kwargs
++
++    # 新参数名 kb_contexts，旧参数 kb_context 不应存在
++    assert (
++        "kb_contexts" in call_kwargs
++    ), f"pipeline.process 应接收 kb_contexts，实际 kwargs: {list(call_kwargs.keys())}"
++
++    kb_contexts = call_kwargs["kb_contexts"]
++    assert isinstance(
++        kb_contexts, list
++    ), f"kb_contexts 应为 list，实际: {type(kb_contexts)}"
++    assert len(kb_contexts) == 2, f"kb_contexts 应有 2 个元素，实际: {len(kb_contexts)}"
++
++    # 验证每个 KB context 的结构
++    assert kb_contexts[0] == {
++        "name": "法律知识库",
++        "description": "包含中国法律法规和司法解释",
++    }
++    assert kb_contexts[1] == {
++        "name": "金融知识库",
++        "description": "包含金融政策、证券法规和行业分析",
++    }
+diff --git a/tests/unit/domain/test_fusion.py b/tests/unit/domain/test_fusion.py
+index c7e18d7..98ce38e 100644
+--- a/tests/unit/domain/test_fusion.py
++++ b/tests/unit/domain/test_fusion.py
+@@ -51,23 +51,23 @@ class TestCrossKbRrfFuseTwoGroups:
+             _make_hit("b5", kb_id="kb_b", doc_id="doc_b5"),
+         ]
+ 
+         result = cross_kb_rrf_fuse([group_a, group_b], k=k)
+ 
+         # 应有 10 条结果
+         assert len(result) == 10
+ 
+         # 按 score 降序排列（RRF 分值越大越靠前）
+         for i in range(len(result) - 1):
+-            assert result[i].score >= result[i + 1].score, (
+-                f"索引 {i}: {result[i].score} 应 >= {result[i + 1].score}"
+-            )
++            assert (
++                result[i].score >= result[i + 1].score
++            ), f"索引 {i}: {result[i].score} 应 >= {result[i + 1].score}"
+ 
+         # 验证每组 rank=1 的 hit 分数相同（跨库对称）
+         scores_by_rank: dict[int, float] = {}
+         for hit in result:
+             # 通过 chunk_id 推断原始 rank
+             if hit.kb_id == "kb_a":
+                 rank = int(hit.chunk_id[1])  # a1 -> 1
+             else:
+                 rank = int(hit.chunk_id[1])  # b1 -> 1
+             if rank not in scores_by_rank:
+@@ -196,24 +196,36 @@ class TestCrossKbRrfFuseDuplicateChunk:
+ 
+         result = cross_kb_rrf_fuse([group_a, group_b], k=k)
+ 
+         # 不同 doc_id，应视为两条独立结果
+         assert len(result) == 2
+ 
+     def test_cross_kb_fuse_preserves_text_and_metadata(self):
+         """跨库融合后 text 和 metadata 保留首次出现的值。"""
+         k = 60
+         group_a = [
+-            _make_hit("c1", kb_id="kb_a", doc_id="doc_s", text="hello world", metadata={"page": 1}),
++            _make_hit(
++                "c1",
++                kb_id="kb_a",
++                doc_id="doc_s",
++                text="hello world",
++                metadata={"page": 1},
++            ),
+         ]
+         group_b = [
+-            _make_hit("c1", kb_id="kb_b", doc_id="doc_s", text="different text", metadata={"page": 99}),
++            _make_hit(
++                "c1",
++                kb_id="kb_b",
++                doc_id="doc_s",
++                text="different text",
++                metadata={"page": 99},
++            ),
+         ]
+ 
+         result = cross_kb_rrf_fuse([group_a, group_b], k=k)
+ 
+         assert len(result) == 1
+         c1_hit = result[0]
+         assert c1_hit.kb_id == "kb_a"  # 首次出现的 kb_id
+         assert c1_hit.text == "hello world"  # 首次出现的 text
+         assert c1_hit.metadata == {"page": 1}  # 首次出现的 metadata
+ 
+@@ -229,10 +241,53 @@ class TestCrossKbRrfFuseDuplicateChunk:
+         group_c = [
+             _make_hit("multi", kb_id="kb_c", doc_id="doc_m"),
+         ]
+ 
+         result = cross_kb_rrf_fuse([group_a, group_b, group_c], k=k)
+ 
+         assert len(result) == 1
+         # 三个 KB 中 rank 都是 1 → 3 * 1/(k+1)
+         assert result[0].score == pytest.approx(3 / (k + 1))
+         assert result[0].kb_id == "kb_a"
++
++
++class TestSearchHitKbNameDefault:
++    """SearchHit 构造时不传 kb_name，取默认值 ""。"""
++
++    def test_kb_name_defaults_to_empty_string(self):
++        """SearchHit 不传 kb_name 时，kb_name 为 ""。"""
++        hit = SearchHit(
++            chunk_id="ch1",
++            kb_id="kb_test",
++            doc_id="doc1",
++            score=0.95,
++            text="hello",
++            metadata={},
++        )
++        assert hit.kb_name == ""
++
++    def test_kb_name_explicit_none_not_allowed(self):
++        """kb_name 的类型是 str，传 None 会报错（类型安全）。"""
++        hit = SearchHit(
++            chunk_id="ch1",
++            kb_id="kb_test",
++            doc_id="doc1",
++            score=0.95,
++            text="hello",
++            metadata={},
++        )
++        # kb_name 依然是 str 类型，默认 ""
++        assert isinstance(hit.kb_name, str)
++        assert hit.kb_name == ""
++
++    def test_kb_name_explicit_value(self):
++        """显式传 kb_name 则使用传入值。"""
++        hit = SearchHit(
++            chunk_id="ch1",
++            kb_id="kb_test",
++            doc_id="doc1",
++            score=0.95,
++            text="hello",
++            metadata={},
++            kb_name="我的知识库",
++        )
++        assert hit.kb_name == "我的知识库"
+diff --git a/tests/unit/test_pipeline.py b/tests/unit/test_pipeline.py
+index f25f9fb..5897241 100644
+--- a/tests/unit/test_pipeline.py
++++ b/tests/unit/test_pipeline.py
+@@ -55,30 +55,30 @@ class TestQueryPipeline:
+         self, pipeline: QueryPipeline, mock_rewriter: AsyncMock
+     ) -> None:
+         """enabled=true, rewrite 成功, synonyms 有命中 → effective≠raw, search≠effective。"""
+         synonyms = [
+             {"terms": ["天气"], "expand": ["气候", "气象"]},
+         ]
+ 
+         result = await pipeline.process(
+             raw_query="今天天气怎么样",
+             kb_ids=["kb-1"],
+-            kb_context={"name": "天气知识库"},
++            kb_contexts=[{"name": "天气知识库"}],
+             synonyms=synonyms,
+             enabled=True,
+         )
+ 
+         # rewriter.rewrite 被调用
+         mock_rewriter.rewrite.assert_awaited_once_with(
+             query="今天天气怎么样",
+             kb_ids=["kb-1"],
+-            kb_context={"name": "天气知识库"},
++            kb_contexts=[{"name": "天气知识库"}],
+         )
+ 
+         # 改写生效
+         assert result.raw_query == "今天天气怎么样"
+         assert result.effective_query == "今天天气如何"
+         assert result.needs_rewrite is True
+         assert result.strategy == "rewrite"
+ 
+         # 扩展生效 — search_query 追加了扩展词
+         assert result.effective_query != result.search_query
+@@ -90,21 +90,21 @@ class TestQueryPipeline:
+     # ── 场景 2: 仅改写 ───────────────────────────────────
+ 
+     @pytest.mark.asyncio
+     async def test_rewrite_only_no_synonyms(
+         self, pipeline: QueryPipeline, mock_rewriter: AsyncMock
+     ) -> None:
+         """enabled=true, synonyms=None → effective≠raw, search==effective。"""
+         result = await pipeline.process(
+             raw_query="今天天气怎么样",
+             kb_ids=["kb-1"],
+-            kb_context=None,
++            kb_contexts=None,
+             synonyms=None,
+             enabled=True,
+         )
+ 
+         assert result.raw_query == "今天天气怎么样"
+         assert result.effective_query == "今天天气如何"
+         # 无扩展 — search 应等于 effective
+         assert result.search_query == result.effective_query
+         assert result.synonym_applied is False
+         assert result.synonym_expansions == []
+diff --git a/tests/unit/test_rewrite_port.py b/tests/unit/test_rewrite_port.py
+index 40d8259..85b5fda 100644
+--- a/tests/unit/test_rewrite_port.py
++++ b/tests/unit/test_rewrite_port.py
+@@ -1,14 +1,14 @@
+ """RewritePort Protocol 单元测试。
+ 
+ 验证 RewritePort 接口定义正确，以及结构性子类型兼容性。
+-适配 QueryProcessResult（10 字段 + kb_context 传参）。
++适配 QueryProcessResult（10 字段 + kb_contexts 传参）。
+ """
+ 
+ from __future__ import annotations
+ 
+ import asyncio
+ from dataclasses import is_dataclass
+ from typing import Protocol
+ 
+ from ragnexus.domain.ports import QueryProcessResult, RewritePort
+ 
+@@ -90,43 +90,43 @@ class TestQueryProcessResult:
+ 
+ 
+ class TestRewritePortProtocol:
+     """RewritePort Protocol 签名与结构性子类型测试。"""
+ 
+     def test_rewrite_port_is_protocol(self) -> None:
+         """RewritePort 应是 typing.Protocol 的子类。"""
+         assert issubclass(RewritePort, Protocol)
+ 
+     def test_rewrite_method_signature(self) -> None:
+-        """rewrite 方法签名：keyword-only 参数，返回 QueryProcessResult，包含 kb_context。"""
++        """rewrite 方法签名：keyword-only 参数，返回 QueryProcessResult，包含 kb_contexts。"""
+         import inspect
+ 
+         sig = inspect.signature(RewritePort.rewrite)
+ 
+         params = list(sig.parameters.values())
+         param_names = [p.name for p in params]
+ 
+-        # self + 3 keyword-only 参数（含 kb_context）
++        # self + 3 keyword-only 参数（含 kb_contexts）
+         assert param_names == [
+             "self",
+             "query",
+             "kb_ids",
+-            "kb_context",
++            "kb_contexts",
+         ], f"参数名不匹配: {param_names}"
+ 
+         for p in params[1:]:  # 跳过 self
+             assert (
+                 p.kind == inspect.Parameter.KEYWORD_ONLY
+             ), f"{p.name} 应为 KEYWORD_ONLY，实际: {p.kind}"
+ 
+         # kb_context 应为可选参数
+-        assert params[-1].default is None, "kb_context 默认值应为 None"
++        assert params[-1].default is None, "kb_contexts 默认值应为 None"
+ 
+         # 验证返回类型注解为 QueryProcessResult
+         assert (
+             sig.return_annotation == QueryProcessResult
+         ), f"返回类型应为 QueryProcessResult，实际: {sig.return_annotation}"
+ 
+     def test_clear_cache_method_signature(self) -> None:
+         """clear_cache 方法签名：kb_id: str → None。"""
+         import inspect
+ 
+@@ -140,28 +140,28 @@ class TestRewritePortProtocol:
+         assert sig.return_annotation is None
+ 
+     def test_minimal_implementation_satisfies_protocol(self) -> None:
+         """一个最小实现类应满足 RewritePort 协议结构。
+ 
+         Python Protocol 使用静态结构子类型（pyright/mypy），运行时不需要
+         @runtime_checkable。这里通过实际调用来验证行为正确性。
+         """
+ 
+         class _MinimalRewriter:
+-            """最小实现 — 原样返回查询，不做改写，支持 kb_context 传参。"""
++            """最小实现 — 原样返回查询，不做改写，支持 kb_contexts 传参。"""
+ 
+             async def rewrite(
+                 self,
+                 *,
+                 query: str,
+                 kb_ids: list[str],
+-                kb_context: dict | None = None,
++                kb_contexts: list[dict] | None = None,
+             ) -> QueryProcessResult:
+                 return QueryProcessResult(
+                     raw_query=query,
+                     effective_query=query,
+                     search_query=query,
+                     needs_rewrite=False,
+                     strategy="noop",
+                     rewrite_latency_ms=0,
+                     degraded=False,
+                     degraded_reason=None,
+@@ -186,22 +186,22 @@ class TestRewritePortProtocol:
+         assert result.effective_query == "什么是 RAG"
+         assert result.search_query == "什么是 RAG"
+         assert result.needs_rewrite is False
+         assert result.strategy == "noop"
+         assert result.degraded is False
+ 
+         async def _run_rewrite_with_context() -> QueryProcessResult:
+             return await instance.rewrite(
+                 query="测试",
+                 kb_ids=["kb1"],
+-                kb_context={"name": "测试知识库"},
++                kb_contexts=[{"name": "测试知识库"}],
+             )
+ 
+         ctx_result = asyncio.run(_run_rewrite_with_context())
+         assert ctx_result.raw_query == "测试"
+-        # kb_context 不影响结果，但应被正确接收
++        # kb_contexts 不影响结果，但应被正确接收
+ 
+         # 验证 clear_cache 也可正常调用
+         async def _run_clear() -> None:
+             await instance.clear_cache(kb_id="kb1")
+ 
+         asyncio.run(_run_clear())  # 不应抛异常

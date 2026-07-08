@@ -71,6 +71,33 @@ def client(app):
     return TestClient(app, raise_server_exceptions=False)
 
 
+@pytest.fixture
+def free_plan_app(mock_retrieve_uc):
+    """Free 套餐 app — max_kb_per_retrieve=1"""
+
+    async def mock_get_current_tenant():
+        return TenantContext(
+            tenant_id="default",
+            tenant_name="默认租户",
+            key_id="test",
+            key_prefix="test",
+            plan="free",
+        )
+
+    app = FastAPI()
+    app.include_router(
+        create_retrieve_router(mock_retrieve_uc, mock_get_current_tenant)
+    )
+    app.state.langfuse_client = RetrieveObservability(enabled=False)
+    register_error_handlers(app)
+    return app
+
+
+@pytest.fixture
+def free_plan_client(free_plan_app):
+    return TestClient(free_plan_app, raise_server_exceptions=False)
+
+
 # ── Create KB ─────────────────────────────────────────────────────────────
 
 
@@ -204,6 +231,94 @@ class TestRetrieve:
         assert data["data"]["hits"][0]["chunk_id"] == "doc_hash:0"
         assert data["data"]["hits"][0]["score"] == 0.823456
         assert data["message"] == "ok"
+
+    def test_router_rejects_exceeded_kb_limit(self, free_plan_client, mock_retrieve_uc):
+        """free 套餐 (max_kb_per_retrieve=1) 传 2 库 → 20013 FEATURE_NOT_ALLOWED"""
+        resp = free_plan_client.post(
+            "/v1/rag:retrieve",
+            json={
+                "query": "test query",
+                "kb_ids": ["kb_1", "kb_2"],
+                "top_k": 5,
+            },
+        )
+        assert resp.status_code == 403
+        data = resp.json()
+        assert data["code"] == 20013
+        mock_retrieve_uc.execute.assert_not_called()
+
+    def test_response_includes_kb_ids(self, client, mock_retrieve_uc):
+        """响应 data 中应包含 kb_ids 字段"""
+        from ragnexus.domain.models import RetrieveResult
+
+        mock_retrieve_uc.execute.return_value = RetrieveResult(
+            hits=[],
+            total=0,
+            latency_ms=42,
+            mode="hybrid",
+            vector_count=0,
+            bm25_count=0,
+            fused_count=0,
+            rerank_model=None,
+            degraded=False,
+            degraded_reason=None,
+        )
+        resp = client.post(
+            "/v1/rag:retrieve",
+            json={
+                "query": "test query",
+                "kb_ids": ["kb_a", "kb_b"],
+                "top_k": 5,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["data"]["kb_ids"] == ["kb_a", "kb_b"]
+        # 验证 meta 中多库元信息
+        meta = data["data"]["meta"]
+        assert meta["multi_kb"] is True
+        assert meta["kb_count"] == 2
+        assert meta["fusion"] == "rrf"
+        assert meta["rrf_k"] == 60
+        assert "per_kb_top_k" in meta
+
+    def test_serialize_hit_has_kb_name(self, client, mock_retrieve_uc):
+        """_serialize_hit 输出应包含 kb_name 字段"""
+        from ragnexus.domain.models import RetrieveResult
+
+        mock_retrieve_uc.execute.return_value = RetrieveResult(
+            hits=[
+                SearchHit(
+                    chunk_id="doc_hash:0",
+                    kb_id="kb_test123",
+                    doc_id="doc_hash",
+                    score=0.823456,
+                    text="chunk content",
+                    metadata={},
+                    kb_name="测试知识库",
+                )
+            ],
+            total=1,
+            latency_ms=42,
+            mode="hybrid",
+            vector_count=0,
+            bm25_count=0,
+            fused_count=1,
+            rerank_model=None,
+            degraded=False,
+            degraded_reason=None,
+        )
+        resp = client.post(
+            "/v1/rag:retrieve",
+            json={
+                "query": "test query",
+                "kb_ids": ["kb_test123"],
+                "top_k": 5,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["data"]["hits"][0]["kb_name"] == "测试知识库"
 
     def test_extra_field(self, client, mock_retrieve_uc):
         resp = client.post(

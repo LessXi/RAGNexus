@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { RetrieveResponse } from '@/types/api';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -101,14 +102,16 @@ function mockTree() {
 }
 
 /** 构造典型 retrieve 响应 */
-function mockRetrieveSuccess() {
+function mockRetrieveSuccess(): RetrieveResponse {
  return {
   code: 0,
   data: {
+   kb_ids: ['kb_1'],
    hits: [
     {
      chunk_id: 'chunk-1',
      kb_id: 'kb_1',
+     kb_name: '知识库 A-1',
      doc_id: 'doc-1',
      score: 0.95,
      text:
@@ -123,6 +126,7 @@ function mockRetrieveSuccess() {
     {
      chunk_id: 'chunk-2',
      kb_id: 'kb_1',
+     kb_name: '知识库 A-1',
      doc_id: 'doc-2',
      score: 0.78,
      text: '第二条结果内容较短。',
@@ -143,8 +147,65 @@ function mockRetrieveSuccess() {
     rerank_model: 'bge-reranker-v2-m3',
     degraded: false,
     degraded_reason: null,
+    multi_kb: false,
+    fusion: 'none',
+    kb_count: 1,
    },
   },
+  metadata: {},
+ };
+}
+
+/** 构造多库联查响应 */
+function mockMultiKbSuccess(): RetrieveResponse {
+ return {
+  code: 0,
+  data: {
+   kb_ids: ['kb_1', 'kb_3'],
+   hits: [
+    {
+     chunk_id: 'chunk-1',
+     kb_id: 'kb_1',
+     kb_name: '知识库 A-1',
+     doc_id: 'doc-1',
+     score: 0.95,
+     text: '来自知识库 A-1 的结果。',
+     title: '文档一',
+     metadata: {},
+     vector_score: 0.92,
+     bm25_score: null,
+     rerank_score: null,
+    },
+    {
+     chunk_id: 'chunk-3',
+     kb_id: 'kb_3',
+     kb_name: '知识库 B-1',
+     doc_id: 'doc-3',
+     score: 0.85,
+     text: '来自知识库 B-1 的结果。',
+     title: '文档三',
+     metadata: {},
+     vector_score: null,
+     bm25_score: 0.88,
+     rerank_score: null,
+    },
+   ],
+   meta: {
+    total: 2,
+    latency_ms: 78.5,
+    mode: 'hybrid',
+    vector_count: 10,
+    bm25_count: 10,
+    fused_count: 5,
+    rerank_model: null,
+    degraded: false,
+    degraded_reason: null,
+    multi_kb: true,
+    fusion: 'rrf',
+    kb_count: 2,
+   },
+  },
+  metadata: {},
  };
 }
 
@@ -177,25 +238,38 @@ describe('RetrievePage', () => {
  });
 
  /* ═══════════════════════════════════════════
-  *  URL query params 预填
+  *  Checkbox 多选 KB 列表
   * ═══════════════════════════════════════════ */
 
- it('URL 带 ?kb_id=yyy 时应预填 KB 选择框', async () => {
+ it('应渲染 Checkbox 列表替代 select 下拉框', async () => {
+  renderPage();
+
+  await waitFor(() => {
+   expect(mockFetchTree).toHaveBeenCalled();
+  });
+
+  // 不应存在 KB select 元素
+  expect(screen.queryByRole('combobox', { name: /知识库/i })).toBeNull();
+
+  // 应渲染三个 KB 的 checkbox
+  expect(screen.getByLabelText('知识库 A-1')).toBeInTheDocument();
+  expect(screen.getByLabelText('知识库 A-2')).toBeInTheDocument();
+  expect(screen.getByLabelText('知识库 B-1')).toBeInTheDocument();
+ });
+
+ it('URL 带 ?kb_id=yyy 时应默认勾选对应 KB', async () => {
   const sp = new URLSearchParams('?kb_id=kb_2');
   renderPage(sp);
 
-  // 租户由 API Key 自动识别，页面只有 KB 选择器
-  const kbSelect = screen.getByLabelText(/知识库/i);
   await waitFor(() => {
-   expect((kbSelect as HTMLSelectElement).value).toBe('kb_2');
+   expect(mockFetchTree).toHaveBeenCalled();
   });
+
+  const checkbox = screen.getByLabelText('知识库 A-2') as HTMLInputElement;
+  expect(checkbox.checked).toBe(true);
  });
 
- /* ═══════════════════════════════════════════
-  *  表单校验
-  * ═══════════════════════════════════════════ */
-
- it('未选 KB 时检索按钮应 disabled', async () => {
+ it('未勾选任何 KB 时检索按钮应 disabled', async () => {
   renderPage();
   await waitFor(() => {
    expect(mockFetchTree).toHaveBeenCalled();
@@ -204,15 +278,13 @@ describe('RetrievePage', () => {
   expect(getRetrieveButton()).toBeDisabled();
  });
 
- it('未输入 query 时检索按钮应 disabled', async () => {
+ it('未输入 query 时即使勾选 KB 检索按钮也应 disabled', async () => {
   renderPage();
   await waitFor(() => {
    expect(mockFetchTree).toHaveBeenCalled();
   });
 
-  const kbSelect = screen.getByLabelText(/知识库/i);
-  await userEvent.selectOptions(kbSelect, 'kb_1');
-
+  await userEvent.click(screen.getByLabelText('知识库 A-1'));
   expect(getRetrieveButton()).toBeDisabled();
  });
 
@@ -220,7 +292,7 @@ describe('RetrievePage', () => {
   *  检索执行
   * ═══════════════════════════════════════════ */
 
- it('填写 query 并选 KB 后点击检索按钮应调用 retrieve API', async () => {
+ it('勾选 KB 并输入 query 后点击检索应调用 retrieve API', async () => {
   mockRetrieve.mockResolvedValue(mockRetrieveSuccess());
   renderPage();
 
@@ -228,8 +300,7 @@ describe('RetrievePage', () => {
    expect(mockFetchTree).toHaveBeenCalled();
   });
 
-  const kbSelect = screen.getByLabelText(/知识库/i);
-  await userEvent.selectOptions(kbSelect, 'kb_1');
+  await userEvent.click(screen.getByLabelText('知识库 A-1'));
 
   const queryInput = screen.getByPlaceholderText(/输入检索内容/i);
   await userEvent.type(queryInput, 'RAG 入门教程');
@@ -241,6 +312,32 @@ describe('RetrievePage', () => {
     expect.objectContaining({
      query: 'RAG 入门教程',
      kb_ids: ['kb_1'],
+    }),
+   );
+  });
+ });
+
+ it('勾选多个 KB 后检索应传递 kb_ids 数组', async () => {
+  mockRetrieve.mockResolvedValue(mockMultiKbSuccess());
+  renderPage();
+
+  await waitFor(() => {
+   expect(mockFetchTree).toHaveBeenCalled();
+  });
+
+  await userEvent.click(screen.getByLabelText('知识库 A-1'));
+  await userEvent.click(screen.getByLabelText('知识库 B-1'));
+
+  const queryInput = screen.getByPlaceholderText(/输入检索内容/i);
+  await userEvent.type(queryInput, '多库测试');
+
+  await userEvent.click(getRetrieveButton());
+
+  await waitFor(() => {
+   expect(mockRetrieve).toHaveBeenCalledWith(
+    expect.objectContaining({
+     query: '多库测试',
+     kb_ids: ['kb_1', 'kb_3'],
     }),
    );
   });
@@ -258,12 +355,8 @@ describe('RetrievePage', () => {
    expect(mockFetchTree).toHaveBeenCalled();
   });
 
-  const kbSelect = screen.getByLabelText(/知识库/i);
-  await userEvent.selectOptions(kbSelect, 'kb_1');
-
-  const queryInput = screen.getByPlaceholderText(/输入检索内容/i);
-  await userEvent.type(queryInput, 'test query');
-
+  await userEvent.click(screen.getByLabelText('知识库 A-1'));
+  await userEvent.type(screen.getByPlaceholderText(/输入检索内容/i), 'test query');
   await userEvent.click(getRetrieveButton());
 
   await waitFor(() => {
@@ -280,18 +373,13 @@ describe('RetrievePage', () => {
    expect(mockFetchTree).toHaveBeenCalled();
   });
 
-  const kbSelect = screen.getByLabelText(/知识库/i);
-  await userEvent.selectOptions(kbSelect, 'kb_1');
-
-  const queryInput = screen.getByPlaceholderText(/输入检索内容/i);
-  await userEvent.type(queryInput, 'test');
-
+  await userEvent.click(screen.getByLabelText('知识库 A-1'));
+  await userEvent.type(screen.getByPlaceholderText(/输入检索内容/i), 'test');
   await userEvent.click(getRetrieveButton());
 
   await waitFor(() => {
    expect(screen.getByText('2')).toBeInTheDocument(); // total
    expect(screen.getByText(/45\.2/)).toBeInTheDocument(); // latency
-   // mode 同时出现在 tab 和 meta grid，使用 getAllByText
    const modeElements = screen.getAllByText('hybrid');
    expect(modeElements.length).toBeGreaterThanOrEqual(1);
   });
@@ -305,19 +393,64 @@ describe('RetrievePage', () => {
    expect(mockFetchTree).toHaveBeenCalled();
   });
 
-  const kbSelect = screen.getByLabelText(/知识库/i);
-  await userEvent.selectOptions(kbSelect, 'kb_1');
+  await userEvent.click(screen.getByLabelText('知识库 A-1'));
   await userEvent.type(screen.getByPlaceholderText(/输入检索内容/i), 'test');
   await userEvent.click(getRetrieveButton());
 
   await waitFor(() => {
-   // chunk-1 有 score 和 vector_score（formatted to 4 decimal places）
    expect(screen.getByText(/^score: 0\.9500$/)).toBeInTheDocument();
    expect(screen.getByText(/^vec: 0\.9200$/)).toBeInTheDocument();
-   // chunk-2 的 score 和 bm25_score 值相同(0.78)，需要含前缀区分
    expect(screen.getByText(/^score: 0\.7800$/)).toBeInTheDocument();
    expect(screen.getByText(/^bm25: 0\.7800$/)).toBeInTheDocument();
    expect(screen.getByText(/^rerank: 0\.8100$/)).toBeInTheDocument();
+  });
+ });
+
+ /* ═══════════════════════════════════════════
+  *  来源库 Badge
+  * ═══════════════════════════════════════════ */
+
+ it('每条 hit 应显示来源库 Badge（kb_name）', async () => {
+  mockRetrieve.mockResolvedValue(mockMultiKbSuccess());
+  renderPage();
+
+  await waitFor(() => {
+   expect(mockFetchTree).toHaveBeenCalled();
+  });
+
+  await userEvent.click(screen.getByLabelText('知识库 A-1'));
+  await userEvent.click(screen.getByLabelText('知识库 B-1'));
+  await userEvent.type(screen.getByPlaceholderText(/输入检索内容/i), 'test');
+  await userEvent.click(getRetrieveButton());
+
+  await waitFor(() => {
+   // 每个 KB 名称同时出现在 checkbox label 和 hit Badge 中
+   expect(screen.getAllByText('知识库 A-1').length).toBeGreaterThanOrEqual(2);
+   expect(screen.getAllByText('知识库 B-1').length).toBeGreaterThanOrEqual(2);
+  });
+ });
+
+ /* ═══════════════════════════════════════════
+  *  运行摘要区（多库联查）
+  * ═══════════════════════════════════════════ */
+
+ it('多库联查时摘要区应显示联查信息', async () => {
+  mockRetrieve.mockResolvedValue(mockMultiKbSuccess());
+  renderPage();
+
+  await waitFor(() => {
+   expect(mockFetchTree).toHaveBeenCalled();
+  });
+
+  await userEvent.click(screen.getByLabelText('知识库 A-1'));
+  await userEvent.click(screen.getByLabelText('知识库 B-1'));
+  await userEvent.type(screen.getByPlaceholderText(/输入检索内容/i), 'test');
+  await userEvent.click(getRetrieveButton());
+
+  await waitFor(() => {
+   // 联查摘要信息
+   expect(screen.getByText(/联查 2 个库/)).toBeInTheDocument();
+   expect(screen.getByText(/融合方式: rrf/)).toBeInTheDocument();
   });
  });
 
@@ -333,13 +466,37 @@ describe('RetrievePage', () => {
    expect(mockFetchTree).toHaveBeenCalled();
   });
 
-  const kbSelect = screen.getByLabelText(/知识库/i);
-  await userEvent.selectOptions(kbSelect, 'kb_1');
+  await userEvent.click(screen.getByLabelText('知识库 A-1'));
   await userEvent.type(screen.getByPlaceholderText(/输入检索内容/i), 'test');
   await userEvent.click(getRetrieveButton());
 
   await waitFor(() => {
    expect(screen.getByText(/检索失败/i)).toBeInTheDocument();
+  });
+ });
+
+ it('20013 错误时应显示套餐限制提示', async () => {
+  const error = {
+   response: {
+    data: {
+     code: 20013,
+     message: '当前套餐最多支持 3 个库联合检索',
+    },
+   },
+  };
+  mockRetrieve.mockRejectedValue(error);
+  renderPage();
+
+  await waitFor(() => {
+   expect(mockFetchTree).toHaveBeenCalled();
+  });
+
+  await userEvent.click(screen.getByLabelText('知识库 A-1'));
+  await userEvent.type(screen.getByPlaceholderText(/输入检索内容/i), 'test');
+  await userEvent.click(getRetrieveButton());
+
+  await waitFor(() => {
+   expect(screen.getByText(/当前套餐最多支持 3 个库联合检索/)).toBeInTheDocument();
   });
  });
 
@@ -354,7 +511,6 @@ describe('RetrievePage', () => {
    expect(mockFetchTree).toHaveBeenCalled();
   });
 
-  // 先切换到 custom 简档以显示高级参数
   const customTab = screen.getByRole('tab', { name: /自定义/i });
   await userEvent.click(customTab);
 

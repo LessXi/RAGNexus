@@ -56,7 +56,7 @@ def mock_pipeline():
     m = AsyncMock()
 
     async def _passthrough(
-        *, raw_query, kb_ids, kb_context=None, synonyms=None, enabled=True
+        *, raw_query, kb_ids, kb_contexts=None, synonyms=None, enabled=True
     ):
         return QueryProcessResult(
             raw_query=raw_query,
@@ -785,27 +785,36 @@ async def test_scenario_12_7_cross_kb_isolation(
     mock_pipeline,
     sample_hits,
 ):
-    """12.7: 跨库隔离 — KB_A 词表不影响 KB_B。
+    """12.7: 跨库合并 — 所有 KB 的 synonyms 合并去重传给 pipeline。
 
-    验证：当 kb_ids=["kb_a", "kb_b"] 时，只有 kb_ids[0]（KB_A）的 settings
-    被读取并传给 pipeline，KB_B 的 settings 不会被读取。
+    验证：当 kb_ids=["kb_a", "kb_b"] 时，两个 KB 的 settings.synonyms
+    都被读取、按 term 去重后合并传给 pipeline。
     """
     from unittest.mock import MagicMock
 
-    # 构造 KB_A（有 synonyms）和 KB_B（无）
+    # 构造 KB_A 和 KB_B，使用标准 synonym 格式
     kb_a = MagicMock()
     kb_a.name = "KB_A"
     kb_a.description = "Knowledge Base A"
-    kb_a.settings = {"synonyms": [{"terms": ["AI"], "expand": ["人工智能"]}]}
+    kb_a.settings = {
+        "synonyms": [
+            {"terms": ["AI"], "expand": ["人工智能"]},
+            {"terms": ["ML"], "expand": ["机器学习"]},
+        ]
+    }
 
     kb_b = MagicMock()
     kb_b.name = "KB_B"
     kb_b.description = "Knowledge Base B"
-    kb_b.settings = {"synonyms": [{"terms": ["ML"], "expand": ["机器学习"]}]}
+    kb_b.settings = {
+        "synonyms": [
+            {"terms": ["AI"], "expand": ["人工智能v2"]},  # 与 kb_a 重复，后出现覆盖前
+            {"terms": ["DL"], "expand": ["深度学习"]},
+        ]
+    }
 
-    # kb_repo.get 只返回 kb_ids[0] 的 KB（代码中只调用了 kb_ids[0]）
-    # 这里 mock 返回 KB_A 来验证其 synonyms 被使用
-    mock_kb_repo.get.return_value = kb_a
+    # 合并后单次遍历，每个 KB 只 get 一次
+    mock_kb_repo.get.side_effect = [kb_a, kb_b]
     mock_kb_repo.exists.return_value = True
     # ownership 校验需返回 2（2 个 unique KB）
     mock_kb_repo.pool.fetchval.return_value = 2
@@ -832,11 +841,17 @@ async def test_scenario_12_7_cross_kb_isolation(
         query_options={"enabled": True},
     )
 
-    # 验证 pipeline 被调用时 synonyms 来自 KB_A
+    # 验证 pipeline 收到合并去重后的 synonyms
     call_kwargs = mock_pipeline.process.call_args.kwargs
-    assert call_kwargs["synonyms"] == [{"terms": ["AI"], "expand": ["人工智能"]}]
-    # KB_B 的 settings 未被读取（mock_kb_repo.get 只被调用一次，参数为 "kb_a"）
-    mock_kb_repo.get.assert_awaited_once_with("kb_a")
+    synonyms = call_kwargs["synonyms"]
+    assert synonyms is not None
+    # 3 个唯一 terms 组：AI（kb_b 覆盖 kb_a）、ML、DL
+    assert len(synonyms) == 3, f"应合并去重为 3 条，实际 {len(synonyms)}"
+    terms = {s["terms"][0] for s in synonyms}
+    assert terms == {"AI", "ML", "DL"}, f"合并后的 terms: {terms}"
+    # "AI" 保留 kb_b 的版本（后出现覆盖前）
+    ai_entry = next(s for s in synonyms if "AI" in s["terms"])
+    assert ai_entry["expand"] == ["人工智能v2"], f"AI 应来自 kb_b，实际: {ai_entry}"
 
 
 @pytest.mark.asyncio

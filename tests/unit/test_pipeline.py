@@ -62,7 +62,7 @@ class TestQueryPipeline:
         result = await pipeline.process(
             raw_query="今天天气怎么样",
             kb_ids=["kb-1"],
-            kb_context={"name": "天气知识库"},
+            kb_contexts=[{"name": "天气知识库"}],
             synonyms=synonyms,
             enabled=True,
         )
@@ -71,7 +71,7 @@ class TestQueryPipeline:
         mock_rewriter.rewrite.assert_awaited_once_with(
             query="今天天气怎么样",
             kb_ids=["kb-1"],
-            kb_context={"name": "天气知识库"},
+            kb_contexts=[{"name": "天气知识库"}],
         )
 
         # 改写生效
@@ -97,7 +97,7 @@ class TestQueryPipeline:
         result = await pipeline.process(
             raw_query="今天天气怎么样",
             kb_ids=["kb-1"],
-            kb_context=None,
+            kb_contexts=None,
             synonyms=None,
             enabled=True,
         )

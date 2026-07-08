@@ -136,6 +136,8 @@ export interface RetrieveRequest {
 export interface RetrieveHit {
   chunk_id: string;
   kb_id: string;
+  /** 来源知识库名称（多库联查时用于 Badge 显示） */
+  kb_name: string;
   doc_id: string;
   score: number;
   text: string;
@@ -157,6 +159,12 @@ export interface RetrieveMeta {
   rerank_model: string | null;
   degraded: boolean;
   degraded_reason: string | null;
+  /** 是否多库联查 */
+  multi_kb: boolean;
+  /** 融合方式：rrf / linear / none */
+  fusion: string;
+  /** 实际参与检索的知识库数量 */
+  kb_count: number;
   /** 查询处理详情 */
   query_processing?: {
     raw_query: string;
@@ -176,6 +184,8 @@ export interface RetrieveMeta {
 export interface RetrieveResponse {
   code: number;
   data: {
+    /** 本次检索涉及的知识库 ID 列表 */
+    kb_ids: string[];
     hits: RetrieveHit[];
     meta: RetrieveMeta;
   };

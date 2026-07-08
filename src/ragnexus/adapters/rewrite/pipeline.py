@@ -33,7 +33,7 @@ class QueryPipeline:
         self,
         raw_query: str,
         kb_ids: list[str],
-        kb_context: dict | None = None,
+        kb_contexts: list[dict] | None = None,
         synonyms: list[dict] | None = None,
         enabled: bool = True,
     ) -> QueryProcessResult:
@@ -42,7 +42,7 @@ class QueryPipeline:
         参数:
             raw_query: 用户原始查询。
             kb_ids: 知识库 ID 列表，透传给 rewriter.rewrite()。
-            kb_context: 知识库上下文，透传给 rewriter.rewrite()。
+            kb_contexts: 知识库上下文列表，透传给 rewriter.rewrite()。
             synonyms: 词表列表，透传给 expander.expand()。
             enabled: False 时跳过改写和扩展，直接返回 noop 结果。
 
@@ -68,7 +68,7 @@ class QueryPipeline:
             result = await self.rewriter.rewrite(
                 query=raw_query,
                 kb_ids=kb_ids,
-                kb_context=kb_context,
+                kb_contexts=kb_contexts,
             )
         except Exception as exc:
             # rewrite() 抛异常 → 降级返回

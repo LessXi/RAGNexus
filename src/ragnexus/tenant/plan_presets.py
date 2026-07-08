@@ -14,6 +14,7 @@ PLAN_PRESETS = {
         "limits": {
             "retrieve_qps": 3,
             "retrieve_daily": 500,
+            "max_kb_per_retrieve": 1,
             "max_kb": 1,
             "max_documents_per_kb": 30,
             "max_processing_documents": 1,
@@ -29,6 +30,7 @@ PLAN_PRESETS = {
         "limits": {
             "retrieve_qps": 10,
             "retrieve_daily": 5000,
+            "max_kb_per_retrieve": 3,
             "max_kb": 5,
             "max_documents_per_kb": 200,
             "max_processing_documents": 2,
@@ -44,6 +46,7 @@ PLAN_PRESETS = {
         "limits": {
             "retrieve_qps": 50,
             "retrieve_daily": 100000,
+            "max_kb_per_retrieve": 5,
             "max_kb": 50,
             "max_documents_per_kb": 5000,
             "max_processing_documents": 10,

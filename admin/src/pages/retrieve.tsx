@@ -37,9 +37,29 @@ function flattenKBs(tree: TreeItem[]): KbOption[] {
   return result;
 }
 
+/** 根据 kb_id hash 取 Badge 颜色（尾数确定性映射） */
+const BADGE_COLORS = [
+  'bg-blue-100 text-blue-700',
+  'bg-green-100 text-green-700',
+  'bg-amber-100 text-amber-700',
+  'bg-purple-100 text-purple-700',
+  'bg-pink-100 text-pink-700',
+  'bg-cyan-100 text-cyan-700',
+  'bg-orange-100 text-orange-700',
+  'bg-teal-100 text-teal-700',
+];
+
+function hashColor(kbId: string): string {
+  let hash = 0;
+  for (let i = 0; i < kbId.length; i++) {
+    hash = (hash * 31 + kbId.charCodeAt(i)) | 0;
+  }
+  return BADGE_COLORS[Math.abs(hash) % BADGE_COLORS.length];
+}
 
 /** 检索简档中文名映射 */
 const PROFILE_LABELS: Record<string, string> = { speed: '追求速度', balanced: '均衡', quality: '追求质量', custom: '自定义' };
+
 /* ── 组件 ── */
 
 export default function RetrievePage() {
@@ -52,7 +72,7 @@ export default function RetrievePage() {
   const [treeError, setTreeError] = useState<string | null>(null);
 
   /* ── 表单 ── */
-  const [selectedKbId, setSelectedKbId] = useState('');
+  const [selectedKbIds, setSelectedKbIds] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [topK, setTopK] = useState(5);
   const [mode, setMode] = useState<RetrieveMode>('hybrid');
@@ -72,6 +92,10 @@ export default function RetrievePage() {
 
   const [retrieving, setRetrieving] = useState(false);
   const [retrieveError, setRetrieveError] = useState<string | null>(null);
+  const [planLimitError, setPlanLimitError] = useState<string | null>(null);
+
+  /* ── toast ── */
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   /* ── 反馈 ── */
   const [selectedScore, setSelectedScore] = useState<number>(0);
@@ -93,9 +117,11 @@ export default function RetrievePage() {
       const opts = flattenKBs(data);
       setKbOptions(opts);
 
-      // URL 预填
-      const kbId = searchParams.get('kb_id') ?? '';
-      if (kbId) setSelectedKbId(kbId);
+      // URL 预填：将 ?kb_id=xxx 对应 KB 默认勾选
+      const kbIdFromUrl = searchParams.get('kb_id') ?? '';
+      if (kbIdFromUrl && opts.some((o) => o.kb_id === kbIdFromUrl)) {
+        setSelectedKbIds([kbIdFromUrl]);
+      }
     } catch (err) {
       setTreeError(err instanceof Error ? err.message : '加载知识库列表失败');
     } finally {
@@ -123,12 +149,31 @@ export default function RetrievePage() {
     }
   }, [planInfo]);
 
+
+  /* ── 自动隐藏 toast ── */
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  /* ── Checkbox 切换 ── */
+  const toggleKb = (kbId: string) => {
+    setSelectedKbIds((prev) =>
+      prev.includes(kbId) ? prev.filter((id) => id !== kbId) : [...prev, kbId],
+    );
+  };
+
   /* ── 检索 ── */
   const handleRetrieve = async () => {
-    if (!query.trim() || !selectedKbId) return;
+    if (!query.trim()) return;
+    if (selectedKbIds.length === 0) {
+      setToast({ message: '请选择至少一个知识库', type: 'error' });
+      return;
+    }
 
     setRetrieving(true);
     setRetrieveError(null);
+    setPlanLimitError(null);
     setSelectedScore(0);
     setComment('');
     setFeedbackResult(null);
@@ -136,7 +181,7 @@ export default function RetrievePage() {
     try {
       const body: Parameters<typeof retrieve>[0] = {
         query: query.trim(),
-        kb_ids: [selectedKbId],
+        kb_ids: selectedKbIds,
         top_k: topK,
         profile,
       };
@@ -158,8 +203,14 @@ export default function RetrievePage() {
 
       const res = await retrieve(body);
       setResults(res);
-    } catch (err) {
-      setRetrieveError(err instanceof Error ? err.message : '检索请求失败');
+    } catch (err: unknown) {
+      // 解析 axios 错误响应中的业务错误码
+      const axiosErr = err as { response?: { data?: { code?: number; message?: string } } };
+      if (axiosErr?.response?.data?.code === 20013) {
+        setPlanLimitError(axiosErr.response.data.message || '当前套餐不支持联合检索');
+      } else {
+        setRetrieveError(err instanceof Error ? err.message : '检索请求失败');
+      }
     } finally {
       setRetrieving(false);
     }
@@ -186,7 +237,7 @@ export default function RetrievePage() {
   };
 
   /* ── 派生状态 ── */
-  const canRetrieve = query.trim().length > 0 && selectedKbId.length > 0;
+  const canRetrieve = query.trim().length > 0 && selectedKbIds.length > 0;
   const hits = results?.data?.hits ?? [];
   const meta = results?.data?.meta ?? null;
 
@@ -194,6 +245,18 @@ export default function RetrievePage() {
 
   return (
     <div className="space-y-6">
+      {/* Toast 通知 */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${
+            toast.type === 'success'
+              ? 'bg-green-600/90 text-white'
+              : 'bg-red-600/90 text-white'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
       <h1 className="text-xl font-semibold text-foreground">检索调试</h1>
 
       {/* ═══════ Card 1: 检索配置 ═══════ */}
@@ -226,34 +289,43 @@ export default function RetrievePage() {
               </div>
             )}
 
-            {/* 知识库选择 */}
+            {/* 知识库多选 */}
             <div>
-              <label
-                htmlFor="kb-select"
-                className="mb-1 inline-flex items-center gap-1.5 text-sm font-medium text-foreground"
-              >
+              <label className="mb-1 inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
                 知识库 <span className="text-red-500">*</span>
                 <span className="group relative inline-flex items-center">
                   <Info className="size-4 cursor-help text-muted-foreground hover:text-foreground transition-colors" />
                   <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-                    通过 API Key 自动识别租户，无需手动选择
+                    通过 API Key 自动识别租户，勾选需要检索的知识库
                   </span>
                 </span>
               </label>
-              <select
-                id="kb-select"
-                value={selectedKbId}
-                onChange={(e) => setSelectedKbId(e.target.value)}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
-                aria-label="知识库"
-              >
-                <option value="">请选择知识库</option>
+              <div className="space-y-1 rounded-lg border border-input bg-background px-3 py-2">
+                {kbOptions.length === 0 && !treeLoading && (
+                  <p className="text-sm text-muted-foreground py-1">暂无可用知识库</p>
+                )}
                 {kbOptions.map((o) => (
-                  <option key={o.kb_id} value={o.kb_id}>
-                    {o.name} ({o.tenant_id})
-                  </option>
+                  <div
+                    key={o.kb_id}
+                    className="flex items-center gap-2 py-0.5"
+                  >
+                    <input
+                      id={`kb-${o.kb_id}`}
+                      type="checkbox"
+                      checked={selectedKbIds.includes(o.kb_id)}
+                      onChange={() => toggleKb(o.kb_id)}
+                      className="size-4 rounded border-input text-primary focus:ring-primary/20 accent-primary"
+                    />
+                    <label
+                      htmlFor={`kb-${o.kb_id}`}
+                      className="cursor-pointer text-sm text-foreground hover:text-primary transition-colors"
+                    >
+                      {o.name}
+                    </label>
+                    <span className="text-xs text-muted-foreground">({o.tenant_id})</span>
+                  </div>
                 ))}
-              </select>
+              </div>
             </div>
 
             {/* top_k */}
@@ -497,6 +569,15 @@ export default function RetrievePage() {
             </button>
           </div>
 
+          {/* 多库联查摘要 */}
+          {meta && meta.multi_kb && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span>
+                联查 {meta.kb_count} 个库 | 融合方式: {meta.fusion} | 耗时 {meta.latency_ms.toFixed(1)}ms
+              </span>
+            </div>
+          )}
+
           {/* 错误态 */}
           {retrieveError && (
             <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -512,6 +593,17 @@ export default function RetrievePage() {
               >
                 重试
               </button>
+            </div>
+          )}
+
+          {/* plan 限制提示 */}
+          {planLimitError && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <div>
+                <p className="font-medium">套餐限制</p>
+                <p className="text-amber-600">{planLimitError}</p>
+              </div>
             </div>
           )}
 
@@ -582,6 +674,7 @@ export default function RetrievePage() {
               <p className="text-sm text-muted-foreground">Langfuse 未启用，反馈不可用</p>
             )
           )}
+
           {/* 结果列表 */}
           {hits.length > 0 && (
             <div className="space-y-3">
@@ -597,8 +690,12 @@ export default function RetrievePage() {
                     key={hit.chunk_id}
                     className="rounded-lg border border-border bg-background p-4"
                   >
-                    {/* 标题 + 分数 */}
+                    {/* 来源库 Badge + 标题 + 分数 */}
                     <div className="mb-2 flex flex-wrap items-center gap-2">
+                      {/* 来源库 Badge */}
+                      <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${hashColor(hit.kb_id)}`}>
+                        {hit.kb_name || hit.kb_id.slice(0, 8)}
+                      </span>
                       <span className="text-sm font-semibold text-foreground">
                         {hit.title}
                       </span>
@@ -659,7 +756,7 @@ export default function RetrievePage() {
           )}
 
           {/* 空状态 */}
-          {!retrieving && !retrieveError && hits.length === 0 && (
+          {!retrieving && !retrieveError && !planLimitError && hits.length === 0 && (
             <p className="text-sm text-muted-foreground">
               输入查询内容并选择知识库后点击检索
             </p>

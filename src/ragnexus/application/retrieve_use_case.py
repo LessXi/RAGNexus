@@ -19,7 +19,7 @@ from ragnexus.domain.ports import (
     RewritePort,
     VectorStorePort,
 )
-from ragnexus.domain.retrieval.fusion import rrf_fuse
+from ragnexus.domain.retrieval.fusion import cross_kb_rrf_fuse, rrf_fuse
 
 
 class RetrieveUseCase:
@@ -108,23 +108,46 @@ class RetrieveUseCase:
 
         # 3. Validate all KBs belong to current tenant
         await self.validate_kb_ownership(kb_ids, tenant_id)
-        # 3.5 组装 KB 上下文（用于查询改写和词表扩展）
-        primary_kb = await self._kb_repo.get(kb_ids[0])
-        kb_context: dict = {}
-        synonyms: list[dict] | None = None
-        if primary_kb:
-            kb_context = {
-                "name": primary_kb.name,
-                "description": getattr(primary_kb, "description", ""),
+        # 3.5 组装 KB 上下文列表 + 合并同义词表（单次遍历）
+        kb_contexts: list[dict] = []
+        all_synonyms: list[dict] = []
+        for kb_id in kb_ids:
+            kb = await self._kb_repo.get(kb_id)
+            if kb is None:
+                continue
+            # 解析 settings（可能为 JSON 字符串或 dict）
+            settings_raw = getattr(kb, "settings", {}) or {}
+            try:
+                settings = (
+                    json.loads(settings_raw)
+                    if isinstance(settings_raw, str)
+                    else settings_raw
+                )
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.warning(
+                    "KB settings JSON 解析失败，已跳过",
+                    extra={"kb_id": kb_id, "error": str(exc)},
+                )
+                settings = {}
+            # kb_contexts（含 rewrite_hint）
+            ctx: dict = {
+                "name": kb.name,
+                "description": getattr(kb, "description", ""),
             }
-            kb_settings_raw = getattr(primary_kb, "settings", {}) or {}
-            kb_settings = (
-                json.loads(kb_settings_raw)
-                if isinstance(kb_settings_raw, str)
-                else kb_settings_raw
-            )
-            kb_context["rewrite_hint"] = kb_settings.get("rewrite_hint", "")
-            synonyms = kb_settings.get("synonyms")
+            if hint := settings.get("rewrite_hint"):
+                ctx["rewrite_hint"] = hint
+            kb_contexts.append(ctx)
+            # synonyms
+            all_synonyms.extend(settings.get("synonyms", []))
+
+        # 3.6 按 terms 去重（标准格式: {"terms": [...], "expand": [...]}）
+        synonyms: list[dict] | None = None
+        if all_synonyms:
+            valid = [s for s in all_synonyms if "terms" in s and "expand" in s]
+            if valid:
+                synonyms = list(
+                    {frozenset(s.get("terms", [])): s for s in valid}.values()
+                )
 
         # --- 退化检测：ES 不可用 + hybrid 模式 → 降级为纯向量 ---
         degraded = False
@@ -138,8 +161,9 @@ class RetrieveUseCase:
         original_query = query  # 保存原始 query，用于 rerank（相关性判断）和日志
         t0 = time.perf_counter()
         hits: list[SearchHit] = []
-        kw_hits: list[SearchHit] = []
-        vec_hits_raw: list[SearchHit] = []
+        total_vec_count = 0
+        total_kw_count = 0
+        degraded_kb_ids: list[str] = []
         vector_latency_ms = 0
         keyword_latency_ms = 0
         rrf_pool_size = 0
@@ -157,7 +181,7 @@ class RetrieveUseCase:
                 process_result = await self._pipeline.process(
                     raw_query=query,
                     kb_ids=kb_ids,
-                    kb_context=kb_context,
+                    kb_contexts=kb_contexts,
                     synonyms=synonyms,
                     enabled=enabled,
                 )
@@ -181,63 +205,60 @@ class RetrieveUseCase:
             use_vector = _mode in ("hybrid", "vector")
             use_bm25 = _mode in ("hybrid", "bm25") and self._keyword_store is not None
 
-            # 3c. 并行召回：向量 + BM25 双路
-            t_vec = time.perf_counter()
-            tasks = []
-            if use_vector:
-                tasks.append(
-                    self._store.search_by_vector(search_vector, _vector_top_k, kb_ids)
-                )
-            if use_bm25:
-                tasks.append(
-                    self._keyword_store.search_by_keyword(  # type: ignore[union-attr]
-                        kb_ids[0], original_query, _bm25_top_k
-                    )
-                )
+            # 3c. per-KB 并行召回
+            per_kb_top_k = max(top_k, _vector_top_k, _bm25_top_k, 10)
 
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            t_vec = time.perf_counter()
+            kb_tasks = [
+                self._retrieve_per_kb(
+                    kb_id,
+                    search_vector,
+                    original_query,
+                    per_kb_top_k,
+                    rrf_k,
+                    use_vector,
+                    use_bm25,
+                )
+                for kb_id in kb_ids
+            ]
+            kb_groups = await asyncio.gather(*kb_tasks, return_exceptions=True)
             gather_latency_ms = int((time.perf_counter() - t_vec) * 1000)
             vector_latency_ms = gather_latency_ms
             keyword_latency_ms = gather_latency_ms
 
-            idx = 0
-            if use_vector:
-                vec_result = results[idx]
-                vec_hits_raw = [] if isinstance(vec_result, Exception) else vec_result
-                # 分数标记：向量分写入 metadata
-                for hit in vec_hits_raw:
-                    hit.metadata["_vector_score"] = hit.score
-                idx += 1
-            if use_bm25:
-                kw_result = results[idx]
-                kw_hits = [] if isinstance(kw_result, Exception) else kw_result
-                # 分数标记：BM25 分写入 metadata
-                for kw_hit in kw_hits:
-                    kw_hit.metadata["_bm25_score"] = kw_hit.score
-            # BIZ_EVENT: 关键词检索日志
-            if use_bm25:
-                try:
-                    kw_failed = isinstance(kw_result, Exception)
-                    logger.info(
-                        "",
-                        extra={
-                            "event_type": "BIZ_EVENT",
-                            "event": (
-                                "keyword_search_fail"
-                                if kw_failed
-                                else "keyword_search_done"
-                            ),
-                            "kb_ids": kb_ids,
-                            "query": original_query[:200],
-                            "hit_count": len(kw_hits),
-                            "latency_ms": keyword_latency_ms,
-                        },
+            # 过滤异常 KB，解包三元组并聚合计数
+            valid_groups: list[list[SearchHit]] = []
+            for i, result in enumerate(kb_groups):
+                if isinstance(result, Exception):
+                    degraded_kb_ids.append(kb_ids[i])
+                    logger.warning(
+                        "KB 召回异常，已跳过",
+                        extra={"kb_id": kb_ids[i], "error": str(result)},
                     )
-                except Exception:
-                    pass
+                else:
+                    per_kb_hits, vc, kc = result
+                    total_vec_count += vc
+                    total_kw_count += kc
+                    if not per_kb_hits:
+                        degraded_kb_ids.append(kb_ids[i])
+                        logger.info("KB 召回为空", extra={"kb_id": kb_ids[i]})
+                    else:
+                        valid_groups.append(per_kb_hits)
 
-            # 3d. RRF 融合
-            hits = rrf_fuse(vec_hits_raw, kw_hits, k=rrf_k)
+            # 记录降级 KB 汇总日志
+            if degraded_kb_ids:
+                logger.warning(f"部分 KB 召回异常或为空，已跳过: {degraded_kb_ids}")
+
+            # 3d. 跨库 RRF 融合
+            hits = cross_kb_rrf_fuse(valid_groups, k=rrf_k)
+
+            # 3d.5 批量预加载 kb_name（跨库 RRF 融合后、rerank 前）
+            rows = await self._kb_repo.pool.fetch(
+                "SELECT id, name FROM knowledge_bases WHERE id = ANY($1)", kb_ids
+            )
+            kb_names_map: dict[str, str] = {row["id"]: row["name"] for row in rows}
+            for hit in hits:
+                hit.kb_name = kb_names_map.get(hit.kb_id, hit.kb_id[:8])
             rrf_pool_size = len(hits)  # 融合后去重数
 
             # 3e. 重排：用原始 query + 原始 query embedding（对齐 BM25 和缓存）
@@ -262,12 +283,13 @@ class RetrieveUseCase:
                 total=len(hits),
                 latency_ms=latency_ms,
                 mode=_mode,
-                vector_count=len(vec_hits_raw),
-                bm25_count=len(kw_hits),
+                vector_count=total_vec_count,
+                bm25_count=total_kw_count,
                 fused_count=rrf_pool_size,
                 rerank_model=reranker_model,
                 degraded=degraded,
                 degraded_reason=degraded_reason,
+                degraded_kb_ids=degraded_kb_ids,
                 query_processing=query_processing,
             )
         finally:
@@ -281,8 +303,8 @@ class RetrieveUseCase:
                     hit_count=len(hits),
                     latency_ms=final_latency_ms,
                     retrieval_mode=_mode,
-                    vector_hit_count=len(vec_hits_raw),
-                    keyword_hit_count=len(kw_hits),
+                    vector_hit_count=total_vec_count,
+                    keyword_hit_count=total_kw_count,
                     rrf_pool_size=rrf_pool_size,
                     vector_latency_ms=vector_latency_ms,
                     keyword_latency_ms=keyword_latency_ms,
@@ -373,6 +395,71 @@ class RetrieveUseCase:
                 ErrorCode.FORBIDDEN,
                 f"部分知识库不属于当前租户（请求 {len(unique_ids)} 个，归属 {count} 个）",
             )
+
+    async def _retrieve_per_kb(
+        self,
+        kb_id: str,
+        search_vector: list[float],
+        original_query: str,
+        per_kb_top_k: int,
+        rrf_k: int,
+        use_vector: bool,
+        use_bm25: bool,
+    ) -> tuple[list[SearchHit], int, int]:
+        """单库召回：vector + BM25 → 库内 RRF，返回 (hits, vector_count, bm25_count)。
+
+        降级策略：
+        - 单路检索异常（网络错误等）→ 捕获后该路返回空列表，不中断另一路
+        - BM25 失败（返回空）→ 纯向量降级
+        - 向量检索失败（返回空）→ 纯 BM25 降级
+        - 两路都失败 → 返回 ([], 0, 0)
+        """
+        vec_hits: list[SearchHit] = []
+        kw_hits: list[SearchHit] = []
+
+        if use_vector:
+            try:
+                vec_hits = (
+                    await self._store.search_by_vector(
+                        search_vector, per_kb_top_k, [kb_id]
+                    )
+                    or []
+                )
+                # 分数标记：向量分写入 metadata
+                for hit in vec_hits:
+                    hit.metadata["_vector_score"] = hit.score
+            except Exception as e:
+                logger.warning(
+                    "向量检索异常，降级", extra={"kb_id": kb_id, "error": str(e)}
+                )
+                vec_hits = []
+
+        if use_bm25 and self._keyword_store is not None:
+            try:
+                kw_hits = (
+                    await self._keyword_store.search_by_keyword(
+                        kb_id, original_query, per_kb_top_k
+                    )
+                    or []
+                )
+                # 分数标记：BM25 分写入 metadata
+                for hit in kw_hits:
+                    hit.metadata["_bm25_score"] = hit.score
+            except Exception as e:
+                logger.warning(
+                    "BM25检索异常，降级", extra={"kb_id": kb_id, "error": str(e)}
+                )
+                kw_hits = []
+
+        vec_count = len(vec_hits)
+        kw_count = len(kw_hits)
+
+        # 两路都失败 → 返回空列表
+        if not vec_hits and not kw_hits:
+            return ([], 0, 0)
+
+        # 库内 RRF 融合（rrf_fuse 本身已支持空列表降级）
+        return (rrf_fuse(vec_hits, kw_hits, k=rrf_k), vec_count, kw_count)
 
 
 def _serialize_query_processing(result: QueryProcessResult) -> dict:

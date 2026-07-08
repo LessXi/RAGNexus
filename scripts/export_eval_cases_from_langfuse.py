@@ -165,14 +165,19 @@ def _extract_question(trace: dict) -> str | None:
 
 
 def _extract_kb_ids(trace: dict) -> list[str]:
-    """从 trace.metadata 中提取 kb_ids 列表。"""
+    """从 trace.metadata 中提取 kb_ids 列表，优先 kb_ids 回退 kb_id。"""
     metadata = trace.get("metadata")
     if isinstance(metadata, dict):
         kb_ids = metadata.get("kb_ids", [])
-        if isinstance(kb_ids, list):
+        if isinstance(kb_ids, list) and kb_ids:
             return [str(k) for k in kb_ids]
         if isinstance(kb_ids, str):
             return [kb_ids]
+
+        # 回退：旧 trace 可能只有 kb_id 单库字段
+        kb_id = metadata.get("kb_id")
+        if kb_id and isinstance(kb_id, str):
+            return [kb_id]
     return []
 
 
@@ -261,7 +266,11 @@ def main() -> None:
 
             question = _extract_question(trace)
             if question:
-                cases.append({"question": question, "ground_truth": ""})
+                kb_ids = _extract_kb_ids(trace)
+                case_entry: dict = {"question": question, "ground_truth": ""}
+                if kb_ids:
+                    case_entry["kb_ids"] = kb_ids
+                cases.append(case_entry)
 
         print(f"提取到 {len(cases)} 条有效 case（去重 trace 后）。")
 

@@ -19,7 +19,7 @@ class KnowledgeBase:
     id: str  # "kb_" + nanoid(8)
     name: str  # user input
     created_at: datetime
-    description: str = ""  # KB 描述，用于改写器 kb_context
+    description: str = ""  # KB 描述，用于改写器 kb_contexts
     tenant_id: str = ""  # 租户ID，默认为空字符串（兼容旧数据）
     settings: dict = field(default_factory=dict)  # KB 级配置: synonyms、rewrite_hint 等
 
@@ -58,6 +58,7 @@ class SearchHit:
     score: float  # higher = more relevant (1 - cosine distance)
     text: str
     metadata: dict[str, Any]
+    kb_name: str = ""  # 知识库名称，便于前端 Badge 展示
 
 
 @dataclass
@@ -108,6 +109,7 @@ class RetrieveResult:
     rerank_model: str | None
     degraded: bool
     degraded_reason: str | None
+    degraded_kb_ids: list[str] = field(default_factory=list)
     log_id: str | None = None
     trace_id: str | None = None
     # query processing pipeline result (stage 6)

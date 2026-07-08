@@ -89,9 +89,17 @@ class TestResponseSchemaInvariance:
     """响应格式必须与第一期一致：{code, data: {total, hits}, message}。"""
 
     def test_search_hit_fields(self):
-        """SearchHit 只含 chunk_id, kb_id, doc_id, score, text, metadata。"""
+        """SearchHit 只含 chunk_id, kb_id, doc_id, score, text, metadata, kb_name。"""
         hit_fields = {f.name for f in SearchHit.__dataclass_fields__.values()}
-        expected = {"chunk_id", "kb_id", "doc_id", "score", "text", "metadata"}
+        expected = {
+            "chunk_id",
+            "kb_id",
+            "doc_id",
+            "score",
+            "text",
+            "metadata",
+            "kb_name",
+        }
         assert (
             hit_fields == expected
         ), f"SearchHit 字段必须为 {expected}，实际: {hit_fields}"
