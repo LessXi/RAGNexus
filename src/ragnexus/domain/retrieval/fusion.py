@@ -110,3 +110,57 @@ def rrf_fuse(
         )
         for cid in sorted_ids
     ]
+
+
+def cross_kb_rrf_fuse(
+    kb_hits_groups: list[list[SearchHit]],
+    k: int = 60,
+) -> list[SearchHit]:
+    """跨库 RRF 融合：基于 per-KB rank 重新计算分数并合并。
+
+    对每组的每条 hit 按 RRF 公式 `1 / (k + rank_in_kb)` 计算贡献分，
+    然后按 `(doc_id, chunk_id)` 二元组去重聚合（跨 KB 累加），
+    最终返回按 rrf_score 降序排列的结果列表。
+
+    Args:
+        kb_hits_groups: 每组是一个 KB 的库内 rank-ordered hits，rank 从 1 开始。
+        k: RRF 公式中的平滑参数，默认 60。
+
+    Returns:
+        按 rrf_score 降序排列的融合后 SearchHit 列表。不修改输入。
+    """
+    # 快速路径：空输入
+    if not kb_hits_groups or all(not g for g in kb_hits_groups):
+        return []
+
+    # 按 (doc_id, chunk_id) 聚合：累计 RRF 分数，保留首次出现的 kb_id/text/metadata
+    rrf_scores: dict[tuple[str, str], float] = {}
+    first_seen: dict[tuple[str, str], SearchHit] = {}
+
+    for group in kb_hits_groups:
+        if not group:
+            continue
+        for rank, hit in enumerate(group, start=1):
+            contrib = 1.0 / (k + rank)
+            key = (hit.doc_id, hit.chunk_id)
+            if key in rrf_scores:
+                rrf_scores[key] += contrib
+            else:
+                rrf_scores[key] = contrib
+                first_seen[key] = hit
+
+    # 按 RRF score 降序排列
+    sorted_keys = sorted(rrf_scores, key=lambda k: rrf_scores[k], reverse=True)
+
+    # 构造新的 SearchHit 列表（不修改输入）
+    return [
+        SearchHit(
+            chunk_id=first_seen[key].chunk_id,
+            kb_id=first_seen[key].kb_id,
+            doc_id=first_seen[key].doc_id,
+            score=rrf_scores[key],
+            text=first_seen[key].text,
+            metadata=first_seen[key].metadata,
+        )
+        for key in sorted_keys
+    ]
