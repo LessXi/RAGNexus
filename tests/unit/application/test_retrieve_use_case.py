@@ -46,7 +46,9 @@ def mock_keyword_store():
 @pytest.fixture
 def mock_kb_repo():
     """模拟 KnowledgeBasePort。"""
-    return AsyncMock()
+    m = AsyncMock()
+    m.get.return_value = None
+    return m
 
 
 @pytest.fixture
@@ -804,3 +806,89 @@ async def test_retrieve_per_kb_catches_both_pathway_exceptions(
     assert vec_count == 0
     assert kw_count == 0
     assert hits == [], "两路都异常时 hits 应为空"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Task 1.7 测试 — 多库 synonyms 合并去重
+# ══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_multi_kb_synonyms_merged(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_reranker,
+    mock_pipeline,
+):
+    """多 KB settings.synonyms 合并去重后传给 QueryPipeline.process。"""
+    from datetime import datetime
+    from unittest.mock import patch
+
+    from ragnexus.domain.models import KnowledgeBase
+
+    dt = datetime(2025, 1, 1)
+    kb1 = KnowledgeBase(
+        id="kb1",
+        name="KB-A",
+        created_at=dt,
+        tenant_id="t1",
+        settings={
+            "synonyms": [
+                {"term": "手机", "expansion": ["智能手机"]},
+                {"term": "电脑", "expansion": ["计算机"]},
+            ]
+        },
+    )
+    kb2 = KnowledgeBase(
+        id="kb2",
+        name="KB-B",
+        created_at=dt,
+        tenant_id="t1",
+        settings={
+            "synonyms": [
+                {"term": "手机", "expansion": ["移动电话"]},  # 与 kb1 term 重复
+                {"term": "平板", "expansion": ["iPad"]},
+            ]
+        },
+    )
+    kb3 = KnowledgeBase(
+        id="kb3",
+        name="KB-C",
+        created_at=dt,
+        tenant_id="t1",
+    )  # settings 为默认空 dict
+
+    mock_reranker.model_name = None
+    mock_kb_repo.exists.return_value = True
+    # get 调用序列: primary(kb1) + loop(kb1, kb2, kb3) = 4 次
+    mock_kb_repo.get.side_effect = [kb1, kb1, kb2, kb3]
+    mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.return_value = ([], 0, 0)
+
+            await use_case.execute(
+                query="test query",
+                kb_ids=["kb1", "kb2", "kb3"],
+                tenant_id="t1",
+                top_k=5,
+            )
+
+    # 验证 pipeline.process 收到的 synonyms 参数
+    mock_pipeline.process.assert_awaited_once()
+    synonyms = mock_pipeline.process.call_args.kwargs["synonyms"]
+    assert synonyms is not None
+    assert isinstance(synonyms, list)
+
+    # 按 term 去重：3 个唯一 term（手机 去重为 kb2 版本）
+    assert len(synonyms) == 3, f"应去重为 3 条，实际 {len(synonyms)}"
+    terms = {s["term"] for s in synonyms}
+    assert terms == {"手机", "电脑", "平板"}, f"合并后的 terms: {terms}"
+
+    # "手机" 保留后出现的 kb2 版本（dict 覆盖语义）
+    phone = next(s for s in synonyms if s["term"] == "手机")
+    assert phone["expansion"] == ["移动电话"], f"手机应来自 kb2，实际: {phone}"

@@ -108,10 +108,9 @@ class RetrieveUseCase:
 
         # 3. Validate all KBs belong to current tenant
         await self.validate_kb_ownership(kb_ids, tenant_id)
-        # 3.5 组装 KB 上下文（用于查询改写和词表扩展）
+        # 3.5 组装 KB 上下文（用于查询改写）
         primary_kb = await self._kb_repo.get(kb_ids[0])
         kb_context: dict = {}
-        synonyms: list[dict] | None = None
         if primary_kb:
             kb_context = {
                 "name": primary_kb.name,
@@ -124,7 +123,32 @@ class RetrieveUseCase:
                 else kb_settings_raw
             )
             kb_context["rewrite_hint"] = kb_settings.get("rewrite_hint", "")
-            synonyms = kb_settings.get("synonyms")
+
+        # 3.6 合并所有 KB 的同义词表，按 term 去重
+        all_synonyms: list[dict] = []
+        for kb_id in kb_ids:
+            kb = await self._kb_repo.get(kb_id)
+            if kb is None:
+                continue
+            settings_raw = getattr(kb, "settings", {}) or {}
+            try:
+                settings = (
+                    json.loads(settings_raw)
+                    if isinstance(settings_raw, str)
+                    else settings_raw
+                )
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.warning(
+                    "KB settings JSON 解析失败，已跳过",
+                    extra={"kb_id": kb_id, "error": str(exc)},
+                )
+                continue
+            all_synonyms.extend(settings.get("synonyms", []))
+        synonyms: list[dict] | None = None
+        if all_synonyms:
+            valid = [s for s in all_synonyms if "term" in s]
+            if valid:
+                synonyms = list({s["term"]: s for s in valid}.values())
 
         # --- 退化检测：ES 不可用 + hybrid 模式 → 降级为纯向量 ---
         degraded = False
