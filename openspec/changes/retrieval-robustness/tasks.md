@@ -13,7 +13,7 @@
 
 ## 3. API 响应透传
 
-- [ ] 3.1 `retrieve_router.py` 响应 meta 中透传 `degraded_kb_ids`（已有字段，当前未透传）、`failed_kb_ids`（新增）、`partial_kb_success`（新增）、`empty_reason`（新增）
-- [ ] 3.2 确保 Happy path 向后兼容：单库 balanced 检索 `chunks>0` 时，meta 中 `degraded=false`，`degraded_kb_ids=[]`，`failed_kb_ids=[]`，`partial_kb_success=false`，`empty_reason=null`——现有 E2E 响应结构不破坏
+- [x] 3.1 `retrieve_router.py` 响应 meta 中透传 `degraded_kb_ids`（已有字段，当前未透传）、`failed_kb_ids`（新增）、`partial_kb_success`（新增）、`empty_reason`（新增）
+- [x] 3.2 确保 Happy path 向后兼容：单库 balanced 检索 `chunks>0` 时，meta 中 `degraded=false`，`degraded_kb_ids=[]`，`failed_kb_ids=[]`，`partial_kb_success=false`，`empty_reason=null`——现有 E2E 响应结构不破坏
 
 ## 4. 测试
