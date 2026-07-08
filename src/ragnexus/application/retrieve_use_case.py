@@ -19,7 +19,7 @@ from ragnexus.domain.ports import (
     RewritePort,
     VectorStorePort,
 )
-from ragnexus.domain.retrieval.fusion import rrf_fuse
+from ragnexus.domain.retrieval.fusion import cross_kb_rrf_fuse, rrf_fuse
 
 
 class RetrieveUseCase:
@@ -181,63 +181,45 @@ class RetrieveUseCase:
             use_vector = _mode in ("hybrid", "vector")
             use_bm25 = _mode in ("hybrid", "bm25") and self._keyword_store is not None
 
-            # 3c. 并行召回：向量 + BM25 双路
-            t_vec = time.perf_counter()
-            tasks = []
-            if use_vector:
-                tasks.append(
-                    self._store.search_by_vector(search_vector, _vector_top_k, kb_ids)
-                )
-            if use_bm25:
-                tasks.append(
-                    self._keyword_store.search_by_keyword(  # type: ignore[union-attr]
-                        kb_ids[0], original_query, _bm25_top_k
-                    )
-                )
+            # 3c. per-KB 并行召回
+            per_kb_top_k = max(top_k, _vector_top_k, _bm25_top_k, 10)
 
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            t_vec = time.perf_counter()
+            kb_tasks = [
+                self._retrieve_per_kb(
+                    kb_id,
+                    search_vector,
+                    original_query,
+                    per_kb_top_k,
+                    rrf_k,
+                    use_vector,
+                    use_bm25,
+                )
+                for kb_id in kb_ids
+            ]
+            kb_groups = await asyncio.gather(*kb_tasks, return_exceptions=True)
             gather_latency_ms = int((time.perf_counter() - t_vec) * 1000)
             vector_latency_ms = gather_latency_ms
             keyword_latency_ms = gather_latency_ms
 
-            idx = 0
-            if use_vector:
-                vec_result = results[idx]
-                vec_hits_raw = [] if isinstance(vec_result, Exception) else vec_result
-                # 分数标记：向量分写入 metadata
-                for hit in vec_hits_raw:
-                    hit.metadata["_vector_score"] = hit.score
-                idx += 1
-            if use_bm25:
-                kw_result = results[idx]
-                kw_hits = [] if isinstance(kw_result, Exception) else kw_result
-                # 分数标记：BM25 分写入 metadata
-                for kw_hit in kw_hits:
-                    kw_hit.metadata["_bm25_score"] = kw_hit.score
-            # BIZ_EVENT: 关键词检索日志
-            if use_bm25:
-                try:
-                    kw_failed = isinstance(kw_result, Exception)
-                    logger.info(
-                        "",
-                        extra={
-                            "event_type": "BIZ_EVENT",
-                            "event": (
-                                "keyword_search_fail"
-                                if kw_failed
-                                else "keyword_search_done"
-                            ),
-                            "kb_ids": kb_ids,
-                            "query": original_query[:200],
-                            "hit_count": len(kw_hits),
-                            "latency_ms": keyword_latency_ms,
-                        },
+            # 过滤异常 KB（记录日志）
+            valid_groups: list[list[SearchHit]] = []
+            degraded_kb_ids: list[str] = []
+            for i, result in enumerate(kb_groups):
+                if isinstance(result, Exception):
+                    degraded_kb_ids.append(kb_ids[i])
+                    logger.warning(
+                        "KB 召回异常，已跳过",
+                        extra={"kb_id": kb_ids[i], "error": str(result)},
                     )
-                except Exception:
-                    pass
+                elif not result:
+                    degraded_kb_ids.append(kb_ids[i])
+                    logger.info("KB 召回为空", extra={"kb_id": kb_ids[i]})
+                else:
+                    valid_groups.append(result)
 
-            # 3d. RRF 融合
-            hits = rrf_fuse(vec_hits_raw, kw_hits, k=rrf_k)
+            # 3d. 跨库 RRF 融合
+            hits = cross_kb_rrf_fuse(valid_groups, k=rrf_k)
             rrf_pool_size = len(hits)  # 融合后去重数
 
             # 3e. 重排：用原始 query + 原始 query embedding（对齐 BM25 和缓存）

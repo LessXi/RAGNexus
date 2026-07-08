@@ -251,3 +251,203 @@ async def test_retrieve_per_kb_both_empty_returns_empty(
     # 验证：两路都确实被调用了
     mock_store.search_by_vector.assert_awaited_once()
     mock_keyword_store.search_by_keyword.assert_awaited_once()
+
+
+# ══════════════════════════════════════════════════════════════════════
+# execute 方法测试 — per-KB 并行召回 + 跨库 RRF 融合
+# ══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_execute_per_kb_parallel_with_two_kbs(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_reranker,
+):
+    """多 KB (len=2) 走 per-KB 并行召回 → cross_kb_rrf_fuse 被调用。"""
+    from unittest.mock import patch
+
+    # 简化：禁用 rerank + 跳过 ownership 校验
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        # 单库召回结果
+        hits_kb1 = [_make_hit("c1", "kb1", "d1", 0.9)]
+        hits_kb2 = [_make_hit("c2", "kb2", "d2", 0.8)]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [hits_kb1, hits_kb2]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                fused = [
+                    _make_hit("c1", "kb1", "d1", 1.0),
+                    _make_hit("c2", "kb2", "d2", 0.8),
+                ]
+                mock_fuse.return_value = fused
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1", "kb2"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    # 验证 _retrieve_per_kb 被调用了两次（每个 KB 一次）
+    assert mock_retrieve.call_count == 2
+    # 验证 per_kb_top_k 参数
+    assert mock_retrieve.call_args_list[0][0][3] == 20  # max(5, 20, 20, 10) = 20
+
+    # 验证 cross_kb_rrf_fuse 被调用
+    mock_fuse.assert_called_once()
+    args, kwargs = mock_fuse.call_args
+    assert len(args[0]) == 2, "应传入两个 KB 的 hits 组"
+    assert kwargs["k"] == 60
+
+    # 验证结果
+    assert result.total == 2
+    assert len(result.hits) == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_single_kb_uses_unified_path(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_reranker,
+):
+    """单 KB 也走 per-KB 新路径 + cross_kb_rrf_fuse（恒等映射）。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        hits_kb1 = [
+            _make_hit("c1", "kb1", "d1", 0.9),
+            _make_hit("c2", "kb1", "d1", 0.8),
+        ]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.return_value = hits_kb1
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = hits_kb1  # 恒等映射
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    # 验证 _retrieve_per_kb 被调用一次
+    mock_retrieve.assert_called_once()
+
+    # 验证 cross_kb_rrf_fuse 被调用（传入单组 hits）
+    mock_fuse.assert_called_once()
+    args, kwargs = mock_fuse.call_args
+    assert len(args[0]) == 1, "单 KB 应传单组"
+    assert args[0][0] == hits_kb1
+
+    # 结果正确
+    assert result.total == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_kb_exception_not_blocking(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_reranker,
+):
+    """一个 KB 抛异常不阻塞其他 KB 的正常召回。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        hits_kb2 = [_make_hit("c2", "kb2", "d2", 0.8)]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            # kb1 抛异常，kb2 正常返回
+            mock_retrieve.side_effect = [RuntimeError("KB 故障"), hits_kb2]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = hits_kb2
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1", "kb2"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    # 验证 _retrieve_per_kb 仍被调用了两次
+    assert mock_retrieve.call_count == 2
+
+    # 验证 cross_kb_rrf_fuse 只收到正常 KB 的 hits
+    mock_fuse.assert_called_once()
+    args, kwargs = mock_fuse.call_args
+    assert len(args[0]) == 1, "应只传入正常 KB 的 hits"
+
+    # 结果正常返回
+    assert result.total == 1
+    assert result.hits[0].chunk_id == "c2"
+
+
+@pytest.mark.asyncio
+async def test_execute_uses_per_kb_top_k(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_reranker,
+):
+    """验证 per_kb_top_k = max(top_k, vector_top_k, bm25_top_k, 10)。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        hits = [_make_hit("c1", "kb1", "d1", 0.9)]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.return_value = hits
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+
+                # top_k=3, vector_top_k=20, bm25_top_k=15 → per_kb_top_k = max(3,20,15,10)=20
+                await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1"],
+                    tenant_id="tenant1",
+                    top_k=3,
+                    vector_top_k=20,
+                    bm25_top_k=15,
+                )
+
+    # 验证传给 _retrieve_per_kb 的 per_kb_top_k = 20
+    assert mock_retrieve.call_args[0][3] == 20, "应为 max(3, 20, 15, 10) = 20"
