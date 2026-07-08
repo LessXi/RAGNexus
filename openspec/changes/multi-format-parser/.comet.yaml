@@ -1,5 +1,5 @@
 workflow: full
-phase: verify
+phase: archive
 context_compression: off
 build_mode: subagent-driven-development
 build_pause: null
@@ -13,11 +13,11 @@ auto_transition: true
 base_ref: 48004700b67fd7fb06a0fabf69e5fef224656ca6
 design_doc: docs/superpowers/specs/2026-07-07-multi-format-parser-design.md
 plan: docs/superpowers/plans/2026-07-07-multi-format-parser.md
-verify_result: pending
-verification_report: null
-branch_status: pending
+verify_result: pass
+verification_report: docs/superpowers/reports/2026-07-07-multi-format-parser-verify.md
+branch_status: handled
 created_at: 2026-07-07
-verified_at: null
+verified_at: 2026-07-08
 archived: false
 handoff_context: openspec/changes/multi-format-parser/.comet/handoff/design-context.json
 handoff_hash: 4a4914235c9dde0cb2770566024268dc60a3671be66128c96385229e6914ebbe
