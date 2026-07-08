@@ -16,6 +16,8 @@ from ragnexus.observability import RetrieveObservability
 from ragnexus.tenant.plan_resolver import resolve_plan
 from ragnexus.tenant.retrieve_presets import RETRIEVE_PROFILE_PRESETS
 
+MULTI_KB_MAX = 5  # 多库联合检索的硬上限（所有套餐天花板）
+
 
 class _RerankOptions(BaseModel):
     """重排可选项 — 控制是否启用重排及保留数量。"""
@@ -60,6 +62,7 @@ def _serialize_hit(h: SearchHit) -> dict:
         "score": round(h.score, 6),
         "text": h.text,
         "metadata": h.metadata,
+        "kb_name": h.kb_name,
         "title": h.metadata.get("filename", ""),
     }
     # 提取评分字段（有值时输出，不回退到 str.lower 判空）
@@ -98,6 +101,13 @@ def create_router(
     ):
         # ── Step 1: 解析 plan ───────────────────────────────────────────
         plan_ctx = resolve_plan(current_tenant.plan)
+        # ── Step 1.5: KB 数量校验 ───────────────────────────────────────
+        max_kb = min(plan_ctx.limits.max_kb_per_retrieve, MULTI_KB_MAX)
+        if len(req.kb_ids) > max_kb:
+            raise AppError(
+                ErrorCode.FEATURE_NOT_ALLOWED,
+                f"当前套餐最多支持 {max_kb} 个库联合检索",
+            )
 
         # ── Step 2: profile 校验（默认 balanced）─────────────────────────
         profile_name: str = req.profile or "balanced"
@@ -258,10 +268,14 @@ def create_router(
             if qp and (qp.get("strategy") != "noop" or qp.get("synonym_applied")):
                 query_processing = qp
 
+            # ── 计算 per_kb_top_k ──────────────────────────────────────────
+            per_kb_top_k = max(effective_top_k, req.vector_top_k, req.bm25_top_k, 10)
+
             return {
                 "code": 0,
                 "data": {
                     "query": req.query,
+                    "kb_ids": req.kb_ids,
                     "hits": [_serialize_hit(h) for h in result.hits],
                     "meta": {
                         "query_processing": query_processing,
@@ -276,6 +290,11 @@ def create_router(
                         "rerank_model": result.rerank_model,
                         "degraded": result.degraded,
                         "degraded_reason": result.degraded_reason,
+                        "multi_kb": len(req.kb_ids) > 1,
+                        "kb_count": len(req.kb_ids),
+                        "per_kb_top_k": per_kb_top_k,
+                        "fusion": "rrf",
+                        "rrf_k": req.rrf_k,
                         "tenant_policy": {
                             "plan": current_tenant.plan,
                             "retrieve_profile": profile_name,
