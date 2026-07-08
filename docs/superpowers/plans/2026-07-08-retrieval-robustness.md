@@ -37,7 +37,7 @@ base-ref: b82404f7dddf07d7caa8dc59495b623cfa110b90
   - 改动: 从 `PerKbRetrieveResult` 提取降级标记，设置 `partial_kb_success`
   - 验证: 单测能断言降级标记
 
-- [ ] 2.3 区分 `failed_kb_ids`（异常）和 `degraded_kb_ids`（降级/空）
+- [x] 2.3 区分 `failed_kb_ids`（异常）和 `degraded_kb_ids`（降级/空）
   - 文件: `src/ragnexus/application/retrieve_use_case.py`
   - 逻辑: `isinstance(result, Exception)` → `failed_kb_ids`；`result.degraded` → 聚合 degraded 标记
   - 验证: mock 异常路径单测通过
