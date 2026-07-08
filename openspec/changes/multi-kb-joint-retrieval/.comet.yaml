@@ -8,15 +8,15 @@ tdd_mode: tdd
 review_mode: thorough
 review_engine: both
 isolation: branch
-verify_mode: null
+verify_mode: full
 auto_transition: true
 base_ref: 68ac839940a4127fe71adc33d04015937e675af8
 build_command: python -m pytest tests/unit/ -x --tb=short -q --ignore=tests/unit/adapters/test_feedback_router.py
 design_doc: docs/superpowers/specs/2026-07-08-multi-kb-joint-retrieval-design.md
 plan: docs/superpowers/plans/2026-07-08-multi-kb-joint-retrieval.md
 verify_result: pending
-verification_report: null
-branch_status: pending
+verification_report: docs/superpowers/reports/2026-07-08-multi-kb-joint-retrieval-verify.md
+branch_status: handled
 created_at: 2026-07-08
 verified_at: null
 archived: false
