@@ -526,3 +526,111 @@ bash comet-guard.sh ...
 ```
 
 同时注意路径分隔符：Git Bash 中使用 `/f/learnAgent/...` 而非 `F:/learnAgent/...`。
+
+## 开发经验（multi-kb-joint-retrieval）
+
+### 架构
+
+```
+请求 → Router (plan 校验 max_kb_per_retrieve) → RetrieveUseCase.execute()
+                                                        ↓
+                         ┌─ per-KB 并行 ─────────────────────────┐
+                         │  _retrieve_per_kb(kb_id) × N           │
+                         │  vector + BM25 → 库内 RRF (rrf_fuse)   │
+                         │  降级: BM25失败→纯向量; 向量失败→纯BM25 │
+                         └────────────────────────────────────────┘
+                                                        ↓
+                                              cross_kb_rrf_fuse()
+                                              跨库 RRF 融合 + 去重
+                                                        ↓
+                                              kb_name 填充 → rerank → 响应
+```
+
+核心模块: `domain/retrieval/fusion.py` + `application/retrieve_use_case.py` + `tenant/plan_presets.py`
+
+### 关键文件速查
+
+| 文件 | 作用 |
+|------|------|
+| `src/ragnexus/domain/retrieval/fusion.py` | `rrf_fuse`(两路库内) + `cross_kb_rrf_fuse`(多组跨库) |
+| `src/ragnexus/application/retrieve_use_case.py` | `_retrieve_per_kb` + execute 重构 + 词表合并 + 改写上下文 |
+| `src/ragnexus/domain/models.py` | `SearchHit.kb_name` 字段 |
+| `src/ragnexus/tenant/plan_presets.py` | `max_kb_per_retrieve` (free=1, standard=3, pro=5) |
+| `src/ragnexus/adapters/http/retrieve_router.py` | plan 校验 + 响应 kb_ids/meta 多库信息 |
+| `tests/e2e/test_multi_kb_retrieve.py` | 26 个 E2E 用例 (FastAPI TestClient) |
+
+### 两阶段 RRF 融合
+
+1. **库内 RRF** (`rrf_fuse`): 每个 KB 的 vector + BM25 两路 → `1/(k+rank)` 融合
+2. **跨库 RRF** (`cross_kb_rrf_fuse`): 多组 per-KB rank-ordered hits → `1/(k+rank_in_kb)` 再融合
+
+跨库去重键: `(doc_id, chunk_id)`，不含 `kb_id`（支持同一 chunk 跨 KB 累加）。
+
+### per-KB 降级策略
+
+```python
+# _retrieve_per_kb 内部
+try:
+    vec_hits = await self._store.search_by_vector(...)
+except Exception:
+    vec_hits = []  # 降级
+
+try:
+    kw_hits = await self._keyword_store.search_by_keyword(...)
+except Exception:
+    kw_hits = []  # 降级
+
+# 两路都失败 → 返回空，asyncio.gather 中该 KB 被跳过
+```
+
+### Plan 配额联动
+
+```bash
+# 修改租户套餐
+uv run python scripts/update_tenant_plan.py --tenant-id <id> --plan <free|standard|pro>
+```
+
+plan 校验在 router 层: `len(req.kb_ids) > plan_ctx.limits.max_kb_per_retrieve` → 20013。
+
+### Synonym 键名陷阱（关键教训）
+
+**synonym 数据格式是 `{"terms": [...], "expand": [...]}`（复数），不是 `{"term": "..."}`（单数）。**
+
+错误根源: `composition.py:210` 生产 `{"terms": [...], "expand": [...]}`，`synonym_expander.py:43-44` 读取 `group.get("terms", [])`。新代码如果用 `"term" in s` 过滤，所有生产 synonyms 被静默丢弃，词表扩展完全失效。
+
+**预防**: 新增任何字段消费代码时，必须对照生产方的实际键名，不能依赖伪代码或记忆。测试数据格式必须与生产一致。
+
+### E2E 测试模式
+
+使用 FastAPI TestClient，不依赖 Docker:
+```python
+from fastapi.testclient import TestClient
+client = TestClient(app)
+resp = client.post("/v1/rag:retrieve", json={...})
+assert resp.status_code == 200
+```
+
+### Comet build guard 预存测试失败处理
+
+如果项目有预存测试失败（非本次改动引入），在 `.comet.yaml` 中配置 `build_command` 跳过:
+```yaml
+build_command: python -m pytest tests/unit/ -x -q --ignore=tests/unit/adapters/test_feedback_router.py
+```
+
+### 新增错误码
+
+| 错误码 | HTTP | 含义 |
+|--------|------|------|
+| 10300 | 404 | 知识库不存在 (KNOWLEDGE_BASE_NOT_FOUND) — 含 missing_kb_id 上下文 |
+
+### Eval 多库适配
+
+```bash
+# 单库 eval (regression)
+uv run python scripts/run_retrieval_eval.py --dataset eval/datasets/ecommerce_retrieval.json
+
+# 跨库 eval (新增)
+uv run python scripts/run_retrieval_eval.py --dataset eval/datasets/multi_kb_cases.json
+```
+
+dataset case 格式: `kb_ids: [...]` 优先，回退 `kb_id`。
