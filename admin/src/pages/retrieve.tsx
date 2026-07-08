@@ -94,6 +94,9 @@ export default function RetrievePage() {
   const [retrieveError, setRetrieveError] = useState<string | null>(null);
   const [planLimitError, setPlanLimitError] = useState<string | null>(null);
 
+  /* ── toast ── */
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
   /* ── 反馈 ── */
   const [selectedScore, setSelectedScore] = useState<number>(0);
   const [comment, setComment] = useState('');
@@ -146,6 +149,13 @@ export default function RetrievePage() {
     }
   }, [planInfo]);
 
+
+  /* ── 自动隐藏 toast ── */
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, [toast]);
   /* ── Checkbox 切换 ── */
   const toggleKb = (kbId: string) => {
     setSelectedKbIds((prev) =>
@@ -155,7 +165,11 @@ export default function RetrievePage() {
 
   /* ── 检索 ── */
   const handleRetrieve = async () => {
-    if (!query.trim() || selectedKbIds.length === 0) return;
+    if (!query.trim()) return;
+    if (selectedKbIds.length === 0) {
+      setToast({ message: '请选择至少一个知识库', type: 'error' });
+      return;
+    }
 
     setRetrieving(true);
     setRetrieveError(null);
@@ -231,6 +245,18 @@ export default function RetrievePage() {
 
   return (
     <div className="space-y-6">
+      {/* Toast 通知 */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${
+            toast.type === 'success'
+              ? 'bg-green-600/90 text-white'
+              : 'bg-red-600/90 text-white'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
       <h1 className="text-xl font-semibold text-foreground">检索调试</h1>
 
       {/* ═══════ Card 1: 检索配置 ═══════ */}
