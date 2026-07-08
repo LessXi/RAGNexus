@@ -1,0 +1,17 @@
+{
+  "change": "hybrid-retrieval-bm25",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "9000545d26c0ae55758ea02c3b8f9c2562055528f6f73ec5abad6180d5e0cdd6",
+  "files": [
+    { "path": "openspec/changes/hybrid-retrieval-bm25/proposal.md", "sha256": "f32353756673f20ea7cb18820a6b1cd51dcd6b8dbe255180502e0d2a5244b64a" },
+    { "path": "openspec/changes/hybrid-retrieval-bm25/design.md", "sha256": "15fdb88929527690837e01d5575652607a84e0329b4c8094e8d9da5346bf753b" },
+    { "path": "openspec/changes/hybrid-retrieval-bm25/tasks.md", "sha256": "b0e075c50bb6eceae4c987d7f7f31d9d7295b9e8e9beaae06172738efaffe811" },
+    { "path": "openspec/changes/hybrid-retrieval-bm25/specs/document-upload/spec.md", "sha256": "24b6ac5e6f830cd59d835d5963058f869f09af4ffd65fc81887035c307ae8815" },
+    { "path": "openspec/changes/hybrid-retrieval-bm25/specs/hybrid-retrieval/spec.md", "sha256": "2c200b24a29950da7d3046d83996ab599f2b3e3d0d9b41cbb77b76921cde8430" },
+    { "path": "openspec/changes/hybrid-retrieval-bm25/specs/keyword-search/spec.md", "sha256": "041586901dca97e8e99322df11ab9f032fb2e5146bd85e479c9173e4f6367842" },
+    { "path": "openspec/changes/hybrid-retrieval-bm25/specs/retrieval/spec.md", "sha256": "3f462bfc8d24fe52e6a9be3894dc27326274cae6dc870490ada1c2d876fae8ab" }
+  ]
+}

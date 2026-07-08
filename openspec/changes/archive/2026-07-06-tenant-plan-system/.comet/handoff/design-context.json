@@ -1,0 +1,18 @@
+{
+  "change": "tenant-plan-system",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "f628057788f83ec2405f38f05b9e5565f70fdfb4752a1b4168b838e2799e70f7",
+  "files": [
+    { "path": "openspec/changes/tenant-plan-system/proposal.md", "sha256": "f0683bdac838f81851c8a53e023702381d473ef5bf63c61a50e3c5194cbc1fe7" },
+    { "path": "openspec/changes/tenant-plan-system/design.md", "sha256": "01b9683ded323f7e110380074e89a42dee443416896a5abf9cc8cecc9852d935" },
+    { "path": "openspec/changes/tenant-plan-system/tasks.md", "sha256": "e2d3b004a343297e479a3c1d2fe142189aad58797305962a97986f7e6c904818" },
+    { "path": "openspec/changes/tenant-plan-system/specs/auth-me-extension/spec.md", "sha256": "864729400f7995449aaff81bd78e647b6923695f1337c05909070833406ce8a9" },
+    { "path": "openspec/changes/tenant-plan-system/specs/rate-limiting-and-quota/spec.md", "sha256": "67f4e09b281ddaa258655352acf9ddee2e8f7fe71e2672bcbf3d04dffbcce4b6" },
+    { "path": "openspec/changes/tenant-plan-system/specs/retrieve-api/spec.md", "sha256": "9ea45a0e8bbbc56b34b559c53c0fdb9966ced57d280807963777f6a0d6c93644" },
+    { "path": "openspec/changes/tenant-plan-system/specs/retrieve-profiles/spec.md", "sha256": "1654120b1b99590f8e5aca68cd6d24b60e7cc27d578eda0fef786abef5b6d24e" },
+    { "path": "openspec/changes/tenant-plan-system/specs/tenant-plans/spec.md", "sha256": "cbd22d2632bd900e063a17c00004b7f26dcf1eef7335ffb2b7851f6a30a56f95" }
+  ]
+}

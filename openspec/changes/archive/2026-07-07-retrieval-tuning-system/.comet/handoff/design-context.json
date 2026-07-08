@@ -1,0 +1,13 @@
+{
+  "change": "retrieval-tuning-system",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "802b3a3d484326b52bbba732e051bf7c0a23341c3ceffec6679a59d6f1e564e4",
+  "files": [
+    { "path": "openspec/changes/retrieval-tuning-system/proposal.md", "sha256": "28fc00421b80c107efc0c220a4269c9f7dca2eb2117c2083df51f39426fc893a" },
+    { "path": "openspec/changes/retrieval-tuning-system/design.md", "sha256": "56e4f314d7c0939818013b1a87976d5eae2447dc99142f1831ae74297b436adf" },
+    { "path": "openspec/changes/retrieval-tuning-system/tasks.md", "sha256": "cd1bea93ef6d0d3f64d6926983922cd80e9af0cdb3c7350e7498742e8384fff5" }
+  ]
+}

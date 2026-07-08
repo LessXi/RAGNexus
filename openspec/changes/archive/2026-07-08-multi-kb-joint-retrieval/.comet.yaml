@@ -19,6 +19,6 @@ verification_report: docs/superpowers/reports/2026-07-08-multi-kb-joint-retrieva
 branch_status: handled
 created_at: 2026-07-08
 verified_at: 2026-07-08
-archived: false
+archived: true
 handoff_context: openspec/changes/multi-kb-joint-retrieval/.comet/handoff/design-context.json
 handoff_hash: 376070b040ab7a567728e9e088b0fe50cf474be61a4d2ea7d49b261c9b8a4dd6

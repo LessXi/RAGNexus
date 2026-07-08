@@ -1,0 +1,16 @@
+{
+  "change": "multi-kb-joint-retrieval",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "376070b040ab7a567728e9e088b0fe50cf474be61a4d2ea7d49b261c9b8a4dd6",
+  "files": [
+    { "path": "openspec/changes/multi-kb-joint-retrieval/proposal.md", "sha256": "9e5564402bd96e202b2e6102bf75db26f67615f8c7a311d9cebfc352bc5009bb" },
+    { "path": "openspec/changes/multi-kb-joint-retrieval/design.md", "sha256": "ca9173f903c12165bf45088e0cb40bc8b965d9dba7b9923c47fd96c5df1f95dd" },
+    { "path": "openspec/changes/multi-kb-joint-retrieval/tasks.md", "sha256": "9d033b2912a088467e70fe3f3399073766ea0280fc13592bea14ae8746bf0359" },
+    { "path": "openspec/changes/multi-kb-joint-retrieval/specs/multi-kb-retrieval/spec.md", "sha256": "a097b16b1d95cabd02f4cc40fb30e9a45713f767a497a46184380fc2c09a3e79" },
+    { "path": "openspec/changes/multi-kb-joint-retrieval/specs/retrieve-api/spec.md", "sha256": "b1f07c14f18b15bfb5b4b58cb8f8153cd06c16f760cc9d5d32ab192fc399730e" },
+    { "path": "openspec/changes/multi-kb-joint-retrieval/specs/tenant-plans/spec.md", "sha256": "e1e9db223288abb138932cba2517ed1af0a16355ae42e77051f5956518e9e302" }
+  ]
+}

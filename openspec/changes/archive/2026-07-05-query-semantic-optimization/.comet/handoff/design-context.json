@@ -1,0 +1,17 @@
+{
+  "change": "query-semantic-optimization",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "92ce442263e468e6c2d966e56d5ef56f02aa95a0e5b41d9526b5c530ae834110",
+  "files": [
+    { "path": "openspec/changes/query-semantic-optimization/proposal.md", "sha256": "21810c77d2c0372d9fca35d74fd0121dce0cb997de6e228fc7f6794e6b43f00c" },
+    { "path": "openspec/changes/query-semantic-optimization/design.md", "sha256": "db807deb7d2a6209d370787dc97809b681fc29b5a9166ffd129177953723ba61" },
+    { "path": "openspec/changes/query-semantic-optimization/tasks.md", "sha256": "aab9f0ae3e0d1c3557919e98396b67f580e42b0cb59a2c6efa373e6eadfd9c44" },
+    { "path": "openspec/changes/query-semantic-optimization/specs/query-processing-pipeline/spec.md", "sha256": "4c24b5ea684b4a0801d5a8759e409539ad7ea2be97cd049d350a1b4e105851cc" },
+    { "path": "openspec/changes/query-semantic-optimization/specs/query-rewrite-enhancement/spec.md", "sha256": "76f89dea1681570c229c58d544407e0c17eb30bdb6cdca87af3c2ecee5748e1b" },
+    { "path": "openspec/changes/query-semantic-optimization/specs/retrieve-api/spec.md", "sha256": "6ee0db5eb6abcf71a2f047774e783cde23d2d145c7aa08d35bc3b3d4e629f2a8" },
+    { "path": "openspec/changes/query-semantic-optimization/specs/synonym-expansion/spec.md", "sha256": "46f97507af4ba576e225913654e300069d2b56f352f9e628d93f56e514ea0549" }
+  ]
+}

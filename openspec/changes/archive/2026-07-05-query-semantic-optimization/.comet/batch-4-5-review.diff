@@ -1,0 +1,534 @@
+diff --git a/src/ragnexus/adapters/rewrite/pipeline.py b/src/ragnexus/adapters/rewrite/pipeline.py
+new file mode 100644
+index 0000000..1cc6fa7
+--- /dev/null
++++ b/src/ragnexus/adapters/rewrite/pipeline.py
+@@ -0,0 +1,97 @@
++"""查询处理流水线 — 串联改写+词表扩展，输出三阶段结果。
++
++QueryPipeline 是查询处理的核心编排器：
++1. raw_query → rewrite() → effective_query
++2. effective_query → expand() → search_query
++
++负责降级策略和异常处理。
++"""
++
++from __future__ import annotations
++
++from ragnexus.adapters.rewrite.synonym_expander import SynonymExpander
++from ragnexus.domain.ports import QueryProcessResult, RewritePort
++
++
++class QueryPipeline:
++    """查询处理流水线 — 串联改写+词表扩展，输出三阶段结果。
++
++    raw_query → rewrite() → effective_query → expand() → search_query
++    """
++
++    def __init__(self, rewriter: RewritePort, expander: SynonymExpander) -> None:
++        """初始化流水线。
++
++        参数:
++            rewriter: 查询改写提供者（LLM 或 Noop）。
++            expander: 词表扩展器。
++        """
++        self.rewriter = rewriter
++        self.expander = expander
++
++    async def process(
++        self,
++        raw_query: str,
++        kb_ids: list[str],
++        kb_context: dict | None = None,
++        synonyms: list[dict] | None = None,
++        enabled: bool = True,
++    ) -> QueryProcessResult:
++        """执行查询处理流水线。
++
++        参数:
++            raw_query: 用户原始查询。
++            kb_ids: 知识库 ID 列表，透传给 rewriter.rewrite()。
++            kb_context: 知识库上下文，透传给 rewriter.rewrite()。
++            synonyms: 词表列表，透传给 expander.expand()。
++            enabled: False 时跳过改写和扩展，直接返回 noop 结果。
++
++        返回:
++            QueryProcessResult 包含三阶段查询及处理元数据。
++        """
++        if not enabled:
++            return QueryProcessResult(
++                raw_query=raw_query,
++                effective_query=raw_query,
++                search_query=raw_query,
++                needs_rewrite=False,
++                strategy="noop",
++                rewrite_latency_ms=0,
++                degraded=False,
++                degraded_reason=None,
++                synonym_applied=False,
++                synonym_expansions=[],
++            )
++
++        # Step 1: 调用 rewriter.rewrite()
++        try:
++            result = await self.rewriter.rewrite(
++                query=raw_query,
++                kb_ids=kb_ids,
++                kb_context=kb_context,
++            )
++        except Exception as exc:
++            # rewrite() 抛异常 → 降级返回
++            return QueryProcessResult(
++                raw_query=raw_query,
++                effective_query=raw_query,
++                search_query=raw_query,
++                needs_rewrite=False,
++                strategy="rewrite",
++                rewrite_latency_ms=0,
++                degraded=True,
++                degraded_reason=str(exc),
++                synonym_applied=False,
++                synonym_expansions=[],
++            )
++
++        # Step 2: 词表扩展（若提供 synonyms）
++        if synonyms:
++            search_query, synonym_applied, expansions = self.expander.expand(
++                result.effective_query, synonyms
++            )
++            result.search_query = search_query
++            result.synonym_applied = synonym_applied
++            result.synonym_expansions = expansions
++
++        return result
+diff --git a/src/ragnexus/adapters/rewrite/synonym_expander.py b/src/ragnexus/adapters/rewrite/synonym_expander.py
+new file mode 100644
+index 0000000..ef7f08a
+--- /dev/null
++++ b/src/ragnexus/adapters/rewrite/synonym_expander.py
+@@ -0,0 +1,75 @@
++"""词表扩展器 — 基于 KB settings.synonyms 对有效查询追加扩展词。
++
++规则：
++- 遍历 effective_query 对每组 synonyms.terms 做中文精确子串匹配
++- 英文 casefold 匹配
++- 命中组的 expand 词去重后追加到 query 末尾
++- 多组同时命中时 expand 去重合并
++- 格式异常的 synonyms 静默跳过，不抛异常
++"""
++
++from __future__ import annotations
++
++
++class SynonymExpander:
++    """词表扩展器 — 基于 KB settings.synonyms 对有效查询追加扩展词。"""
++
++    def expand(
++        self, effective_query: str, synonyms: list[dict] | None
++    ) -> tuple[str, bool, list[str]]:
++        """扩展查询。
++
++        参数:
++            effective_query: 待扩展的查询字符串。
++            synonyms: 词表列表，每组包含 terms（匹配词）和 expand（扩展词）。
++
++        返回:
++            (search_query, synonym_applied, expansions):
++            - search_query: 追加扩展词后的查询
++            - synonym_applied: 是否有词表命中
++            - expansions: 实际追加的扩展词列表
++        """
++        if not synonyms:
++            return effective_query, False, []
++
++        all_expansions: list[str] = []
++        query_lower = effective_query.lower()
++
++        for group in synonyms:
++            try:
++                if not isinstance(group, dict):
++                    continue
++
++                terms = group.get("terms", [])
++                expand_words = group.get("expand", [])
++                if not isinstance(terms, list) or not isinstance(expand_words, list):
++                    continue
++            except Exception:
++                continue
++
++            # 检查是否命中
++            hit = False
++            for term in terms:
++                try:
++                    if not isinstance(term, str):
++                        continue
++                    if term.lower() in query_lower:
++                        hit = True
++                        break
++                except Exception:
++                    continue
++
++            if hit:
++                for word in expand_words:
++                    try:
++                        if isinstance(word, str) and word not in all_expansions:
++                            all_expansions.append(word)
++                    except Exception:
++                        continue
++
++        if not all_expansions:
++            return effective_query, False, []
++
++        # 去重后追加
++        search_query = effective_query + " " + " ".join(all_expansions)
++        return search_query, True, all_expansions
+diff --git a/tests/unit/test_pipeline.py b/tests/unit/test_pipeline.py
+new file mode 100644
+index 0000000..f25f9fb
+--- /dev/null
++++ b/tests/unit/test_pipeline.py
+@@ -0,0 +1,204 @@
++"""QueryPipeline 查询处理流水线单元测试。
++
++验证串联改写+词表扩展、noop 模式、异常降级、内部降级透传等场景。
++"""
++
++from __future__ import annotations
++
++from unittest.mock import AsyncMock
++
++import pytest
++
++from ragnexus.adapters.rewrite.pipeline import QueryPipeline
++from ragnexus.adapters.rewrite.synonym_expander import SynonymExpander
++from ragnexus.domain.ports import QueryProcessResult, RewritePort
++
++
++@pytest.fixture
++def mock_rewriter() -> AsyncMock:
++    """mock RewritePort — 默认返回成功改写结果。"""
++    rewriter = AsyncMock(spec=RewritePort)
++    rewriter.rewrite.return_value = QueryProcessResult(
++        raw_query="今天天气怎么样",
++        effective_query="今天天气如何",
++        search_query="今天天气如何",
++        needs_rewrite=True,
++        strategy="rewrite",
++        rewrite_latency_ms=42.0,
++        degraded=False,
++        degraded_reason=None,
++        synonym_applied=False,
++        synonym_expansions=[],
++    )
++    return rewriter
++
++
++@pytest.fixture
++def expander() -> SynonymExpander:
++    """真实 SynonymExpander 实例。"""
++    return SynonymExpander()
++
++
++@pytest.fixture
++def pipeline(mock_rewriter: AsyncMock, expander: SynonymExpander) -> QueryPipeline:
++    """注入 mock rewriter + 真实 expander 的 QueryPipeline。"""
++    return QueryPipeline(rewriter=mock_rewriter, expander=expander)
++
++
++class TestQueryPipeline:
++    """QueryPipeline.process() 行为测试。"""
++
++    # ── 场景 1: 改写+扩展同开 ─────────────────────────────
++
++    @pytest.mark.asyncio
++    async def test_rewrite_and_expand_both_enabled(
++        self, pipeline: QueryPipeline, mock_rewriter: AsyncMock
++    ) -> None:
++        """enabled=true, rewrite 成功, synonyms 有命中 → effective≠raw, search≠effective。"""
++        synonyms = [
++            {"terms": ["天气"], "expand": ["气候", "气象"]},
++        ]
++
++        result = await pipeline.process(
++            raw_query="今天天气怎么样",
++            kb_ids=["kb-1"],
++            kb_context={"name": "天气知识库"},
++            synonyms=synonyms,
++            enabled=True,
++        )
++
++        # rewriter.rewrite 被调用
++        mock_rewriter.rewrite.assert_awaited_once_with(
++            query="今天天气怎么样",
++            kb_ids=["kb-1"],
++            kb_context={"name": "天气知识库"},
++        )
++
++        # 改写生效
++        assert result.raw_query == "今天天气怎么样"
++        assert result.effective_query == "今天天气如何"
++        assert result.needs_rewrite is True
++        assert result.strategy == "rewrite"
++
++        # 扩展生效 — search_query 追加了扩展词
++        assert result.effective_query != result.search_query
++        assert "气候" in result.search_query
++        assert "气象" in result.search_query
++        assert result.synonym_applied is True
++        assert len(result.synonym_expansions) > 0
++
++    # ── 场景 2: 仅改写 ───────────────────────────────────
++
++    @pytest.mark.asyncio
++    async def test_rewrite_only_no_synonyms(
++        self, pipeline: QueryPipeline, mock_rewriter: AsyncMock
++    ) -> None:
++        """enabled=true, synonyms=None → effective≠raw, search==effective。"""
++        result = await pipeline.process(
++            raw_query="今天天气怎么样",
++            kb_ids=["kb-1"],
++            kb_context=None,
++            synonyms=None,
++            enabled=True,
++        )
++
++        assert result.raw_query == "今天天气怎么样"
++        assert result.effective_query == "今天天气如何"
++        # 无扩展 — search 应等于 effective
++        assert result.search_query == result.effective_query
++        assert result.synonym_applied is False
++        assert result.synonym_expansions == []
++
++    # ── 场景 3: enabled=false ────────────────────────────
++
++    @pytest.mark.asyncio
++    async def test_disabled_returns_noop(
++        self, pipeline: QueryPipeline, mock_rewriter: AsyncMock
++    ) -> None:
++        """enabled=false → strategy="noop", 三阶段相同, rewriter 未调用。"""
++        result = await pipeline.process(
++            raw_query="今天天气怎么样",
++            kb_ids=["kb-1"],
++            enabled=False,
++        )
++
++        # rewriter.rewrite 未被调用
++        mock_rewriter.rewrite.assert_not_awaited()
++
++        assert result.strategy == "noop"
++        assert result.raw_query == "今天天气怎么样"
++        assert result.effective_query == result.raw_query
++        assert result.search_query == result.raw_query
++        assert result.needs_rewrite is False
++        assert result.rewrite_latency_ms == 0
++        assert result.degraded is False
++        assert result.degraded_reason is None
++        assert result.synonym_applied is False
++        assert result.synonym_expansions == []
++
++    # ── 场景 4: rewrite 异常降级 ─────────────────────────
++
++    @pytest.mark.asyncio
++    async def test_rewrite_exception_degraded(
++        self, pipeline: QueryPipeline, mock_rewriter: AsyncMock
++    ) -> None:
++        """rewrite() 抛异常 → degraded=True, effective==raw, 不抛异常。"""
++        mock_rewriter.rewrite.side_effect = RuntimeError("LLM 超时")
++
++        # 不应抛异常
++        result = await pipeline.process(
++            raw_query="今天天气怎么样",
++            kb_ids=["kb-1"],
++            synonyms=[
++                {"terms": ["天气"], "expand": ["气候"]},
++            ],
++            enabled=True,
++        )
++
++        assert result.degraded is True
++        assert "LLM 超时" in (result.degraded_reason or "")
++        assert result.raw_query == "今天天气怎么样"
++        assert result.effective_query == result.raw_query
++        assert result.search_query == result.raw_query
++        assert result.needs_rewrite is False
++        assert result.strategy == "rewrite"
++        assert result.synonym_applied is False
++
++    # ── 场景 5: rewrite 内部降级透传 ──────────────────────
++
++    @pytest.mark.asyncio
++    async def test_rewrite_internal_degradation_passthrough(
++        self, pipeline: QueryPipeline, mock_rewriter: AsyncMock
++    ) -> None:
++        """rewrite 返回 degraded=True → pipeline 透传 degraded 状态。"""
++        mock_rewriter.rewrite.return_value = QueryProcessResult(
++            raw_query="今天天气怎么样",
++            effective_query="今天天气怎么样",
++            search_query="今天天气怎么样",
++            needs_rewrite=False,
++            strategy="rewrite",
++            rewrite_latency_ms=0,
++            degraded=True,
++            degraded_reason="解析失败: 无效 JSON",
++            synonym_applied=False,
++            synonym_expansions=[],
++        )
++
++        result = await pipeline.process(
++            raw_query="今天天气怎么样",
++            kb_ids=["kb-1"],
++            synonyms=[
++                {"terms": ["天气"], "expand": ["气候"]},
++            ],
++            enabled=True,
++        )
++
++        # 透传 degraded 状态
++        assert result.degraded is True
++        assert result.degraded_reason == "解析失败: 无效 JSON"
++        assert result.strategy == "rewrite"
++        assert result.effective_query == result.raw_query
++
++        # 扩展仍执行（effective_query 含"天气"命中）
++        assert result.synonym_applied is True
++        assert "气候" in result.search_query
+diff --git a/tests/unit/test_synonym_expander.py b/tests/unit/test_synonym_expander.py
+new file mode 100644
+index 0000000..95c4111
+--- /dev/null
++++ b/tests/unit/test_synonym_expander.py
+@@ -0,0 +1,134 @@
++"""SynonymExpander 词表扩展器单元测试。
++
++验证中文精确子串匹配、英文 casefold 匹配、去重、格式异常容错等场景。
++"""
++
++from __future__ import annotations
++
++
++from ragnexus.adapters.rewrite.synonym_expander import SynonymExpander
++
++
++class TestSynonymExpander:
++    """SynonymExpander.expand() 行为测试。"""
++
++    def test_single_group_hit(self) -> None:
++        """单组命中: query 含"背调" → 追加扩展词。"""
++        expander = SynonymExpander()
++        query = "背调流程"
++        synonyms = [
++            {"terms": ["背调"], "expand": ["背景调查", "标准问题清单"]},
++        ]
++
++        result, applied, expansions = expander.expand(query, synonyms)
++
++        assert applied is True
++        assert "背景调查" in result
++        assert "标准问题清单" in result
++        assert query in result  # 原查询保留
++        assert "背景调查" in expansions
++        assert "标准问题清单" in expansions
++
++    def test_multi_group_hit_dedup(self) -> None:
++        """多组命中+去重: query 含"背调"和"薪酬" → 去重合并扩展词。"""
++        expander = SynonymExpander()
++        query = "背调与薪酬定级"
++        synonyms = [
++            {"terms": ["背调"], "expand": ["背景调查", "标准问题清单"]},
++            {"terms": ["薪酬", "薪资", "工资"], "expand": ["职级", "薪酬定级"]},
++        ]
++
++        result, applied, expansions = expander.expand(query, synonyms)
++
++        assert applied is True
++        assert "背景调查" in result
++        assert "标准问题清单" in result
++        assert "职级" in result
++        assert "薪酬定级" in result
++        assert len(expansions) == 4
++
++    def test_no_match(self) -> None:
++        """未命中: query 不含任何 terms → 返回原 query。"""
++        expander = SynonymExpander()
++        query = "RAG 架构设计"
++        synonyms = [
++            {"terms": ["背调"], "expand": ["背景调查"]},
++            {"terms": ["薪酬"], "expand": ["职级"]},
++        ]
++
++        result, applied, expansions = expander.expand(query, synonyms)
++
++        assert result == query
++        assert applied is False
++        assert expansions == []
++
++    def test_english_casefold(self) -> None:
++        """英文大小写: casefold 匹配。"RAG" 命中 "rag"。"""
++        expander = SynonymExpander()
++        query = "RAG 架构"
++        synonyms = [
++            {"terms": ["rag"], "expand": ["检索增强生成"]},
++        ]
++
++        result, applied, expansions = expander.expand(query, synonyms)
++
++        assert applied is True
++        assert "检索增强生成" in result
++        assert "检索增强生成" in expansions
++
++    def test_empty_synonyms(self) -> None:
++        """空词表: synonyms=None / [] → 返回原 query。"""
++        expander = SynonymExpander()
++        query = "任意查询"
++
++        # None
++        r1, a1, e1 = expander.expand(query, None)
++        assert r1 == query
++        assert a1 is False
++        assert e1 == []
++
++        # 空列表
++        r2, a2, e2 = expander.expand(query, [])
++        assert r2 == query
++        assert a2 is False
++        assert e2 == []
++
++    def test_malformed_synonyms_silent_skip(self) -> None:
++        """格式异常容错: 畸形 synonyms 结构不抛异常，正常组仍生效。"""
++        expander = SynonymExpander()
++        query = "背调测试"
++        synonyms: list = [
++            {"terms": ["背调"], "expand": ["背景调查"]},  # 正常组
++            "not a dict",  # 非 dict
++            {"expand": ["缺 terms"]},  # 缺 terms 键
++            {"terms": "not list", "expand": ["x"]},  # terms 非 list
++            {"terms": ["背调"], "expand": "not list"},  # expand 非 list
++            {"terms": [123, None], "expand": ["数字"]},  # terms 含非字符串
++            {"terms": ["背调"], "expand": [456, None]},  # expand 含非字符串
++            {"terms": [], "expand": ["空 terms"]},  # 空 terms — 不命中但不报错
++        ]
++
++        result, applied, expansions = expander.expand(query, synonyms)
++
++        # 格式异常组静默跳过，不应抛异常
++        assert applied is True
++        assert "背景调查" in result
++        assert expansions == ["背景调查"]  # 只有正常组命中
++
++    def test_cross_group_expand_dedup(self) -> None:
++        """跨组扩展词去重: 两组 expand 含相同词 → 只追加一次。"""
++        expander = SynonymExpander()
++        query = "背调与薪酬制度"
++        synonyms = [
++            {"terms": ["背调"], "expand": ["背景调查", "薪酬定级"]},
++            {"terms": ["薪酬"], "expand": ["职级", "背景调查"]},  # "背景调查" 重复
++        ]
++
++        result, applied, expansions = expander.expand(query, synonyms)
++
++        assert applied is True
++        # "背景调查" 只出现一次
++        assert result.count("背景调查") == 1
++        assert "职级" in expansions
++        assert "薪酬定级" in expansions
++        assert len(expansions) == 3  # 去重后 3 个不同词

@@ -1,0 +1,23 @@
+workflow: full
+phase: archive
+context_compression: off
+build_mode: subagent-driven-development
+build_pause: null
+subagent_dispatch: confirmed
+tdd_mode: tdd
+review_mode: thorough
+isolation: branch
+verify_mode: full
+auto_transition: true
+base_ref: 36e2af511ec2e95f47211a9e2b9c9ae0b893d03e
+design_doc: docs/superpowers/specs/2026-07-04-kb-retrieve-pages-design.md
+plan: docs/superpowers/plans/2026-07-04-kb-retrieve-pages.md
+verify_result: pass
+verification_report: docs/superpowers/reports/2026-07-04-kb-retrieve-pages-verify.md
+branch_status: handled
+created_at: 2026-07-04
+verified_at: 2026-07-04
+archived: true
+handoff_context: openspec/changes/kb-retrieve-pages/.comet/handoff/design-context.json
+handoff_hash: 55cb5faddf3aafb489b74452fe8fc6d983ab07d4e575ed77d5f1bb7af23f894c
+build_command: uv run pytest tests/unit -k "not TestLoggingMiddleware"

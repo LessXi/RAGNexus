@@ -1,0 +1,133 @@
+diff --git a/src/ragnexus/domain/models.py b/src/ragnexus/domain/models.py
+index fc06129..d8cb3ac 100644
+--- a/src/ragnexus/domain/models.py
++++ b/src/ragnexus/domain/models.py
+@@ -4,20 +4,21 @@ from dataclasses import dataclass, field
+ from datetime import datetime
+ from typing import Any
+ 
+ 
+ @dataclass
+ class KnowledgeBase:
+     id: str  # "kb_" + nanoid(8)
+     name: str  # user input
+     created_at: datetime
+     tenant_id: str = ""  # 租户ID，默认为空字符串（兼容旧数据）
++    settings: dict = field(default_factory=dict)  # KB 级配置: synonyms、rewrite_hint 等
+ 
+ 
+ @dataclass
+ class Section:
+     heading: str | None  # None means no heading
+     level: int  # 1-6, 0 means no heading
+     content: str
+ 
+ 
+ @dataclass
+diff --git a/src/ragnexus/domain/ports.py b/src/ragnexus/domain/ports.py
+index 322e206..175ae05 100644
+--- a/src/ragnexus/domain/ports.py
++++ b/src/ragnexus/domain/ports.py
+@@ -37,20 +37,28 @@ class KnowledgeBasePort(Protocol):
+     async def exists(self, kb_id: str) -> bool: ...
+ 
+     async def doc_exists(self, doc_id: str) -> bool: ...
+ 
+     async def list_with_documents(
+         self, tenant_id: str, keyword: str | None = None
+     ) -> list[TenantKBTree]:
+         """获取单租户→KB→文档三级树，keyword 模糊匹配 KB 名称。"""
+         ...
+ 
++    async def get_settings(self, kb_id: str) -> dict:
++        """获取 KB 的 settings（JSONB）。"""
++        ...
++
++    async def update_settings(self, kb_id: str, settings: dict) -> None:
++        """更新（覆盖）KB 的 settings。"""
++        ...
++
+ 
+ class EmbedderPort(Protocol):
+     """文本 → 向量。骨架实现: OpenAICompatEmbedder。"""
+ 
+     async def embed(self, texts: list[str]) -> list[list[float]]: ...
+ 
+ 
+ class ParserPort(Protocol):
+     """文档解析。骨架实现: MarkdownAndTextParser。"""
+ 
+@@ -126,35 +134,67 @@ class KeywordSearchPort(Protocol):
+     ) -> list[SearchHit]:
+         """BM25 检索，返回带原始 BM25 score 的 SearchHit。"""
+         ...
+ 
+     async def delete(self, kb_id: str, chunk_ids: list[str]) -> None:
+         """从关键词索引删除指定 chunk。"""
+         ...
+ 
+ 
+ @dataclass
+-class RewriteResult:
+-    """查询改写结果。"""
++class QueryProcessResult:
++    """查询处理结果 — 三阶段查询链的输出。
+ 
+-    original_query: str
+-    rewritten_query: str  # 不需要改写时 = original_query
++    raw_query → effective_query → search_query
++    """
++
++    raw_query: str
++    """用户原话，全程不变"""
++    effective_query: str
++    """LLM 改写后；未改写时 = raw_query"""
++    search_query: str
++    """追加扩展词后；无扩展时 = effective_query"""
+     needs_rewrite: bool
+-    reason: str  # 仅日志使用
++    """LLM 判断是否需要改写"""
++    strategy: str
++    """"rewrite" | "noop" """
++    rewrite_latency_ms: int
++    """改写耗时；未改写时 = 0（哨兵值）"""
++    degraded: bool
++    """改写是否失败降级"""
++    degraded_reason: str | None
++    """降级原因"""
++    synonym_applied: bool
++    """词表是否命中"""
++    synonym_expansions: list[str]
++    """追加的扩展词列表"""
+ 
+ 
+ class RewritePort(Protocol):
+     """查询改写端口 — 优化口语化/模糊 query 以提升向量检索效果。
+ 
+     骨架实现: LLMRewriteProvider (启用时), NoopRewriteProvider (禁用时)。
+     """
+ 
+     async def rewrite(
+         self,
+         *,
+         query: str,
+         kb_ids: list[str],
+-    ) -> RewriteResult: ...
++        kb_context: dict | None = None,
++    ) -> QueryProcessResult:
++        """改写查询，返回三段式查询处理结果。
++
++        Args:
++            query: 原始用户查询。
++            kb_ids: 目标知识库 ID 列表。
++            kb_context: 额外上下文字典，包含 KB 的 name、description、settings
++                （含 rewrite_hint）。改写器将其注入 system prompt 以提升改写质量。
++
++        Returns:
++            QueryProcessResult: raw_query → effective_query → search_query 三段式结构。
++        """
++        ...
+ 
+     async def clear_cache(self, kb_id: str) -> None:
+         """清空指定 KB 的改写缓存。文档上传后由 composition.py 调用。"""
+         ...

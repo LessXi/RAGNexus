@@ -1,0 +1,16 @@
+{
+  "change": "structured-markdown-chunking",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "0bb8df446f4edd4e564957b7f7afa28ac8e239271847b7e11ea3cc26114ef6aa",
+  "files": [
+    { "path": "openspec/changes/structured-markdown-chunking/proposal.md", "sha256": "cc601508a62c50dccbe540428a7302e41ee5e47cd241b5fc4d2927ff2fe16769" },
+    { "path": "openspec/changes/structured-markdown-chunking/design.md", "sha256": "0dfba522da2060b27bcca9150f16619c9d4517347852e61284daf3a900a864f5" },
+    { "path": "openspec/changes/structured-markdown-chunking/tasks.md", "sha256": "b78e692c2a4997905cd4cd6eb72d2ef62ffc8de522da3dffa4035f54904c56b1" },
+    { "path": "openspec/changes/structured-markdown-chunking/specs/batch-reindex/spec.md", "sha256": "bde1ed70b1a568661069b292e3552fc49c5a2007c8c8fc05fc80d4ac562b7af4" },
+    { "path": "openspec/changes/structured-markdown-chunking/specs/retrieve-api/spec.md", "sha256": "9dfbb9e093b918f6b2f80c71c965568fddbcb0757da85911a4c40313bac625b6" },
+    { "path": "openspec/changes/structured-markdown-chunking/specs/structured-chunking/spec.md", "sha256": "73465fc7bf45d5bc92ff01c9d0be7232aaf88ffa22bb5b8946cbeb0d888eb132" }
+  ]
+}

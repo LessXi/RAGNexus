@@ -1,0 +1,953 @@
+diff --git a/src/ragnexus/adapters/http/retrieve_router.py b/src/ragnexus/adapters/http/retrieve_router.py
+index da004d8..5a4afb0 100644
+--- a/src/ragnexus/adapters/http/retrieve_router.py
++++ b/src/ragnexus/adapters/http/retrieve_router.py
+@@ -9,32 +9,40 @@ from pydantic import BaseModel, Field
+ from ragnexus.domain.models import SearchHit
+ 
+ 
+ class _RerankOptions(BaseModel):
+     """重排可选项 — 控制是否启用重排及保留数量。"""
+ 
+     enabled: bool = False
+     top_n: int = Field(default=5, ge=1, le=20)
+ 
+ 
++class _QueryOptions(BaseModel):
++    """查询处理可选项 — 控制改写和词表扩展。"""
++
++    enabled: bool = True
++    strategy: str = "rewrite"
++
++
+ class _RetrieveRequest(BaseModel):
+     """检索请求体 — 支持多路召回 + RRF 融合 + 可选重排。"""
+ 
+     model_config = {"extra": "forbid"}
+     query: str = Field(...)
+     kb_ids: list[str] = Field(...)
+     top_k: int = Field(default=5, ge=1, le=50)
+     mode: Literal["vector", "bm25", "hybrid"] = "hybrid"
+     vector_top_k: int = Field(default=20, ge=1, le=200)
+     bm25_top_k: int = Field(default=20, ge=1, le=200)
+     rrf_k: int = Field(default=60, ge=1, le=200)
+     rerank: _RerankOptions | None = None
++    query_options: _QueryOptions | None = None
+ 
+ 
+ def _serialize_hit(h: SearchHit) -> dict:
+     """将 SearchHit 序列化为 API 响应格式。
+ 
+     - 用 .get() 提取评分字段（不删除，metadata 保持完整）
+     - file_name → title 映射
+     """
+     serialized: dict = {
+         "chunk_id": h.chunk_id,
+@@ -73,37 +81,52 @@ def create_router(uc, get_current_tenant) -> APIRouter:
+ 
+     @router.post("/v1/rag:retrieve")
+     async def retrieve(
+         req: _RetrieveRequest,
+         current_tenant: TenantContext = Depends(get_current_tenant),
+     ):
+         # 解析 rerank 选项
+         rerank_enabled = req.rerank.enabled if req.rerank else None
+         rerank_top_n = req.rerank.top_n if req.rerank else 5
+ 
++        # 解析 query_options
++        query_options_dict = None
++        if req.query_options:
++            query_options_dict = req.query_options.model_dump()
++
+         result = await uc.execute(
+             query=req.query,
+             kb_ids=req.kb_ids,
+             tenant_id=current_tenant.tenant_id,
+             top_k=req.top_k,
+             mode=req.mode,
+             vector_top_k=req.vector_top_k,
+             bm25_top_k=req.bm25_top_k,
+             rrf_k=req.rrf_k,
+             rerank_enabled=rerank_enabled,
+             rerank_top_n=rerank_top_n,
++            query_options=query_options_dict,
+         )
++
++        # 构建 query_processing 字段
++        qp = result.query_processing
++        query_processing = None
++        if qp and (qp.get("strategy") != "noop" or qp.get("synonym_applied")):
++            query_processing = qp
++
+         return {
+             "code": 0,
+             "data": {
++                "query": req.query,
+                 "hits": [_serialize_hit(h) for h in result.hits],
+                 "meta": {
++                    "query_processing": query_processing,
+                     "total": result.total,
+                     "latency_ms": result.latency_ms,
+                     "mode": result.mode,
+                     "vector_count": result.vector_count,
+                     "bm25_count": result.bm25_count,
+                     "fused_count": result.fused_count,
+                     "rerank_model": result.rerank_model,
+                     "degraded": result.degraded,
+                     "degraded_reason": result.degraded_reason,
+                 },
+diff --git a/src/ragnexus/application/retrieve_use_case.py b/src/ragnexus/application/retrieve_use_case.py
+index 9012b5d..4b2cc1e 100644
+--- a/src/ragnexus/application/retrieve_use_case.py
++++ b/src/ragnexus/application/retrieve_use_case.py
+@@ -1,68 +1,73 @@
+ """RetrieveUseCase — 校验查询、嵌入向量、搜索向量库、异步记录日志。"""
+ 
+ import asyncio
+ import time
+ 
++from ragnexus.adapters.rewrite.pipeline import QueryPipeline
+ from ragnexus.core.errors import AppError, ErrorCode
+ from ragnexus.core.logger import logger
+ from ragnexus.domain.models import RetrieveResult, SearchHit
+ from ragnexus.domain.ports import (
+     EmbedderPort,
+     KeywordSearchPort,
+     KnowledgeBasePort,
++    QueryProcessResult,
+     RerankPort,
+     RetrieveLogPort,
+     RewritePort,
+     VectorStorePort,
+ )
+ from ragnexus.domain.retrieval.fusion import rrf_fuse
+ 
+ 
+ class RetrieveUseCase:
+     """跨知识库按查询搜索 chunk。"""
+ 
+     def __init__(
+         self,
+         kb_repo: KnowledgeBasePort,
+         embedder: EmbedderPort,
+         store: VectorStorePort,
+         log_port: RetrieveLogPort,
+         reranker: RerankPort,
+-        rewriter: RewritePort,
++        rewriter: RewritePort | None = None,
++        pipeline: QueryPipeline | None = None,
+         keyword_store: KeywordSearchPort | None = None,
+         candidate_k: int = 20,
+         retrieval_mode: str = "hybrid",
+     ) -> None:
+         self._kb_repo = kb_repo
+         self._embedder = embedder
+         self._store = store
+-        self._keyword_store = keyword_store
+         self._log_port = log_port
+         self._reranker = reranker
+         self._rewriter = rewriter
++        self._pipeline = pipeline
++        self._keyword_store = keyword_store
+         self._candidate_k = candidate_k
+         self._retrieval_mode = retrieval_mode
+         self._background_tasks: set[asyncio.Task] = set()
+ 
+     async def execute(
+         self,
+         query: str,
+         kb_ids: list[str],
+         tenant_id: str,
+         top_k: int = 5,
+         mode: str | None = None,
+         vector_top_k: int | None = None,
+         bm25_top_k: int | None = None,
+         rrf_k: int = 60,
+         rerank_enabled: bool | None = None,
+         rerank_top_n: int = 5,
++        query_options: dict | None = None,
+     ) -> RetrieveResult:
+         """执行检索：校验 → 改写 → 双路召回 → RRF 融合 → 重排 → 返回 RetrieveResult。
+ 
+         参数:
+             query: 用户查询字符串
+             kb_ids: 目标知识库 ID 列表
+             top_k: 最终返回的 chunk 数量（传给 reranker.rerank top_n 参数）
+             mode: 检索模式 ("hybrid"|"vector"|"bm25")，None 用 self._retrieval_mode
+             vector_top_k: 向量召回候选数，None 用 self._candidate_k
+             bm25_top_k: BM25 召回候选数，None 用 self._candidate_k
+@@ -92,42 +97,72 @@ class RetrieveUseCase:
+         if not (1 <= top_k <= 50):
+             raise AppError(ErrorCode.PARAM_ERROR, "top_k 必须在 1-50 之间")
+ 
+         # 2. Validate all KBs exist
+         for kb_id in kb_ids:
+             if not await self._kb_repo.exists(kb_id):
+                 raise AppError(ErrorCode.NOT_FOUND, f"知识库不存在: {kb_id}")
+ 
+         # 3. Validate all KBs belong to current tenant
+         await self.validate_kb_ownership(kb_ids, tenant_id)
++        # 3.5 组装 KB 上下文（用于查询改写和词表扩展）
++        primary_kb = await self._kb_repo.get(kb_ids[0])
++        kb_context: dict = {}
++        synonyms: list[dict] | None = None
++        if primary_kb:
++            kb_context = {
++                "name": primary_kb.name,
++                "description": getattr(primary_kb, "description", ""),
++            }
++            kb_settings = getattr(primary_kb, "settings", {}) or {}
++            if isinstance(kb_settings, dict):
++                kb_context["rewrite_hint"] = kb_settings.get("rewrite_hint", "")
++                synonyms = kb_settings.get("synonyms")
+ 
+         # --- 退化检测：ES 不可用 + hybrid 模式 → 降级为纯向量 ---
+         degraded = False
+         degraded_reason: str | None = None
+         if self._keyword_store is None and _mode == "hybrid":
+             degraded = True
+             degraded_reason = "ES 不可用，降级为纯向量检索"
+             _mode = "vector"
+ 
+         # 3. Retrieve — 查询改写 → 双 embedding → 并行召回 → RRF 融合 → 重排
+         original_query = query  # 保存原始 query，用于 rerank（相关性判断）和日志
+         t0 = time.perf_counter()
+         hits: list[SearchHit] = []
+         kw_hits: list[SearchHit] = []
+         vec_hits_raw: list[SearchHit] = []
+         vector_latency_ms = 0
+         keyword_latency_ms = 0
+         rrf_pool_size = 0
+         try:
+-            # 3a. 查询改写（在 embed 之前，优化口语化/模糊 query）
+-            rewrite_result = await self._rewriter.rewrite(query=query, kb_ids=kb_ids)
+-            search_query = rewrite_result.rewritten_query
++            if self._pipeline is not None:
++                enabled = query_options.get("enabled", True) if query_options else True
++                process_result = await self._pipeline.process(
++                    raw_query=query,
++                    kb_ids=kb_ids,
++                    kb_context=kb_context,
++                    synonyms=synonyms,
++                    enabled=enabled,
++                )
++                search_query = process_result.search_query
++                query_processing = _serialize_query_processing(process_result)
++            elif self._rewriter is not None:
++                rewrite_result = await self._rewriter.rewrite(
++                    query=query, kb_ids=kb_ids
++                )
++                search_query = rewrite_result.rewritten_query
++                query_processing = None
++            else:
++                search_query = query
++                query_processing = None
+ 
+             # 3b. 双 embedding: 改写后 query → 向量搜索，原始 query → rerank 缓存匹配
+             vectors = await self._embedder.embed([search_query, original_query])
+             search_vector = vectors[0]  # embed(改写后) → 向量搜索
+             original_vector = vectors[1]  # embed(原始) → rerank 缓存匹配
+ 
+             use_vector = _mode in ("hybrid", "vector")
+             use_bm25 = _mode in ("hybrid", "bm25") and self._keyword_store is not None
+ 
+             # 3c. 并行召回：向量 + BM25 双路
+@@ -210,20 +245,21 @@ class RetrieveUseCase:
+                 hits=hits,
+                 total=len(hits),
+                 latency_ms=latency_ms,
+                 mode=_mode,
+                 vector_count=len(vec_hits_raw),
+                 bm25_count=len(kw_hits),
+                 fused_count=rrf_pool_size,
+                 rerank_model=reranker_model,
+                 degraded=degraded,
+                 degraded_reason=degraded_reason,
++                query_processing=query_processing,
+             )
+         finally:
+             # --- 仅保留资源清理：fire-and-forget 日志 ---
+             final_latency_ms = int((time.perf_counter() - t0) * 1000)
+             task = asyncio.create_task(
+                 self._safe_log(
+                     query=query,
+                     kb_ids=kb_ids,
+                     top_k=top_k,
+                     hit_count=len(hits),
+@@ -295,10 +331,25 @@ class RetrieveUseCase:
+         count = await self._kb_repo.pool.fetchval(
+             "SELECT COUNT(*) FROM knowledge_bases WHERE id = ANY($1) AND tenant_id = $2",
+             list(unique_ids),
+             tenant_id,
+         )
+         if count != len(unique_ids):
+             raise AppError(
+                 ErrorCode.FORBIDDEN,
+                 f"部分知识库不属于当前租户（请求 {len(unique_ids)} 个，归属 {count} 个）",
+             )
++
++
++def _serialize_query_processing(result: QueryProcessResult) -> dict:
++    """将 QueryProcessResult 序列化为 query_processing dict。"""
++    return {
++        "raw_query": result.raw_query,
++        "effective_query": result.effective_query,
++        "search_query": result.search_query,
++        "needs_rewrite": result.needs_rewrite,
++        "strategy": result.strategy,
++        "rewrite_latency_ms": result.rewrite_latency_ms,
++        "degraded": result.degraded,
++        "synonym_applied": result.synonym_applied,
++        "synonym_expansions": result.synonym_expansions,
++    }
+diff --git a/src/ragnexus/composition.py b/src/ragnexus/composition.py
+index 762eeef..375d705 100644
+--- a/src/ragnexus/composition.py
++++ b/src/ragnexus/composition.py
+@@ -30,20 +30,22 @@ from ragnexus.adapters.http.upload_doc_router import (
+ )
+ from ragnexus.adapters.keyword_search.elasticsearch import ESKeywordSearchProvider
+ from ragnexus.adapters.knowledge_base.pg import PgKnowledgeBaseRepository
+ from ragnexus.adapters.llm.openai_compatible import OpenAICompatibleLLMProvider
+ from ragnexus.adapters.parsers.md_and_txt import MarkdownAndTextParser
+ from ragnexus.adapters.rerank.llm import LLMRerankProvider
+ from ragnexus.adapters.rerank.noop import NoopRerankProvider
+ from ragnexus.adapters.retrieve_log.pg import PgRetrieveLogRepository
+ from ragnexus.adapters.rewrite.llm import LLMRewriteProvider
+ from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
++from ragnexus.adapters.rewrite.pipeline import QueryPipeline
++from ragnexus.adapters.rewrite.synonym_expander import SynonymExpander
+ from ragnexus.adapters.vector_store.pgvector import PgVectorStore
+ from ragnexus.adapters.http.auth_router import create_auth_router
+ from ragnexus.adapters.http.deps import make_get_current_tenant
+ from ragnexus.adapters.tenant.pg import PgApiKeyRepository, PgTenantRepository
+ 
+ from ragnexus.application.create_kb_use_case import CreateKnowledgeBaseUseCase
+ from ragnexus.application.kb_tree_use_case import GetKnowledgeBaseTreeUseCase
+ from ragnexus.application.retrieve_use_case import RetrieveUseCase
+ from ragnexus.application.upload_doc_use_case import UploadDocumentUseCase
+ from ragnexus.config import get_settings
+@@ -323,27 +325,32 @@ async def lifespan(app: FastAPI):
+             chunk_max_chars=cfg.CHUNK_MAX_CHARS,
+             chunk_overlap=cfg.CHUNK_OVERLAP,
+             keyword_store=keyword_store,
+             es_enabled=cfg.ES_ENABLED,
+         )
+ 
+         # 包装 upload_doc_uc，成功后清空 rerank 和 rewrite 缓存
+         upload_doc_uc_wrapped = CacheInvalidatingUploadUseCase(
+             upload_doc_uc, reranker, rewriter
+         )
++        # --- Query Pipeline (改写 + 词表扩展) ---
++        synonym_expander = SynonymExpander()
++        query_pipeline = QueryPipeline(rewriter, synonym_expander)
++
+         retrieve_uc = RetrieveUseCase(
+             kb_repo=kb_repo,
+             embedder=embedder,
+             store=store,
+             log_port=log_repo,
+             reranker=reranker,
+             rewriter=rewriter,
++            pipeline=query_pipeline,
+             keyword_store=keyword_store,
+             candidate_k=cfg.CANDIDATE_K,
+             retrieval_mode=cfg.RETRIEVAL_MODE,
+         )
+         kb_tree_uc = GetKnowledgeBaseTreeUseCase(kb_repo=kb_repo)
+ 
+         # --- Auth Dependency ---
+         get_current_tenant = make_get_current_tenant(
+             tenant_repo, api_key_repo, cfg.AUTH_ENABLED
+         )
+diff --git a/src/ragnexus/domain/models.py b/src/ragnexus/domain/models.py
+index d8cb3ac..eae397e 100644
+--- a/src/ragnexus/domain/models.py
++++ b/src/ragnexus/domain/models.py
+@@ -66,20 +66,22 @@ class RetrieveResult:
+     hits: list[SearchHit]
+     total: int
+     latency_ms: int
+     mode: str
+     vector_count: int
+     bm25_count: int
+     fused_count: int
+     rerank_model: str | None
+     degraded: bool
+     degraded_reason: str | None
++    # query processing pipeline result (stage 6)
++    query_processing: dict | None = None
+ 
+ 
+ @dataclass
+ class DocNode:
+     """文档节点 — Tree API 中文档的轻量表示。"""
+ 
+     doc_id: str
+     filename: str
+     status: str
+     uploaded_at: str
+diff --git a/tests/unit/application/test_retrieve.py b/tests/unit/application/test_retrieve.py
+index 7407d3e..4ebfe43 100644
+--- a/tests/unit/application/test_retrieve.py
++++ b/tests/unit/application/test_retrieve.py
+@@ -1,27 +1,30 @@
+ """Tests for RetrieveUseCase."""
+ 
+ from unittest.mock import AsyncMock, patch
+ 
+ import pytest
+ 
+ from ragnexus.adapters.rerank.noop import NoopRerankProvider
+ from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
++from ragnexus.adapters.rewrite.pipeline import QueryPipeline
++from ragnexus.adapters.rewrite.synonym_expander import SynonymExpander
+ from ragnexus.application.retrieve_use_case import RetrieveUseCase
+ from ragnexus.core.errors import AppError
+ from ragnexus.domain.models import RetrieveResult, SearchHit
+-from ragnexus.domain.ports import RewriteResult
++from ragnexus.domain.ports import QueryProcessResult
+ 
+ 
+ @pytest.fixture
+ def mock_kb_repo():
+     mock = AsyncMock()
++    mock.get.return_value = None
+     mock.pool = AsyncMock()
+     mock.pool.fetchval.return_value = 1
+     return mock
+ 
+ 
+ @pytest.fixture
+ def mock_embedder():
+     return AsyncMock()
+ 
+ 
+@@ -41,53 +44,62 @@ def mock_keyword_store():
+ 
+ 
+ @pytest.fixture
+ def mock_reranker():
+     """RerankPort mock — 默认直通返回，各测试可按需覆盖 return_value。"""
+     m = AsyncMock()
+     return m
+ 
+ 
+ @pytest.fixture
+-def mock_rewriter():
+-    """RewritePort mock — 默认直通返回原始 query，各测试可按需覆盖。"""
++def mock_pipeline():
++    """QueryPipeline mock — 默认直通返回原始 query。"""
+     m = AsyncMock()
+ 
+-    async def _passthrough(*, query, kb_ids):
+-        return RewriteResult(
+-            original_query=query,
+-            rewritten_query=query,
++    async def _passthrough(
++        *, raw_query, kb_ids, kb_context=None, synonyms=None, enabled=True
++    ):
++        return QueryProcessResult(
++            raw_query=raw_query,
++            effective_query=raw_query,
++            search_query=raw_query,
+             needs_rewrite=False,
+-            reason="mock 直通",
++            strategy="noop",
++            rewrite_latency_ms=0,
++            degraded=False,
++            degraded_reason=None,
++            synonym_applied=False,
++            synonym_expansions=[],
+         )
+ 
+-    m.rewrite.side_effect = _passthrough
++    m.process.side_effect = _passthrough
+     return m
+ 
+ 
+ @pytest.fixture
+ def use_case(
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+     mock_keyword_store,
+     mock_log_port,
+     mock_reranker,
+-    mock_rewriter,
++    mock_pipeline,
+ ):
+     return RetrieveUseCase(
+         kb_repo=mock_kb_repo,
+         embedder=mock_embedder,
+         store=mock_store,
+         log_port=mock_log_port,
+         reranker=mock_reranker,
+-        rewriter=mock_rewriter,
++        rewriter=None,
++        pipeline=mock_pipeline,
+         keyword_store=mock_keyword_store,
+     )
+ 
+ 
+ @pytest.fixture
+ def sample_hits():
+     return [
+         SearchHit(
+             chunk_id="kb_test:0",
+             kb_id="kb_test",
+@@ -356,31 +368,32 @@ async def test_retrieve_log_fire_and_forget(
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_candidate_k_passed_to_vector_search(
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+     mock_keyword_store,
+     mock_log_port,
+     mock_reranker,
+-    mock_rewriter,
++    mock_pipeline,
+     sample_hits,
+ ):
+     """candidate_k=15 时，search_by_vector 收到 candidate_k=15。"""
+     uc = RetrieveUseCase(
+         kb_repo=mock_kb_repo,
+         embedder=mock_embedder,
+         store=mock_store,
+         log_port=mock_log_port,
+         reranker=mock_reranker,
+-        rewriter=mock_rewriter,
++        rewriter=None,
++        pipeline=mock_pipeline,
+         keyword_store=mock_keyword_store,
+         candidate_k=15,
+     )
+     mock_kb_repo.exists.return_value = True
+     mock_embedder.embed.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+     mock_store.search_by_vector.return_value = sample_hits
+     mock_reranker.rerank.return_value = sample_hits[:2]
+ 
+     await uc.execute(tenant_id="test-tenant", query="q", kb_ids=["kb_test"], top_k=5)
+ 
+@@ -390,31 +403,31 @@ async def test_candidate_k_passed_to_vector_search(
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_candidate_k_passed_to_keyword_search(
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+     mock_keyword_store,
+     mock_log_port,
+     mock_reranker,
+-    mock_rewriter,
++    mock_pipeline,
+     sample_hits,
+ ):
+     """candidate_k=25 时，BM25 search 也收到 candidate_k=25。"""
+     uc = RetrieveUseCase(
+         kb_repo=mock_kb_repo,
+         embedder=mock_embedder,
+         store=mock_store,
+         log_port=mock_log_port,
+-        reranker=mock_reranker,
+-        rewriter=mock_rewriter,
++        rewriter=None,
++        pipeline=mock_pipeline,
+         keyword_store=mock_keyword_store,
+         candidate_k=25,
+     )
+     mock_kb_repo.exists.return_value = True
+     mock_embedder.embed.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+     mock_store.search_by_vector.return_value = sample_hits
+     mock_keyword_store.search_by_keyword.return_value = []
+     mock_reranker.rerank.return_value = sample_hits[:2]
+ 
+     await uc.execute(tenant_id="test-tenant", query="q", kb_ids=["kb_test"], top_k=5)
+@@ -423,31 +436,32 @@ async def test_candidate_k_passed_to_keyword_search(
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_rerank_called_with_correct_kwargs(
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+     mock_keyword_store,
+     mock_log_port,
+     mock_reranker,
+-    mock_rewriter,
++    mock_pipeline,
+     sample_hits,
+ ):
+     """reranker.rerank 使用正确的 keyword 参数调用。"""
+     uc = RetrieveUseCase(
+         kb_repo=mock_kb_repo,
+         embedder=mock_embedder,
+         store=mock_store,
+         log_port=mock_log_port,
+         reranker=mock_reranker,
+-        rewriter=mock_rewriter,
++        rewriter=None,
++        pipeline=mock_pipeline,
+         keyword_store=mock_keyword_store,
+     )
+     top_k = 3
+     query = "什么是 RAG？"
+     kb_ids = ["kb_a", "kb_b"]
+     mock_kb_repo.exists.return_value = True
+     mock_kb_repo.pool.fetchval.return_value = len(kb_ids)
+     mock_embedder.embed.return_value = [[0.5, 0.6], [0.7, 0.8]]
+     mock_store.search_by_vector.return_value = sample_hits
+     mock_reranker.rerank.return_value = sample_hits[:1]
+@@ -466,31 +480,31 @@ async def test_rerank_called_with_correct_kwargs(
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_rerank_result_is_returned(
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+     mock_keyword_store,
+     mock_log_port,
+     mock_reranker,
+-    mock_rewriter,
++    mock_pipeline,
+     sample_hits,
+ ):
+     """execute() 返回 rerank 后的结果，而非原始向量召回结果。"""
+     uc = RetrieveUseCase(
+         kb_repo=mock_kb_repo,
+         embedder=mock_embedder,
+         store=mock_store,
+         log_port=mock_log_port,
+-        reranker=mock_reranker,
+-        rewriter=mock_rewriter,
++        rewriter=None,
++        pipeline=mock_pipeline,
+         keyword_store=mock_keyword_store,
+     )
+     # 构造一个与向量召回不同的 rerank 返回（顺序或内容不同）
+     reranked = [sample_hits[1], sample_hits[0]]  # 顺序反转
+     mock_kb_repo.exists.return_value = True
+     mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
+     mock_store.search_by_vector.return_value = sample_hits
+     mock_reranker.rerank.return_value = reranked
+ 
+     result = await uc.execute(
+@@ -528,143 +542,165 @@ async def test_noop_rerank_integration(
+ 
+     result = await uc.execute(
+         tenant_id="test-tenant", query="q", kb_ids=["kb_test"], top_k=top_k
+     )
+ 
+     assert len(result.hits) == 2  # rerank_top_n=5, Noop 保留全部 2 条
+     assert result.hits[0].chunk_id == sample_hits[0].chunk_id
+ 
+ 
+ # ═══════════════════════════════════════════════════════════════════
+-# rewrite 注入测试 — Phase 6 Task 6.1-6.2
++# query processing pipeline 注入测试 — Stage 6
+ # ═══════════════════════════════════════════════════════════════════
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_rewriter_called_before_embed(
++async def test_pipeline_called_before_embed(
+     use_case,
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+-    mock_rewriter,
++    mock_pipeline,
+ ):
+-    """rewriter.rewrite 在 embedder.embed 之前调用。"""
++    """pipeline.process 在 embedder.embed 之前调用。"""
+     mock_kb_repo.exists.return_value = True
+     mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
+     mock_store.search_by_vector.return_value = []
+ 
+     await use_case.execute(
+         tenant_id="test-tenant", query="test query", kb_ids=["kb1"], top_k=3
+     )
+ 
+-    mock_rewriter.rewrite.assert_awaited_once_with(query="test query", kb_ids=["kb1"])
++    mock_pipeline.process.assert_awaited_once()
++    call_kwargs = mock_pipeline.process.call_args.kwargs
++    assert call_kwargs["raw_query"] == "test query"
++    assert call_kwargs["kb_ids"] == ["kb1"]
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_rewritten_query_used_for_embed(
+     use_case,
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+-    mock_rewriter,
++    mock_pipeline,
+ ):
+-    """rewrite 后 embed 使用 rewritten_query，而非原始 query。"""
++    """pipeline 改写后 embed 使用 search_query，而非原始 query。"""
+     mock_kb_repo.exists.return_value = True
+     mock_embedder.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
+     mock_store.search_by_vector.return_value = []
+ 
+-    # 覆写 mock_rewriter，返回不同改写结果
+-    mock_rewriter.rewrite.side_effect = None
+-    mock_rewriter.rewrite.return_value = RewriteResult(
+-        original_query="hello world",
+-        rewritten_query="hello world technical definition",
++    # 覆写 mock_pipeline，返回不同 search_query
++    mock_pipeline.process.side_effect = None
++    mock_pipeline.process.return_value = QueryProcessResult(
++        raw_query="hello world",
++        effective_query="hello world technical definition",
++        search_query="hello world technical definition search",
+         needs_rewrite=True,
+-        reason="优化查询",
++        strategy="rewrite",
++        rewrite_latency_ms=10,
++        degraded=False,
++        degraded_reason=None,
++        synonym_applied=True,
++        synonym_expansions=["search"],
+     )
+ 
+     await use_case.execute(
+         tenant_id="test-tenant", query="hello world", kb_ids=["kb1"], top_k=3
+     )
+ 
+-    # embed 用改写后的 query（第一个）+ 原始 query（第二个）
++    # embed 用 search_query（第一个）+ 原始 query（第二个）
+     mock_embedder.embed.assert_awaited_once_with(
+-        ["hello world technical definition", "hello world"]
++        ["hello world technical definition search", "hello world"]
+     )
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_rerank_uses_original_query_rewritten_vector(
++async def test_rerank_uses_original_query_pipeline_vector(
+     use_case,
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+     mock_reranker,
+-    mock_rewriter,
++    mock_pipeline,
+ ):
+     """rerank 用原始 query 做相关性判断，query_vector 用原始 query 的 embedding。"""
+     mock_kb_repo.exists.return_value = True
+     mock_embedder.embed.return_value = [
+         [0.9, 0.1],
+         [0.2, 0.3],
+-    ]  # [改写后向量, 原始向量]
++    ]  # [search_query向量, 原始向量]
+     mock_store.search_by_vector.return_value = []
+     mock_reranker.rerank.return_value = []
+ 
+-    # 覆写 mock_rewriter，改写查询
+-    mock_rewriter.rewrite.side_effect = None
+-    mock_rewriter.rewrite.return_value = RewriteResult(
+-        original_query="what is RAG",
+-        rewritten_query="retrieval augmented generation definition",
++    # 覆写 mock_pipeline，改写查询
++    mock_pipeline.process.side_effect = None
++    mock_pipeline.process.return_value = QueryProcessResult(
++        raw_query="what is RAG",
++        effective_query="retrieval augmented generation definition",
++        search_query="retrieval augmented generation definition",
+         needs_rewrite=True,
+-        reason="扩展缩写",
++        strategy="rewrite",
++        rewrite_latency_ms=12,
++        degraded=False,
++        degraded_reason=None,
++        synonym_applied=False,
++        synonym_expansions=[],
+     )
+ 
+     await use_case.execute(
+         tenant_id="test-tenant", query="what is RAG", kb_ids=["kb1"], top_k=5
+     )
+ 
+     # rerank 的 query 参数用原始 query（相关性判断）
+     mock_reranker.rerank.assert_awaited_once()
+     rerank_kwargs = mock_reranker.rerank.call_args.kwargs
+     assert rerank_kwargs["query"] == "what is RAG"
+     # query_vector 现在是原始 query 的 embedding（第二个向量），用于缓存匹配
+     assert rerank_kwargs["query_vector"] == [0.2, 0.3]
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_noop_rewrite_integration(
++async def test_noop_pipeline_integration(
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+     mock_keyword_store,
+     mock_log_port,
+     mock_reranker,
+     sample_hits,
+ ):
+-    """使用真实 NoopRewriteProvider — 禁用改写时直通，行为不变。"""
++    """使用真实 NoopRewriteProvider + SynonymExpander + QueryPipeline — 禁用改写时直通。"""
++    from ragnexus.adapters.rewrite.noop import NoopRewriteProvider
++
++    noop_rewriter = NoopRewriteProvider()
++    expander = SynonymExpander()
++    pipeline = QueryPipeline(noop_rewriter, expander)
++
+     uc = RetrieveUseCase(
+         kb_repo=mock_kb_repo,
+         embedder=mock_embedder,
+         store=mock_store,
+         log_port=mock_log_port,
+         reranker=mock_reranker,
+-        rewriter=NoopRewriteProvider(),
++        rewriter=None,
++        pipeline=pipeline,
+         keyword_store=mock_keyword_store,
+     )
+     query = "test query"
+     kb_ids = ["kb_test"]
+     top_k = 2
+     mock_kb_repo.exists.return_value = True
+     mock_embedder.embed.return_value = [[0.5, 0.5], [0.6, 0.6]]
+     mock_store.search_by_vector.return_value = sample_hits
+     mock_reranker.rerank.return_value = sample_hits[:top_k]
+ 
+     result = await uc.execute(
+         tenant_id="test-tenant", query=query, kb_ids=kb_ids, top_k=top_k
+     )
+ 
+-    # NoopRewriteProvider 直通：embed 用原始 query（两次，改写后和原始相同）
++    # Noop pipeline 直通：embed 用原始 query（两次，search_query 和原始相同）
+     mock_embedder.embed.assert_awaited_once_with([query, query])
+     # 其他行为不变
+     mock_reranker.rerank.assert_awaited_once()
+     mock_store.search_by_vector.assert_awaited_once()
+     assert len(result.hits) == top_k
+diff --git a/tests/unit/application/test_retrieve_hybrid.py b/tests/unit/application/test_retrieve_hybrid.py
+index 9891a01..ff3f140 100644
+--- a/tests/unit/application/test_retrieve_hybrid.py
++++ b/tests/unit/application/test_retrieve_hybrid.py
+@@ -6,41 +6,42 @@
+ - bm25 模式：仅 BM25 召回，直通 rerank
+ - keyword search 失败降级：BM25 抛异常返回 []，不中断整体流程
+ """
+ 
+ from unittest.mock import AsyncMock
+ 
+ import pytest
+ 
+ from ragnexus.application.retrieve_use_case import RetrieveUseCase
+ from ragnexus.domain.models import RetrieveResult, SearchHit
+-from ragnexus.domain.ports import RewriteResult
++from ragnexus.domain.ports import QueryProcessResult
+ 
+ 
+ def _make_hit(
+     chunk_id: str, kb_id: str = "kb1", score: float = 0.9, text: str = ""
+ ) -> SearchHit:
+     """快捷构造 SearchHit。"""
+     return SearchHit(
+         chunk_id=chunk_id,
+         kb_id=kb_id,
+         doc_id=f"doc_{chunk_id}",
+         score=score,
+         text=text or f"chunk {chunk_id} content",
+         metadata={},
+     )
+ 
+ 
+ @pytest.fixture
+ def mock_kb_repo():
+     repo = AsyncMock()
+     repo.exists.return_value = True
++    repo.get.return_value = None
+     repo.pool = AsyncMock()
+     repo.pool.fetchval.return_value = 1
+     return repo
+ 
+ 
+ @pytest.fixture
+ def mock_embedder():
+     m = AsyncMock()
+     m.embed.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+     return m
+@@ -67,53 +68,62 @@ def mock_reranker():
+     m = AsyncMock()
+ 
+     async def _passthrough(*, query, query_vector, kb_ids, chunks, top_n):
+         return chunks[:top_n]
+ 
+     m.rerank.side_effect = _passthrough
+     return m
+ 
+ 
+ @pytest.fixture
+-def mock_rewriter():
+-    """RewritePort mock — 默认直通返回原始 query。"""
++def mock_pipeline():
++    """QueryPipeline mock — 默认直通返回原始 query。"""
+     m = AsyncMock()
+ 
+-    async def _passthrough(*, query, kb_ids):
+-        return RewriteResult(
+-            original_query=query,
+-            rewritten_query=query,
++    async def _passthrough(
++        *, raw_query, kb_ids, kb_context=None, synonyms=None, enabled=True
++    ):
++        return QueryProcessResult(
++            raw_query=raw_query,
++            effective_query=raw_query,
++            search_query=raw_query,
+             needs_rewrite=False,
+-            reason="mock 直通",
++            strategy="noop",
++            rewrite_latency_ms=0,
++            degraded=False,
++            degraded_reason=None,
++            synonym_applied=False,
++            synonym_expansions=[],
+         )
+ 
+-    m.rewrite.side_effect = _passthrough
++    m.process.side_effect = _passthrough
+     return m
+ 
+ 
+ @pytest.fixture
+ def use_case(
+     mock_kb_repo,
+     mock_embedder,
+     mock_store,
+     mock_keyword_store,
+     mock_log_port,
+     mock_reranker,
+-    mock_rewriter,
++    mock_pipeline,
+ ):
+     return RetrieveUseCase(
+         kb_repo=mock_kb_repo,
+         embedder=mock_embedder,
+         store=mock_store,
+         log_port=mock_log_port,
+         reranker=mock_reranker,
+-        rewriter=mock_rewriter,
++        rewriter=None,
++        pipeline=mock_pipeline,
+         keyword_store=mock_keyword_store,
+     )
+ 
+ 
+ # ═══════════════════════════════════════════════════════════════════
+ # hybrid 模式 — 双路召回 + RRF 融合
+ # ═══════════════════════════════════════════════════════════════════
+ 
+ 
+ @pytest.mark.asyncio

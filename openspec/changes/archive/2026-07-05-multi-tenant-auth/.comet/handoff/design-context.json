@@ -1,0 +1,13 @@
+{
+  "change": "multi-tenant-auth",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "75048076148dce22a92e620a630aa340273908ae7dc2a47d4612a10b65f65960",
+  "files": [
+    { "path": "openspec/changes/multi-tenant-auth/proposal.md", "sha256": "ee80ce7031600c8bced9a1e6d8359e28fa37e329826f2e99c64bf62567401dd6" },
+    { "path": "openspec/changes/multi-tenant-auth/design.md", "sha256": "91ab3884cf7e442dde75d4c7ae372eff5a85017030d5ae54c6ad275f300adb48" },
+    { "path": "openspec/changes/multi-tenant-auth/tasks.md", "sha256": "18b7f29e823f67771951821ce6944a3dd45d05d4353346dc33a620a0d713c160" }
+  ]
+}

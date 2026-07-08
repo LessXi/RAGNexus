@@ -1,0 +1,16 @@
+{
+  "change": "async-indexing-lifecycle",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "6bb52bd5dcab93e0f25f1faf017da0b610a51a1bf282e6d082793ef80a281860",
+  "files": [
+    { "path": "openspec/changes/async-indexing-lifecycle/proposal.md", "sha256": "05e0108f8717b25b66e1027fe8f1dc714dbbc6fb1e39a403e6554a5855603836" },
+    { "path": "openspec/changes/async-indexing-lifecycle/design.md", "sha256": "a1416fc619af662a9c34e2698cd3c424bebf20d7105eb71822ea62a3817d6a4e" },
+    { "path": "openspec/changes/async-indexing-lifecycle/tasks.md", "sha256": "aa25c3738bba04690e7459f3e8bd00888f9558e0d75085da40d8363b29953686" },
+    { "path": "openspec/changes/async-indexing-lifecycle/specs/async-indexing/spec.md", "sha256": "49fb0e9b4fa7359e66f6983c368b0ca5a94c0ff945de90acdd19b715ddafb644" },
+    { "path": "openspec/changes/async-indexing-lifecycle/specs/doc-lifecycle/spec.md", "sha256": "c2aee3db941b9b7619cceb6cf227a708803456c198b6eb4d4e430894ec6a3cdb" },
+    { "path": "openspec/changes/async-indexing-lifecycle/specs/kb-lifecycle/spec.md", "sha256": "f683f746a911bff236f3ff3d97244f975dbf55596fffc983b0f975cf41445279" }
+  ]
+}
