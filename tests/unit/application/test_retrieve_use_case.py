@@ -447,7 +447,7 @@ async def test_execute_kb_exception_not_blocking(
     assert result.total == 1
     assert result.hits[0].chunk_id == "c2"
     # 验证降级 KB 记录
-    assert "kb1" in result.degraded_kb_ids
+    assert "kb1" in result.failed_kb_ids, "异常的 KB 应出现在 failed_kb_ids 中"
 
 
 @pytest.mark.asyncio
@@ -743,7 +743,7 @@ async def test_execute_aggregates_vector_bm25_counts(
 async def test_execute_surfaces_degraded_kb_ids(
     use_case, mock_kb_repo, mock_embedder, mock_reranker
 ):
-    """异常的 KB 将 degraded_kb_ids 记录到 RetrieveResult。"""
+    """异常的 KB 将 failed_kb_ids 记录到 RetrieveResult（不再混入 degraded_kb_ids）。"""
     from unittest.mock import patch
 
     mock_reranker.model_name = None
@@ -756,7 +756,7 @@ async def test_execute_surfaces_degraded_kb_ids(
         with patch.object(
             use_case, "_retrieve_per_kb", new_callable=AsyncMock
         ) as mock_retrieve:
-            # kb1 抛异常 → degraded，kb2 正常但无结果
+            # kb1 抛异常 → failed_kb_ids，kb2 空结果（非降级）→ 不加入任何失败/降级列表
             mock_retrieve.side_effect = [
                 RuntimeError("KB 故障"),
                 PerKbRetrieveResult(hits=[], vec_count=0, kw_count=0),
@@ -774,7 +774,7 @@ async def test_execute_surfaces_degraded_kb_ids(
                     top_k=5,
                 )
 
-    assert "kb1" in result.degraded_kb_ids, "异常的 KB 应出现在 degraded_kb_ids 中"
+    assert "kb1" in result.failed_kb_ids, "异常的 KB 应出现在 failed_kb_ids 中"
 
 
 @pytest.mark.asyncio
@@ -947,6 +947,229 @@ async def test_retrieve_per_kb_no_exception_not_degraded(
     assert result.degraded_reason is None, "无异常时 degraded_reason 应为 None"
     assert result.vec_count == 1
     assert result.kw_count == 1
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Task 2.2 测试 — execute 中从 PerKbRetrieveResult 聚合降级/失败标记
+# ══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_execute_degraded_kb_sets_partial_kb_success(
+    use_case, mock_kb_repo, mock_embedder, mock_reranker
+):
+    """降级 KB（degraded=True，hits 非空）→ degraded_kb_ids 有值，partial_kb_success=True。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        hits_kb1 = [_make_hit("c1", "kb1", "d1", 0.9)]
+        hits_kb2 = [_make_hit("c2", "kb2", "d2", 0.8)]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            # kb1: 向量检索异常，降级为纯 BM25（degraded=True, hits 非空）
+            # kb2: 正常
+            mock_retrieve.side_effect = [
+                PerKbRetrieveResult(
+                    hits=hits_kb1,
+                    vec_count=0,
+                    kw_count=3,
+                    degraded=True,
+                    degraded_reason="向量检索异常",
+                ),
+                PerKbRetrieveResult(
+                    hits=hits_kb2,
+                    vec_count=2,
+                    kw_count=1,
+                    degraded=False,
+                    degraded_reason=None,
+                ),
+            ]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = hits_kb1 + hits_kb2
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1", "kb2"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    assert result.total == 2
+    assert "kb1" in result.degraded_kb_ids, "降级 KB 应出现在 degraded_kb_ids 中"
+    assert "kb2" not in result.degraded_kb_ids, "正常 KB 不应出现在 degraded_kb_ids 中"
+    assert (
+        result.partial_kb_success is True
+    ), "有降级 KB 时 partial_kb_success 应为 True"
+    assert result.vector_count == 2, "vec_count 应聚合所有 KB 的 vec_count"
+    assert result.bm25_count == 4, "kw_count 应聚合所有 KB 的 kw_count"
+
+
+@pytest.mark.asyncio
+async def test_execute_exception_kb_sets_failed_kb_ids(
+    use_case, mock_kb_repo, mock_embedder, mock_reranker
+):
+    """异常 KB → failed_kb_ids 有值，partial_kb_success=True。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        hits_kb2 = [_make_hit("c2", "kb2", "d2", 0.8)]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                RuntimeError("KB 连接超时"),
+                PerKbRetrieveResult(
+                    hits=hits_kb2,
+                    vec_count=2,
+                    kw_count=1,
+                    degraded=False,
+                    degraded_reason=None,
+                ),
+            ]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = hits_kb2
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1", "kb2"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    assert "kb1" in result.failed_kb_ids, "异常 KB 应出现在 failed_kb_ids 中"
+    assert "kb1" not in result.degraded_kb_ids, "异常 KB 不应出现在 degraded_kb_ids 中"
+    assert (
+        result.partial_kb_success is True
+    ), "有失败 KB 时 partial_kb_success 应为 True"
+
+
+@pytest.mark.asyncio
+async def test_execute_normal_kb_no_partial_success(
+    use_case, mock_kb_repo, mock_embedder, mock_reranker
+):
+    """全部正常 KB → partial_kb_success=False，degraded_kb_ids 和 failed_kb_ids 为空。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        hits_kb1 = [_make_hit("c1", "kb1", "d1", 0.9)]
+        hits_kb2 = [_make_hit("c2", "kb2", "d2", 0.8)]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                PerKbRetrieveResult(
+                    hits=hits_kb1,
+                    vec_count=2,
+                    kw_count=1,
+                    degraded=False,
+                    degraded_reason=None,
+                ),
+                PerKbRetrieveResult(
+                    hits=hits_kb2,
+                    vec_count=3,
+                    kw_count=2,
+                    degraded=False,
+                    degraded_reason=None,
+                ),
+            ]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = hits_kb1 + hits_kb2
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1", "kb2"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    assert result.total == 2
+    assert result.degraded_kb_ids == [], "正常 KB 无降级"
+    assert result.failed_kb_ids == [], "正常 KB 无失败"
+    assert (
+        result.partial_kb_success is False
+    ), "全部正常时 partial_kb_success 应为 False"
+    assert result.vector_count == 5, "vec_count 应聚合所有 KB"
+    assert result.bm25_count == 3, "kw_count 应聚合所有 KB"
+
+
+@pytest.mark.asyncio
+async def test_execute_degraded_empty_hits_partial_kb_success(
+    use_case, mock_kb_repo, mock_embedder, mock_reranker
+):
+    """降级 KB 且 hits 为空 + 另一正常 KB → degraded_kb_ids 有值，partial_kb_success=True。"""
+    from unittest.mock import patch
+
+    mock_reranker.model_name = None
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        mock_kb_repo.exists.return_value = True
+        mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+        hits_kb2 = [_make_hit("c2", "kb2", "d2", 0.8)]
+
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            # kb1: 两路都异常（degraded=True, hits=[]）
+            # kb2: 正常
+            mock_retrieve.side_effect = [
+                PerKbRetrieveResult(
+                    hits=[],
+                    vec_count=0,
+                    kw_count=0,
+                    degraded=True,
+                    degraded_reason="向量检索、BM25 检索均异常",
+                ),
+                PerKbRetrieveResult(
+                    hits=hits_kb2,
+                    vec_count=2,
+                    kw_count=1,
+                    degraded=False,
+                    degraded_reason=None,
+                ),
+            ]
+
+            with patch(
+                "ragnexus.application.retrieve_use_case.cross_kb_rrf_fuse"
+            ) as mock_fuse:
+                mock_fuse.return_value = hits_kb2
+
+                result = await use_case.execute(
+                    query="test query",
+                    kb_ids=["kb1", "kb2"],
+                    tenant_id="tenant1",
+                    top_k=5,
+                )
+
+    assert result.total == 1
+    assert "kb1" in result.degraded_kb_ids, "降级 KB 应出现在 degraded_kb_ids 中"
+    assert (
+        result.partial_kb_success is True
+    ), "有降级 KB（即使 hits 为空）且 valid_groups 非空时 partial_kb_success 应为 True"
 
 
 # ══════════════════════════════════════════════════════════════════════

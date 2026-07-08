@@ -164,6 +164,7 @@ class RetrieveUseCase:
         total_vec_count = 0
         total_kw_count = 0
         degraded_kb_ids: list[str] = []
+        failed_kb_ids: list[str] = []
         vector_latency_ms = 0
         keyword_latency_ms = 0
         rrf_pool_size = 0
@@ -230,7 +231,7 @@ class RetrieveUseCase:
             valid_groups: list[list[SearchHit]] = []
             for i, result in enumerate(kb_groups):
                 if isinstance(result, Exception):
-                    degraded_kb_ids.append(kb_ids[i])
+                    failed_kb_ids.append(kb_ids[i])
                     logger.warning(
                         "KB 召回异常，已跳过",
                         extra={"kb_id": kb_ids[i], "error": str(result)},
@@ -238,15 +239,23 @@ class RetrieveUseCase:
                 else:
                     total_vec_count += result.vec_count
                     total_kw_count += result.kw_count
-                    if not result.hits:
+                    if result.degraded:
                         degraded_kb_ids.append(kb_ids[i])
-                        logger.info("KB 召回为空", extra={"kb_id": kb_ids[i]})
-                    else:
+                        logger.info(
+                            "KB 召回降级",
+                            extra={
+                                "kb_id": kb_ids[i],
+                                "degraded_reason": result.degraded_reason,
+                            },
+                        )
+                    if result.hits:
                         valid_groups.append(result.hits)
 
-            # 记录降级 KB 汇总日志
+            # 记录降级/失败 KB 汇总日志
+            if failed_kb_ids:
+                logger.warning(f"部分 KB 召回异常，已跳过: {failed_kb_ids}")
             if degraded_kb_ids:
-                logger.warning(f"部分 KB 召回异常或为空，已跳过: {degraded_kb_ids}")
+                logger.warning(f"部分 KB 召回降级: {degraded_kb_ids}")
 
             # 3d. 跨库 RRF 融合
             hits = cross_kb_rrf_fuse(valid_groups, k=rrf_k)
@@ -277,6 +286,11 @@ class RetrieveUseCase:
             # --- 计时：return 前计算 latency_ms ---
             latency_ms = int((time.perf_counter() - t0) * 1000)
 
+            # 计算 partial_kb_success：有失败 KB 或（有有效结果且有降级 KB）
+            partial_kb_success = bool(failed_kb_ids) or (
+                len(valid_groups) > 0 and bool(degraded_kb_ids)
+            )
+
             return RetrieveResult(
                 hits=hits,
                 total=len(hits),
@@ -289,6 +303,8 @@ class RetrieveUseCase:
                 degraded=degraded,
                 degraded_reason=degraded_reason,
                 degraded_kb_ids=degraded_kb_ids,
+                failed_kb_ids=failed_kb_ids,
+                partial_kb_success=partial_kb_success,
                 query_processing=query_processing,
             )
         finally:
