@@ -17,9 +17,12 @@ RAGNexus 提供三档套餐：`free` / `standard` / `pro`，每档控制**功能
 | **检索 QPS** | 3 | 10 | 50 |
 | **检索日配额** | 500 | 5,000 | 100,000 |
 | **最大知识库数** | 1 | 5 | 50 |
+| **单次检索最大 KB 数** | 1 | 3 | 5 |
 | **每 KB 最大文档数** | 30 | 200 | 5,000 |
 | **并发处理文档数** | 1 | 2 | 10 |
 
+> **单次检索最大 KB 数**（`max_kb_per_retrieve`）：控制一次检索请求可同时查询的知识库数量上限。  
+> Free 仅支持单库检索（1 个 KB）；Standard 最多 3 个；Pro 最多 5 个。超限返回 `FEATURE_NOT_ALLOWED`（20013）。  
 > 套餐预设定义在 `src/ragnexus/tenant/plan_presets.py`，纯数据字典，零依赖，可直接查阅。
 
 ---
@@ -274,6 +277,7 @@ uv run python scripts/update_tenant_plan.py --tenant-id my_tenant --plan standar
 | Balanced Profile | ❌ | ✅ |
 | Custom Profile | ❌ | ✅ |
 | 最大 KB 数 | 1 | 5 |
+| 单次检索最大 KB 数 | 1 | 3 |
 | 每 KB 文档数 | 30 | 200 |
 | 检索 QPS | 3 | 10 |
 | 日检索配额 | 500 | 5,000 |
@@ -293,6 +297,7 @@ uv run python scripts/update_tenant_plan.py --tenant-id my_tenant --plan pro
 | Query Rewrite 查询改写 | ❌ | ✅ |
 | Quality Profile | ❌ | ✅ |
 | 最大 KB 数 | 5 | 50 |
+| 单次检索最大 KB 数 | 3 | 5 |
 | 每 KB 文档数 | 200 | 5,000 |
 | 检索 QPS | 10 | 50 |
 | 日检索配额 | 5,000 | 100,000 |

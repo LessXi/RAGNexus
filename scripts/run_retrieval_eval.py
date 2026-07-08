@@ -26,6 +26,8 @@ from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics.collections import context_precision, context_recall
 
+from eval.utils import resolve_kb_ids
+
 logger = logging.getLogger(__name__)
 
 
@@ -138,7 +140,9 @@ async def run_eval(args: argparse.Namespace) -> dict:
 
             if not ground_truth:
                 logger.warning('[%d] 跳过: ground_truth 为空 — "%s"', i, question)
-                skipped.append({"index": i, "question": question, "reason": "ground_truth 为空"})
+                skipped.append(
+                    {"index": i, "question": question, "reason": "ground_truth 为空"}
+                )
                 continue
 
             try:
@@ -147,12 +151,14 @@ async def run_eval(args: argparse.Namespace) -> dict:
                     args.base_url,
                     args.api_key,
                     question,
-                    args.kb_ids,
+                    resolve_kb_ids(item, args.kb_ids),
                     args.profile,
                     args.top_k,
                 )
             except httpx.HTTPStatusError as e:
-                logger.error('[%d] HTTP %d — "%s": %s', i, e.response.status_code, question, e)
+                logger.error(
+                    '[%d] HTTP %d — "%s": %s', i, e.response.status_code, question, e
+                )
                 skipped.append(
                     {
                         "index": i,
@@ -189,7 +195,9 @@ async def run_eval(args: argparse.Namespace) -> dict:
             "skipped": skipped,
         }
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        args.output.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         logger.info("报告已输出: %s", args.output)
         return report
 
@@ -221,7 +229,11 @@ async def run_eval(args: argparse.Namespace) -> dict:
                     metrics[col] = None
     else:
         # fallback: result 可能是 dict
-        metrics = {k: round(float(v), 4) for k, v in result.items() if isinstance(v, (int, float))}
+        metrics = {
+            k: round(float(v), 4)
+            for k, v in result.items()
+            if isinstance(v, (int, float))
+        }
 
     # 6. context_recall 偏低 case 单独列出
     recall_threshold = 0.5
@@ -253,7 +265,9 @@ async def run_eval(args: argparse.Namespace) -> dict:
     }
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    args.output.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     logger.info("报告已输出: %s", args.output)
 
     # 终端摘要
