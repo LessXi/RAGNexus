@@ -459,6 +459,8 @@ class RetrieveUseCase:
         kw_hits: list[SearchHit] = []
         degraded = False
         degraded_reason: str | None = None
+        vec_failed = False
+        kw_failed = False
 
         if use_vector:
             try:
@@ -478,6 +480,7 @@ class RetrieveUseCase:
                 vec_hits = []
                 degraded = True
                 degraded_reason = "向量检索异常"
+                vec_failed = True
 
         if use_bm25 and self._keyword_store is not None:
             try:
@@ -497,18 +500,22 @@ class RetrieveUseCase:
                 kw_hits = []
                 degraded = True
                 degraded_reason = "BM25 检索异常"
+                kw_failed = True
 
         vec_count = len(vec_hits)
         kw_count = len(kw_hits)
 
-        # 两路都失败 → 返回空列表，标记降级
+        # 两路都为空时：仅当两路都实际异常才标记降级
         if not vec_hits and not kw_hits:
+            if vec_failed and kw_failed:
+                degraded = True
+                degraded_reason = "向量和BM25检索均异常"
             return PerKbRetrieveResult(
                 hits=[],
                 vec_count=0,
                 kw_count=0,
-                degraded=True,
-                degraded_reason="向量和BM25检索均异常",
+                degraded=degraded,
+                degraded_reason=degraded_reason,
             )
 
         # 库内 RRF 融合（rrf_fuse 本身已支持空列表降级）

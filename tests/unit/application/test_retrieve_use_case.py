@@ -269,6 +269,9 @@ async def test_retrieve_per_kb_both_empty_returns_empty(
     # 验证：两路都确实被调用了
     mock_store.search_by_vector.assert_awaited_once()
     mock_keyword_store.search_by_keyword.assert_awaited_once()
+    # Bug B1 fix: 正常空结果不应标记为降级
+    assert result.degraded is False, "正常空结果不应标记为降级"
+    assert result.degraded_reason is None, "正常空结果不应有降级原因"
 
 
 # ══════════════════════════════════════════════════════════════════════
