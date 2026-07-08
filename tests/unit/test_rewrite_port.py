@@ -1,7 +1,7 @@
 """RewritePort Protocol 单元测试。
 
 验证 RewritePort 接口定义正确，以及结构性子类型兼容性。
-适配 QueryProcessResult（10 字段 + kb_context 传参）。
+适配 QueryProcessResult（10 字段 + kb_contexts 传参）。
 """
 
 from __future__ import annotations
@@ -97,7 +97,7 @@ class TestRewritePortProtocol:
         assert issubclass(RewritePort, Protocol)
 
     def test_rewrite_method_signature(self) -> None:
-        """rewrite 方法签名：keyword-only 参数，返回 QueryProcessResult，包含 kb_context。"""
+        """rewrite 方法签名：keyword-only 参数，返回 QueryProcessResult，包含 kb_contexts。"""
         import inspect
 
         sig = inspect.signature(RewritePort.rewrite)
@@ -105,12 +105,12 @@ class TestRewritePortProtocol:
         params = list(sig.parameters.values())
         param_names = [p.name for p in params]
 
-        # self + 3 keyword-only 参数（含 kb_context）
+        # self + 3 keyword-only 参数（含 kb_contexts）
         assert param_names == [
             "self",
             "query",
             "kb_ids",
-            "kb_context",
+            "kb_contexts",
         ], f"参数名不匹配: {param_names}"
 
         for p in params[1:]:  # 跳过 self
@@ -119,7 +119,7 @@ class TestRewritePortProtocol:
             ), f"{p.name} 应为 KEYWORD_ONLY，实际: {p.kind}"
 
         # kb_context 应为可选参数
-        assert params[-1].default is None, "kb_context 默认值应为 None"
+        assert params[-1].default is None, "kb_contexts 默认值应为 None"
 
         # 验证返回类型注解为 QueryProcessResult
         assert (
@@ -147,14 +147,14 @@ class TestRewritePortProtocol:
         """
 
         class _MinimalRewriter:
-            """最小实现 — 原样返回查询，不做改写，支持 kb_context 传参。"""
+            """最小实现 — 原样返回查询，不做改写，支持 kb_contexts 传参。"""
 
             async def rewrite(
                 self,
                 *,
                 query: str,
                 kb_ids: list[str],
-                kb_context: dict | None = None,
+                kb_contexts: list[dict] | None = None,
             ) -> QueryProcessResult:
                 return QueryProcessResult(
                     raw_query=query,
@@ -193,12 +193,12 @@ class TestRewritePortProtocol:
             return await instance.rewrite(
                 query="测试",
                 kb_ids=["kb1"],
-                kb_context={"name": "测试知识库"},
+                kb_contexts=[{"name": "测试知识库"}],
             )
 
         ctx_result = asyncio.run(_run_rewrite_with_context())
         assert ctx_result.raw_query == "测试"
-        # kb_context 不影响结果，但应被正确接收
+        # kb_contexts 不影响结果，但应被正确接收
 
         # 验证 clear_cache 也可正常调用
         async def _run_clear() -> None:

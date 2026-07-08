@@ -80,7 +80,7 @@ def mock_pipeline():
     m = AsyncMock()
 
     async def _passthrough(
-        *, raw_query, kb_ids, kb_context=None, synonyms=None, enabled=True
+        *, raw_query, kb_ids, kb_contexts=None, synonyms=None, enabled=True
     ):
         return QueryProcessResult(
             raw_query=raw_query,

@@ -56,7 +56,7 @@ def mock_pipeline():
     m = AsyncMock()
 
     async def _passthrough(
-        *, raw_query, kb_ids, kb_context=None, synonyms=None, enabled=True
+        *, raw_query, kb_ids, kb_contexts=None, synonyms=None, enabled=True
     ):
         return QueryProcessResult(
             raw_query=raw_query,
@@ -813,8 +813,8 @@ async def test_scenario_12_7_cross_kb_isolation(
         ]
     }
 
-    # get 返回对应 KB：primary(kb_a) + loop(kb_a, kb_b)
-    mock_kb_repo.get.side_effect = [kb_a, kb_a, kb_b]
+    # get 返回对应 KB：kb_contexts 循环(kb_a, kb_b) + synonyms 循环(kb_a, kb_b)
+    mock_kb_repo.get.side_effect = [kb_a, kb_b, kb_a, kb_b]
     mock_kb_repo.exists.return_value = True
     # ownership 校验需返回 2（2 个 unique KB）
     mock_kb_repo.pool.fetchval.return_value = 2

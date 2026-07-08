@@ -253,12 +253,12 @@ class LLMRewriteProvider:
         *,
         query: str,
         kb_ids: list[str],
-        kb_context: dict | None = None,
+        kb_contexts: list[dict] | None = None,
     ) -> QueryProcessResult:
         """改写查询 — 永不抛异常。
 
         流程:
-        a) 构建增强 system prompt（注入 kb_context）
+        a) 构建增强 system prompt（注入 kb_contexts 列表）
         b) 查缓存（向量余弦相似度 ≥ 阈值）
         c) LLM 调用（判断 + 改写一次完成）
         d) 5 层防御解析
@@ -266,18 +266,19 @@ class LLMRewriteProvider:
         f) 写入缓存
         g) 降级时返回原始 query
         """
-        # 构建增强 system prompt
+        # 构建增强 system prompt（多 KB 上下文列表）
         enhanced_prompt = SYSTEM_PROMPT
-        if kb_context:
-            parts = []
-            if name := kb_context.get("name"):
-                parts.append(f"当前知识库: {name}")
-            if desc := kb_context.get("description"):
-                parts.append(f"知识库描述: {desc}")
-            if hint := kb_context.get("rewrite_hint"):
-                parts.append(f"领域说明: {hint}")
-            if parts:
-                enhanced_prompt = SYSTEM_PROMPT + "\n\n" + "\n".join(parts)
+        if kb_contexts:
+            lines = ["知识库列表:"]
+            for ctx in kb_contexts:
+                name = ctx.get("name", "")
+                desc = ctx.get("description", "")
+                if name and desc:
+                    lines.append(f"- {name}: {desc}")
+                elif name:
+                    lines.append(f"- {name}")
+            if len(lines) > 1:
+                enhanced_prompt = SYSTEM_PROMPT + "\n\n" + "\n".join(lines)
 
         start_time = time.monotonic()
         try:

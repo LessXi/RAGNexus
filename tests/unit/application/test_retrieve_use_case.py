@@ -861,8 +861,8 @@ async def test_multi_kb_synonyms_merged(
 
     mock_reranker.model_name = None
     mock_kb_repo.exists.return_value = True
-    # get 调用序列: primary(kb1) + loop(kb1, kb2, kb3) = 4 次
-    mock_kb_repo.get.side_effect = [kb1, kb1, kb2, kb3]
+    # get 调用: kb_contexts 循环(kb1, kb2, kb3) + synonyms 循环(kb1, kb2, kb3) = 6 次
+    mock_kb_repo.get.side_effect = [kb1, kb2, kb3, kb1, kb2, kb3]
     mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
 
     with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
@@ -892,3 +892,83 @@ async def test_multi_kb_synonyms_merged(
     # "手机" 保留后出现的 kb2 版本（dict 覆盖语义）
     phone = next(s for s in synonyms if s["term"] == "手机")
     assert phone["expansion"] == ["移动电话"], f"手机应来自 kb2，实际: {phone}"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Task 1.8 测试 — 多库 kb_contexts 构建
+# ══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_multi_kb_rewrite_context(
+    use_case,
+    mock_kb_repo,
+    mock_embedder,
+    mock_reranker,
+    mock_pipeline,
+):
+    """多 KB 时 kb_contexts 为所有 KB 的 name + description 列表。"""
+    from datetime import datetime
+    from unittest.mock import patch
+
+    from ragnexus.domain.models import KnowledgeBase
+
+    dt = datetime(2025, 1, 1)
+    kb1 = KnowledgeBase(
+        id="kb1",
+        name="法律知识库",
+        created_at=dt,
+        tenant_id="t1",
+        description="包含中国法律法规和司法解释",
+    )
+    kb2 = KnowledgeBase(
+        id="kb2",
+        name="金融知识库",
+        created_at=dt,
+        tenant_id="t1",
+        description="包含金融政策、证券法规和行业分析",
+    )
+
+    mock_reranker.model_name = None
+    mock_kb_repo.exists.return_value = True
+    # get 调用: kb_contexts 循环(kb1, kb2) + synonyms 循环(kb1, kb2) = 4 次
+    mock_kb_repo.get.side_effect = [kb1, kb2, kb1, kb2]
+    mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+
+    with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
+        with patch.object(
+            use_case, "_retrieve_per_kb", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.return_value = ([], 0, 0)
+
+            await use_case.execute(
+                query="刑法修正案有哪些",
+                kb_ids=["kb1", "kb2"],
+                tenant_id="t1",
+                top_k=5,
+            )
+
+    # 验证 pipeline.process 收到的 kb_contexts 参数
+    mock_pipeline.process.assert_awaited_once()
+    call_kwargs = mock_pipeline.process.call_args.kwargs
+
+    # 新参数名 kb_contexts，旧参数 kb_context 不应存在
+    assert (
+        "kb_contexts" in call_kwargs
+    ), f"pipeline.process 应接收 kb_contexts，实际 kwargs: {list(call_kwargs.keys())}"
+
+    kb_contexts = call_kwargs["kb_contexts"]
+    assert isinstance(
+        kb_contexts, list
+    ), f"kb_contexts 应为 list，实际: {type(kb_contexts)}"
+    assert len(kb_contexts) == 2, f"kb_contexts 应有 2 个元素，实际: {len(kb_contexts)}"
+
+    # 验证每个 KB context 的结构
+    assert kb_contexts[0] == {
+        "name": "法律知识库",
+        "description": "包含中国法律法规和司法解释",
+    }
+    assert kb_contexts[1] == {
+        "name": "金融知识库",
+        "description": "包含金融政策、证券法规和行业分析",
+    }

@@ -108,21 +108,17 @@ class RetrieveUseCase:
 
         # 3. Validate all KBs belong to current tenant
         await self.validate_kb_ownership(kb_ids, tenant_id)
-        # 3.5 组装 KB 上下文（用于查询改写）
-        primary_kb = await self._kb_repo.get(kb_ids[0])
-        kb_context: dict = {}
-        if primary_kb:
-            kb_context = {
-                "name": primary_kb.name,
-                "description": getattr(primary_kb, "description", ""),
-            }
-            kb_settings_raw = getattr(primary_kb, "settings", {}) or {}
-            kb_settings = (
-                json.loads(kb_settings_raw)
-                if isinstance(kb_settings_raw, str)
-                else kb_settings_raw
-            )
-            kb_context["rewrite_hint"] = kb_settings.get("rewrite_hint", "")
+        # 3.5 组装所有 KB 上下文列表（用于查询改写）
+        kb_contexts: list[dict] = []
+        for kb_id in kb_ids:
+            kb = await self._kb_repo.get(kb_id)
+            if kb:
+                kb_contexts.append(
+                    {
+                        "name": kb.name,
+                        "description": getattr(kb, "description", ""),
+                    }
+                )
 
         # 3.6 合并所有 KB 的同义词表，按 term 去重
         all_synonyms: list[dict] = []
@@ -182,7 +178,7 @@ class RetrieveUseCase:
                 process_result = await self._pipeline.process(
                     raw_query=query,
                     kb_ids=kb_ids,
-                    kb_context=kb_context,
+                    kb_contexts=kb_contexts,
                     synonyms=synonyms,
                     enabled=enabled,
                 )

@@ -58,9 +58,9 @@ class TestCrossKbRrfFuseTwoGroups:
 
         # 按 score 降序排列（RRF 分值越大越靠前）
         for i in range(len(result) - 1):
-            assert result[i].score >= result[i + 1].score, (
-                f"索引 {i}: {result[i].score} 应 >= {result[i + 1].score}"
-            )
+            assert (
+                result[i].score >= result[i + 1].score
+            ), f"索引 {i}: {result[i].score} 应 >= {result[i + 1].score}"
 
         # 验证每组 rank=1 的 hit 分数相同（跨库对称）
         scores_by_rank: dict[int, float] = {}
@@ -203,10 +203,22 @@ class TestCrossKbRrfFuseDuplicateChunk:
         """跨库融合后 text 和 metadata 保留首次出现的值。"""
         k = 60
         group_a = [
-            _make_hit("c1", kb_id="kb_a", doc_id="doc_s", text="hello world", metadata={"page": 1}),
+            _make_hit(
+                "c1",
+                kb_id="kb_a",
+                doc_id="doc_s",
+                text="hello world",
+                metadata={"page": 1},
+            ),
         ]
         group_b = [
-            _make_hit("c1", kb_id="kb_b", doc_id="doc_s", text="different text", metadata={"page": 99}),
+            _make_hit(
+                "c1",
+                kb_id="kb_b",
+                doc_id="doc_s",
+                text="different text",
+                metadata={"page": 99},
+            ),
         ]
 
         result = cross_kb_rrf_fuse([group_a, group_b], k=k)
@@ -236,3 +248,46 @@ class TestCrossKbRrfFuseDuplicateChunk:
         # 三个 KB 中 rank 都是 1 → 3 * 1/(k+1)
         assert result[0].score == pytest.approx(3 / (k + 1))
         assert result[0].kb_id == "kb_a"
+
+
+class TestSearchHitKbNameDefault:
+    """SearchHit 构造时不传 kb_name，取默认值 ""。"""
+
+    def test_kb_name_defaults_to_empty_string(self):
+        """SearchHit 不传 kb_name 时，kb_name 为 ""。"""
+        hit = SearchHit(
+            chunk_id="ch1",
+            kb_id="kb_test",
+            doc_id="doc1",
+            score=0.95,
+            text="hello",
+            metadata={},
+        )
+        assert hit.kb_name == ""
+
+    def test_kb_name_explicit_none_not_allowed(self):
+        """kb_name 的类型是 str，传 None 会报错（类型安全）。"""
+        hit = SearchHit(
+            chunk_id="ch1",
+            kb_id="kb_test",
+            doc_id="doc1",
+            score=0.95,
+            text="hello",
+            metadata={},
+        )
+        # kb_name 依然是 str 类型，默认 ""
+        assert isinstance(hit.kb_name, str)
+        assert hit.kb_name == ""
+
+    def test_kb_name_explicit_value(self):
+        """显式传 kb_name 则使用传入值。"""
+        hit = SearchHit(
+            chunk_id="ch1",
+            kb_id="kb_test",
+            doc_id="doc1",
+            score=0.95,
+            text="hello",
+            metadata={},
+            kb_name="我的知识库",
+        )
+        assert hit.kb_name == "我的知识库"

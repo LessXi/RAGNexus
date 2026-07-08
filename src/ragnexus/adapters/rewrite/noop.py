@@ -18,7 +18,7 @@ class NoopRewriteProvider:
         *,
         query: str,
         kb_ids: list[str],
-        kb_context: dict | None = None,
+        kb_contexts: list[dict] | None = None,
     ) -> QueryProcessResult:
         """直通返回原始 query，不做任何改写。
 
