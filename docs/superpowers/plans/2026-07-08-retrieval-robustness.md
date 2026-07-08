@@ -54,13 +54,13 @@ base-ref: b82404f7dddf07d7caa8dc59495b623cfa110b90
 
 ### 3. API 响应透传
 
-- [ ] 3.1 router 响应 meta 中透传 4 个新字段
+- [x] 3.1 router 响应 meta 中透传 4 个新字段
   - 文件: `src/ragnexus/adapters/http/retrieve_router.py` (L274-311)
   - 新增: `degraded_kb_ids`、`failed_kb_ids`、`partial_kb_success`、`empty_reason`
   - 验证: `pytest tests/unit/adapters/test_http.py -x -q` 通过
 
-- [ ] 3.2 Happy path 向后兼容
-  - 验证: 现有 `tests/unit/adapters/test_http_schema_invariance.py` 通过（如有），或手动确认 single-KB balanced 响应不出现降级字段
+- [x] 3.2 Happy path 向后兼容
+  - 验证: `test_meta_robustness_fields_happy_path` 断言 degraded=false + 全部新字段默认值 + 现有字段透传不变，23/23 test_http.py 通过，26/26 E2E 通过
 
 ### 4. 测试
 

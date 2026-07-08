@@ -385,7 +385,14 @@ class TestRetrieve:
         assert meta["empty_reason"] == "no_indexed_chunks"
 
     def test_meta_robustness_fields_happy_path(self, client, mock_retrieve_uc):
-        """Happy path 时新字段应为默认值"""
+        """Happy path 向后兼容：单库 balanced 检索，chunks > 0。
+
+        断言 meta 中：
+        - 新鲁棒性字段均为默认值（degraded=false, degraded_kb_ids=[], failed_kb_ids=[],
+          partial_kb_success=false, empty_reason=null）
+        - 所有现有字段（total, latency_ms, mode, vector_count, bm25_count, fused_count,
+          rerank_model）保持不变
+        """
         from ragnexus.domain.models import RetrieveResult
 
         mock_retrieve_uc.execute.return_value = RetrieveResult(
@@ -402,10 +409,10 @@ class TestRetrieve:
             total=1,
             latency_ms=10,
             mode="balanced",
-            vector_count=0,
-            bm25_count=0,
-            fused_count=1,
-            rerank_model=None,
+            vector_count=5,
+            bm25_count=3,
+            fused_count=8,
+            rerank_model="bge-reranker-v2-m3",
             degraded=False,
             degraded_reason=None,
             degraded_kb_ids=[],
@@ -424,10 +431,20 @@ class TestRetrieve:
         assert resp.status_code == 200
         data = resp.json()
         meta = data["data"]["meta"]
+        # 新鲁棒性字段 — happy path 默认值
+        assert meta["degraded"] is False
         assert meta["degraded_kb_ids"] == []
         assert meta["failed_kb_ids"] == []
         assert meta["partial_kb_success"] is False
         assert meta["empty_reason"] is None
+        # 现有字段 — 向后兼容：透传不变
+        assert meta["total"] == 1
+        assert meta["latency_ms"] == 10
+        assert meta["mode"] == "balanced"
+        assert meta["vector_count"] == 5
+        assert meta["bm25_count"] == 3
+        assert meta["fused_count"] == 8
+        assert meta["rerank_model"] == "bge-reranker-v2-m3"
 
 
 class TestRetrieveLangfuse:
