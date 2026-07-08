@@ -1,7 +1,7 @@
 ## 1. 数据模型扩展
 
 - [x] 1.1 `RetrieveResult` 新增字段：`failed_kb_ids`、`partial_kb_success`、`empty_reason`
-- [ ] 1.2 定义 `PerKbRetrieveResult` dataclass 替换 `_retrieve_per_kb` 的三元组返回值
+- [x] 1.2 定义 `PerKbRetrieveResult` dataclass 替换 `_retrieve_per_kb` 的三元组返回值
 
 ## 2. 核心逻辑改造
 

@@ -20,7 +20,7 @@ base-ref: b82404f7dddf07d7caa8dc59495b623cfa110b90
   - 文件: `src/ragnexus/domain/models.py`
   - 验证: 类型检查通过，无 import 错误
 
-- [ ] 1.2 定义 `PerKbRetrieveResult` dataclass
+- [x] 1.2 定义 `PerKbRetrieveResult` dataclass
   - 文件: `src/ragnexus/domain/models.py`
   - 字段: `hits`, `vec_count`, `kw_count`, `degraded: bool = False`, `degraded_reason: str | None = None`
   - 验证: 类型检查通过
