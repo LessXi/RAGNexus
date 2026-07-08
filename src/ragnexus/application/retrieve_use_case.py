@@ -241,13 +241,23 @@ class RetrieveUseCase:
                     total_kw_count += result.kw_count
                     if result.degraded:
                         degraded_kb_ids.append(kb_ids[i])
-                        logger.info(
-                            "KB 召回降级",
-                            extra={
-                                "kb_id": kb_ids[i],
-                                "degraded_reason": result.degraded_reason,
-                            },
-                        )
+                        if result.hits:
+                            logger.warning(
+                                "KB 召回降级但仍有结果可用",
+                                extra={
+                                    "kb_id": kb_ids[i],
+                                    "degraded_reason": result.degraded_reason,
+                                    "hits_count": len(result.hits),
+                                },
+                            )
+                        else:
+                            logger.warning(
+                                "KB 召回降级且无结果",
+                                extra={
+                                    "kb_id": kb_ids[i],
+                                    "degraded_reason": result.degraded_reason,
+                                },
+                            )
                     if result.hits:
                         valid_groups.append(result.hits)
 
