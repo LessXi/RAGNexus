@@ -27,7 +27,7 @@ base-ref: b82404f7dddf07d7caa8dc59495b623cfa110b90
 
 ### 2. 核心逻辑改造
 
-- [ ] 2.1 `_retrieve_per_kb` 返回 `PerKbRetrieveResult` 而非元组
+- [x] 2.1 `_retrieve_per_kb` 返回 `PerKbRetrieveResult` 而非元组
   - 文件: `src/ragnexus/application/retrieve_use_case.py` (L399-462)
   - 改动: 在 try/except 中设置 `degraded`/`degraded_reason`，返回 dataclass 实例
   - 验证: `pytest tests/unit/application/test_retrieve_hybrid.py -x -q` 通过
