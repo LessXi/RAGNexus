@@ -108,24 +108,14 @@ class RetrieveUseCase:
 
         # 3. Validate all KBs belong to current tenant
         await self.validate_kb_ownership(kb_ids, tenant_id)
-        # 3.5 组装所有 KB 上下文列表（用于查询改写）
+        # 3.5 组装 KB 上下文列表 + 合并同义词表（单次遍历）
         kb_contexts: list[dict] = []
-        for kb_id in kb_ids:
-            kb = await self._kb_repo.get(kb_id)
-            if kb:
-                kb_contexts.append(
-                    {
-                        "name": kb.name,
-                        "description": getattr(kb, "description", ""),
-                    }
-                )
-
-        # 3.6 合并所有 KB 的同义词表，按 term 去重
         all_synonyms: list[dict] = []
         for kb_id in kb_ids:
             kb = await self._kb_repo.get(kb_id)
             if kb is None:
                 continue
+            # 解析 settings（可能为 JSON 字符串或 dict）
             settings_raw = getattr(kb, "settings", {}) or {}
             try:
                 settings = (
@@ -138,13 +128,26 @@ class RetrieveUseCase:
                     "KB settings JSON 解析失败，已跳过",
                     extra={"kb_id": kb_id, "error": str(exc)},
                 )
-                continue
+                settings = {}
+            # kb_contexts（含 rewrite_hint）
+            ctx: dict = {
+                "name": kb.name,
+                "description": getattr(kb, "description", ""),
+            }
+            if hint := settings.get("rewrite_hint"):
+                ctx["rewrite_hint"] = hint
+            kb_contexts.append(ctx)
+            # synonyms
             all_synonyms.extend(settings.get("synonyms", []))
+
+        # 3.6 按 terms 去重（标准格式: {"terms": [...], "expand": [...]}）
         synonyms: list[dict] | None = None
         if all_synonyms:
-            valid = [s for s in all_synonyms if "term" in s]
+            valid = [s for s in all_synonyms if "terms" in s and "expand" in s]
             if valid:
-                synonyms = list({s["term"]: s for s in valid}.values())
+                synonyms = list(
+                    {frozenset(s.get("terms", [])): s for s in valid}.values()
+                )
 
         # --- 退化检测：ES 不可用 + hybrid 模式 → 降级为纯向量 ---
         degraded = False

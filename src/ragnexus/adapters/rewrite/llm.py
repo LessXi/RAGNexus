@@ -273,10 +273,17 @@ class LLMRewriteProvider:
             for ctx in kb_contexts:
                 name = ctx.get("name", "")
                 desc = ctx.get("description", "")
+                hint = ctx.get("rewrite_hint", "")
                 if name and desc:
-                    lines.append(f"- {name}: {desc}")
+                    line = f"- {name}: {desc}"
+                    if hint:
+                        line += f" [领域: {hint}]"
+                    lines.append(line)
                 elif name:
-                    lines.append(f"- {name}")
+                    line = f"- {name}"
+                    if hint:
+                        line += f" [领域: {hint}]"
+                    lines.append(line)
             if len(lines) > 1:
                 enhanced_prompt = SYSTEM_PROMPT + "\n\n" + "\n".join(lines)
 

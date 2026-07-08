@@ -798,8 +798,8 @@ async def test_scenario_12_7_cross_kb_isolation(
     kb_a.description = "Knowledge Base A"
     kb_a.settings = {
         "synonyms": [
-            {"term": "AI", "expansion": ["人工智能"]},
-            {"term": "ML", "expansion": ["机器学习"]},
+            {"terms": ["AI"], "expand": ["人工智能"]},
+            {"terms": ["ML"], "expand": ["机器学习"]},
         ]
     }
 
@@ -808,13 +808,13 @@ async def test_scenario_12_7_cross_kb_isolation(
     kb_b.description = "Knowledge Base B"
     kb_b.settings = {
         "synonyms": [
-            {"term": "AI", "expansion": ["人工智能v2"]},  # 与 kb_a 重复，后出现覆盖前
-            {"term": "DL", "expansion": ["深度学习"]},
+            {"terms": ["AI"], "expand": ["人工智能v2"]},  # 与 kb_a 重复，后出现覆盖前
+            {"terms": ["DL"], "expand": ["深度学习"]},
         ]
     }
 
-    # get 返回对应 KB：kb_contexts 循环(kb_a, kb_b) + synonyms 循环(kb_a, kb_b)
-    mock_kb_repo.get.side_effect = [kb_a, kb_b, kb_a, kb_b]
+    # 合并后单次遍历，每个 KB 只 get 一次
+    mock_kb_repo.get.side_effect = [kb_a, kb_b]
     mock_kb_repo.exists.return_value = True
     # ownership 校验需返回 2（2 个 unique KB）
     mock_kb_repo.pool.fetchval.return_value = 2
@@ -845,13 +845,13 @@ async def test_scenario_12_7_cross_kb_isolation(
     call_kwargs = mock_pipeline.process.call_args.kwargs
     synonyms = call_kwargs["synonyms"]
     assert synonyms is not None
-    # 3 个唯一 term：AI（kb_b 覆盖 kb_a）、ML、DL
+    # 3 个唯一 terms 组：AI（kb_b 覆盖 kb_a）、ML、DL
     assert len(synonyms) == 3, f"应合并去重为 3 条，实际 {len(synonyms)}"
-    terms = {s["term"] for s in synonyms}
+    terms = {s["terms"][0] for s in synonyms}
     assert terms == {"AI", "ML", "DL"}, f"合并后的 terms: {terms}"
     # "AI" 保留 kb_b 的版本（后出现覆盖前）
-    ai_entry = next(s for s in synonyms if s["term"] == "AI")
-    assert ai_entry["expansion"] == ["人工智能v2"], f"AI 应来自 kb_b，实际: {ai_entry}"
+    ai_entry = next(s for s in synonyms if "AI" in s["terms"])
+    assert ai_entry["expand"] == ["人工智能v2"], f"AI 应来自 kb_b，实际: {ai_entry}"
 
 
 @pytest.mark.asyncio

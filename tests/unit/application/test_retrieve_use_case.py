@@ -835,8 +835,8 @@ async def test_multi_kb_synonyms_merged(
         tenant_id="t1",
         settings={
             "synonyms": [
-                {"term": "手机", "expansion": ["智能手机"]},
-                {"term": "电脑", "expansion": ["计算机"]},
+                {"terms": ["手机"], "expand": ["智能手机"]},
+                {"terms": ["电脑"], "expand": ["计算机"]},
             ]
         },
     )
@@ -847,8 +847,8 @@ async def test_multi_kb_synonyms_merged(
         tenant_id="t1",
         settings={
             "synonyms": [
-                {"term": "手机", "expansion": ["移动电话"]},  # 与 kb1 term 重复
-                {"term": "平板", "expansion": ["iPad"]},
+                {"terms": ["手机"], "expand": ["移动电话"]},  # 与 kb1 terms 重复
+                {"terms": ["平板"], "expand": ["iPad"]},
             ]
         },
     )
@@ -860,9 +860,8 @@ async def test_multi_kb_synonyms_merged(
     )  # settings 为默认空 dict
 
     mock_reranker.model_name = None
-    mock_kb_repo.exists.return_value = True
-    # get 调用: kb_contexts 循环(kb1, kb2, kb3) + synonyms 循环(kb1, kb2, kb3) = 6 次
-    mock_kb_repo.get.side_effect = [kb1, kb2, kb3, kb1, kb2, kb3]
+    # 合并后单次遍历，每个 KB 只 get 一次
+    mock_kb_repo.get.side_effect = [kb1, kb2, kb3]
     mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
 
     with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
@@ -884,14 +883,14 @@ async def test_multi_kb_synonyms_merged(
     assert synonyms is not None
     assert isinstance(synonyms, list)
 
-    # 按 term 去重：3 个唯一 term（手机 去重为 kb2 版本）
+    # 按 terms 去重：3 个唯一 terms 组（手机 去重为 kb2 版本）
     assert len(synonyms) == 3, f"应去重为 3 条，实际 {len(synonyms)}"
-    terms = {s["term"] for s in synonyms}
+    terms = {s["terms"][0] for s in synonyms}
     assert terms == {"手机", "电脑", "平板"}, f"合并后的 terms: {terms}"
 
-    # "手机" 保留后出现的 kb2 版本（dict 覆盖语义）
-    phone = next(s for s in synonyms if s["term"] == "手机")
-    assert phone["expansion"] == ["移动电话"], f"手机应来自 kb2，实际: {phone}"
+    # "手机" 保留后出现的 kb2 版本（frozenset 覆盖语义）
+    phone = next(s for s in synonyms if "手机" in s["terms"])
+    assert phone["expand"] == ["移动电话"], f"手机应来自 kb2，实际: {phone}"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -931,9 +930,8 @@ async def test_multi_kb_rewrite_context(
 
     mock_reranker.model_name = None
     mock_kb_repo.exists.return_value = True
-    # get 调用: kb_contexts 循环(kb1, kb2) + synonyms 循环(kb1, kb2) = 4 次
-    mock_kb_repo.get.side_effect = [kb1, kb2, kb1, kb2]
-    mock_embedder.embed.return_value = [[0.1] * 10, [0.2] * 10]
+    # 合并后单次遍历，每个 KB 只 get 一次
+    mock_kb_repo.get.side_effect = [kb1, kb2]
 
     with patch.object(use_case, "validate_kb_ownership", new_callable=AsyncMock):
         with patch.object(
