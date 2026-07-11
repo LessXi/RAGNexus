@@ -634,3 +634,100 @@ uv run python scripts/run_retrieval_eval.py --dataset eval/datasets/multi_kb_cas
 ```
 
 dataset case 格式: `kb_ids: [...]` 优先，回退 `kb_id`。
+
+## 开发经验（retrieval-robustness）
+
+### 架构
+
+```
+请求 → Router → RetrieveUseCase.execute()
+                      ├── _retrieve_per_kb(kb_id) × N → PerKbRetrieveResult
+                      │       ├── vector (try/except → degraded)
+                      │       └── BM25 (try/except → degraded)
+                      ├── asyncio.gather(return_exceptions=True)
+                      ├── 聚合: failed_kb_ids vs degraded_kb_ids
+                      ├── empty_reason 计算 (GROUP BY kb_id COUNT)
+                      ├── cross_kb_rrf_fuse → rerank → chunks
+                      └── RetrieveResult (含鲁棒性字段) → Router meta 透传
+```
+
+核心模块：`domain/models.py` (PerKbRetrieveResult + RetrieveResult 字段) + `application/retrieve_use_case.py` + `adapters/http/retrieve_router.py`。
+
+### 关键文件速查
+
+| 文件 | 作用 |
+|------|------|
+| `src/ragnexus/domain/models.py` | `PerKbRetrieveResult`（hits, vec_count, kw_count, degraded, degraded_reason）+ `RetrieveResult`（failed_kb_ids, partial_kb_success, empty_reason, degraded_kb_ids） |
+| `src/ragnexus/application/retrieve_use_case.py` | `execute`（聚合降级标记 + empty_reason）+ `_retrieve_per_kb`（返回 PerKbRetrieveResult） |
+| `src/ragnexus/adapters/http/retrieve_router.py` | meta 透传 4 字段 |
+| `tests/test_retrieve_robustness.py` | 10 个 mock 场景（vector/BM25/embedding 失败、双路失败、多库容错、query 校验） |
+| `scripts/verify_robustness_retrieve.py` | 集成验证（停 ES → 断言 degraded=true，服务未启动时 SKIP） |
+
+### PerKbRetrieveResult 模式
+
+`_retrieve_per_kb` 不再返回三元组 `tuple[list[SearchHit], int, int]`，改为带降级标记的 dataclass：
+
+```python
+@dataclass
+class PerKbRetrieveResult:
+    hits: list[SearchHit] = field(default_factory=list)
+    vec_count: int = 0
+    kw_count: int = 0
+    degraded: bool = False
+    degraded_reason: str | None = None
+```
+
+**关键教训**：正常空结果（两路都没匹配到）不应设置 `degraded=True`。仅在实际抛异常时标记降级。B1 bug 即因此产生——两路返回空列表时无条件覆盖 `degraded=True`，导致正常无匹配误报降级。
+
+### empty_reason 两级区分
+
+当检索返回 `chunks=[]` 时，执行 `GROUP BY kb_id` 的 COUNT 查询区分原因：
+
+- 所有 KB 的 chunk 数为 0 → `no_indexed_chunks`（无索引数据）
+- 任一 KB 的 chunk 数 > 0 → `no_chunks_matched`（有数据但无匹配）
+
+仅在 `hits=[]` 且非全部 KB 异常时触发，走 kb_id 索引，毫秒级开销。
+
+### QUERY_MAX_LENGTH 环境变量
+
+```python
+max_len = int(os.getenv("QUERY_MAX_LENGTH", "2000"))
+```
+
+默认 2000，可在 `.env` 中按部署环境调整。超长 query 返回 PARAM_ERROR。
+
+### API 响应 meta 字段
+
+| 字段 | 类型 | 触发条件 |
+|------|------|---------|
+| `degraded_kb_ids` | `list[str]` | KB 降级或空结果（已有字段，本次补透传） |
+| `failed_kb_ids` | `list[str]` | KB 检索异常（新增字段） |
+| `partial_kb_success` | `bool` | 至少一个 KB 失败或降级（新增字段） |
+| `empty_reason` | `str \| null` | 检索成功但 chunks=[]（新增字段） |
+
+Happy path（单库 balanced 有结果）：所有字段为零值默认，不破坏现有响应结构。
+
+### 鲁棒性测试
+
+```bash
+# 10 个 mock 场景（不需要 Docker）
+uv run python -m pytest tests/test_retrieve_robustness.py -v
+
+# 集成验证（需要 Docker + ES）
+uv run python scripts/verify_robustness_retrieve.py
+```
+
+### GUARD 预存测试跳过
+
+检索链路的 verify guard 需要跳过预存的 `mammoth` 缺失测试：
+
+```bash
+uv run python -m pytest tests/unit/application/ tests/test_retrieve_robustness.py \
+  tests/unit/adapters/test_http.py tests/unit/adapters/test_retrieve_log.py -q --tb=short
+```
+
+排除：`test_docx_parser.py`、`test_parser.py`、`test_parser_registry.py`、`test_pdf_parser.py`、`test_middleware.py`。
+
+### 已知 spec gap
+
+delta spec 的 `RETRIEVAL_FAILED` 错误码尚未实现（当前多库全部失败时返回空结果而非错误码）。后续对齐需要：新增 `ErrorCode.RETRIEVAL_FAILED` + router 层根据 `failed_kb_ids` 判空决定是否 raise AppError。
