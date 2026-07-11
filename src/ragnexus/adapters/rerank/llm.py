@@ -107,21 +107,50 @@ def _build_content_preview(text: str, heading: str | None, max_chars: int) -> st
     return prefix + truncated
 
 
+def _is_ranking_item(item: Any) -> bool:
+    """判断一个 dict 是否包含重排打分的必要字段 (chunk_id + rerank_score)。"""
+    return isinstance(item, dict) and "chunk_id" in item and "rerank_score" in item
+
+
+def _search_rankings_tree(obj: Any) -> list[dict[str, Any]] | None:
+    """递归遍历 JSON 树，搜索包含重排打分项的列表。
+
+    第一性原理：不猜测 LLM 用了哪个 key 名（rankings/scores/results/candidates/...），
+    而是通过数据特征——过半元素同时包含 chunk_id 和 rerank_score——来识别目标列表。
+
+    返回 None 表示未找到。
+    """
+    if isinstance(obj, list):
+        # 候选列表：过半元素符合目标特征 → 命中
+        target_items = [item for item in obj if _is_ranking_item(item)]
+        if target_items and len(target_items) >= len(obj) * 0.5:
+            return target_items
+        # 递归搜索子元素
+        for item in obj:
+            result = _search_rankings_tree(item)
+            if result:
+                return result
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            result = _search_rankings_tree(v)
+            if result:
+                return result
+    return None
+
+
 def _extract_rankings_from_dict(d: dict[str, Any]) -> list[dict[str, Any]] | None:
     """从解析后的 dict 中提取 rankings 列表。返回 None 表示无法提取。
 
-    支持两种格式:
-    - 标准: {"rankings": [{"chunk_id": ..., "rerank_score": ...}, ...]}
-    - 扁平: {"chunk_id_1": 0.95, "chunk_id_2": 0.3, ...}
+    主路径：递归搜索 JSON 树（零 key 名依赖，零嵌套深度限制）。
+    回退路径：扁平 dict {chunk_id: rerank_score}。
     """
     if not isinstance(d, dict) or not d:
         return None
-    # 嵌套格式: {"rankings": [...]} / {"rerank_scores": [...]} / {"scores": [...]} / {"results": [...]}
-    for key in ("rankings", "rerank_scores", "scores", "results"):
-        rankings = d.get(key)
-        if isinstance(rankings, list) and rankings:
-            return rankings
-    # 兼容扁平 dict {chunk_id: rerank_score}
+    # 主路径：特征驱动的递归搜索
+    result = _search_rankings_tree(d)
+    if result:
+        return result
+    # 回退：扁平 dict {chunk_id: rerank_score}
     if all(isinstance(v, (int, float)) for v in d.values()):
         return [{"chunk_id": str(k), "rerank_score": float(v)} for k, v in d.items()]
     return None

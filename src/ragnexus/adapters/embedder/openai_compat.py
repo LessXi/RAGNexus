@@ -51,7 +51,10 @@ class OpenAICompatEmbedder:
         """惰性初始化共享的 httpx.AsyncClient。"""
         if self._client is None:
             self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(self.request_timeout, connect=self.connect_timeout),
+                timeout=httpx.Timeout(
+                    self.request_timeout, connect=self.connect_timeout
+                ),
+                limits=httpx.Limits(max_connections=50, max_keepalive_connections=10),
             )
 
     @log_model_call("text-embedding-v3", prompt_arg=1)
@@ -69,9 +72,14 @@ class OpenAICompatEmbedder:
         assert client is not None, "Client not initialized"
 
         # Split into batches
-        batches = [texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)]
+        batches = [
+            texts[i : i + self.batch_size]
+            for i in range(0, len(texts), self.batch_size)
+        ]
 
-        async def _embed_one(client: httpx.AsyncClient, batch: list[str]) -> list[list[float]]:
+        async def _embed_one(
+            client: httpx.AsyncClient, batch: list[str]
+        ) -> list[list[float]]:
             async with self._sem:
                 last_err: Exception | None = None
                 for attempt in range(self.max_retries):
@@ -89,7 +97,9 @@ class OpenAICompatEmbedder:
                     except httpx.HTTPError as e:
                         last_err = e
                         if attempt == self.max_retries - 1:
-                            raise AppError(ErrorCode.UPSTREAM_ERROR, f"Embedder 失败: {e}") from e
+                            raise AppError(
+                                ErrorCode.UPSTREAM_ERROR, f"Embedder 失败: {e}"
+                            ) from e
                         await asyncio.sleep(self.retry_backoff_base**attempt)
                 raise AppError(ErrorCode.UPSTREAM_ERROR, f"Embedder 失败: {last_err}")
 

@@ -2,6 +2,7 @@
 change: retrieval-robustness
 design-doc: docs/superpowers/specs/2026-07-08-retrieval-robustness-design.md
 base-ref: b82404f7dddf07d7caa8dc59495b623cfa110b90
+archived-with: 2026-07-09-retrieval-robustness
 ---
 
 # 检索鲁棒性 — 实施计划

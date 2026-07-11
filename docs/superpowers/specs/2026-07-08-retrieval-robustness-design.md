@@ -2,6 +2,8 @@
 comet_change: retrieval-robustness
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-09-retrieval-robustness
+status: final
 ---
 
 # 检索鲁棒性 — 技术设计
